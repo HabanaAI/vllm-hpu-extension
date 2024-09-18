@@ -4,7 +4,7 @@
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
-from typing import Optional
+from typing import Optional, Tuple
 
 import habana_frameworks.torch as htorch
 import torch
@@ -291,3 +291,59 @@ class StaticFusedMOE(torch.nn.Module):
             final_hidden_states += current_hidden_states_static
 
         return final_hidden_states.view(-1, D)
+
+# fp8
+def scaled_fp8_quant(
+    input: torch.Tensor,
+    scale: Optional[torch.Tensor] = None,
+    batch_dim_padding: Optional[int] = None,
+    scale_ub: Optional[torch.Tensor] = None,
+    use_per_token_if_dynamic: bool = False,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize input tensor to FP8 and return quantized tensor and scale.
+    This function supports both static and dynamic quantization: If you
+    provide the scale, it will use static scaling and if you omit it,
+    the scale will be determined dynamically. The function also allows
+    optional padding of the output tensor for downstream kernels that
+    will benefit from padding.
+    Args:
+        input: The input tensor to be quantized to FP8
+        scale: Optional scaling factor for the FP8 quantization
+        scale_ub: Optional upper bound for scaling factor in dynamic
+            per token case
+        batch_dim_padding: If specified, pad the first dimension
+            of the output to at least this value.
+        use_per_token_if_dynamic: Whether to do per_tensor or per_token
+            in the dynamic quantization case.
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The output tensor in FP8 and
+            scaling factor.
+    """
+    if batch_dim_padding:
+        shape = (max(batch_dim_padding, input.shape[0]), *input.shape[1:])
+        output = torch.empty(shape,
+                             device=input.device,
+                             dtype=torch.float8_e4m3fn)
+    else:
+        output = torch.empty_like(input, dtype=torch.float8_e4m3fn)
+    if scale is None:
+        raise "dynamic scaled_fp8_quant not implemented for HPU"
+        #TODO: calculate scale to match gaudi2 240 range instead of 448
+        if use_per_token_if_dynamic:
+            scale = torch.empty((input.numel() // input.shape[-1], 1),
+                                device=input.device,
+                                dtype=torch.float32)
+            torch.ops._C.dynamic_per_token_scaled_fp8_quant(
+                output, input, scale, scale_ub)
+        else:
+            scale = torch.zeros(1, device=input.device, dtype=torch.float32)
+            torch.ops._C.dynamic_scaled_fp8_quant(output, input, scale)
+    else:
+        output = torch.ops.hpu.cast_to_fp8_v2(input,
+                                              1 / scale,
+                                              False,
+                                              False,
+                                              dtype=torch.float8_e4m3fn)[0]
+ 
+    return output, scale
