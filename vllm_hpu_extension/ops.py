@@ -174,7 +174,6 @@ def dispatch_bgmv_linear(
     x: torch.Tensor,
     wa_t_all: torch.Tensor,
     wb_t_all: torch.Tensor,
-    indices: torch.LongTensor,
     layer_idx: int,
     scale: float,
 ):
@@ -209,7 +208,6 @@ def dispatch_bgmv_embedding(
     y: torch.Tensor,
     x: torch.Tensor,
     wb_t_all: torch.Tensor,
-    indices: torch.LongTensor,
     layer_idx: int,
     scale: float,
 ):
