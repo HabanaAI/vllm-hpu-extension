@@ -46,7 +46,8 @@ def block2batch(tensor, block_mapping):
 
 
 def normalize_amax(attn):
-    attn_max = attn.amax(-1, keepdim=True)
+    tail_dims = tuple(range(1, attn.dim()))
+    attn_max = attn.amax(tail_dims).amax()
     return attn.sub_(attn_max)
 
 
