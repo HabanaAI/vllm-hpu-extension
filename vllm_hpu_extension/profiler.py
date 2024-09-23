@@ -52,7 +52,7 @@ class FileWriter(threading.Thread):
                 outfile.write(content)
 
 
-class Profiler:
+class HabanaHighLevelProfiler:
     profiling_trace_events: queue.Queue = queue.Queue()
     event_tid = {'counter': 1, 'external': 2, 'internal': 3}
     vllm_instance_id = get_vllm_instance_id()
