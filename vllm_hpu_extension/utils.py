@@ -6,12 +6,17 @@
 ###############################################################################
 
 from functools import wraps
+import os
+from functools import lru_cache
 
 import habana_frameworks.torch as htorch
 import torch
 
 from .cache_ops import insert_or_update_cache
 
+@lru_cache(maxsize=None)
+def is_fake_hpu() -> bool:
+    return os.environ.get('VLLM_USE_FAKE_HPU', '0') != '0'
 
 def with_mark_steps(fn):
 
