@@ -9,21 +9,16 @@ import torch
 import torch.nn as nn
 
 from vllm.logger import init_logger
-from vllm.utils import is_hpu
 
 logger = init_logger(__name__)
 
-if is_hpu():
-    try:
-        from habana_frameworks.torch.hpex.kernels import (
-            RotaryPosEmbeddingHelperV1 as FusedRoPE)
-    except ImportError:
-        logger.warning("Could not import HPU FusedRoPE kernel. "
-                       "vLLM will use forward_native implementation of RoPE.")
-        FusedRoPE = None
-else:
+try:
+    from habana_frameworks.torch.hpex.kernels import (
+        RotaryPosEmbeddingHelperV1 as FusedRoPE)
+except ImportError:
+    logger.warning("Could not import HPU FusedRoPE kernel. "
+                    "vLLM will use forward_native implementation of RoPE.")
     FusedRoPE = None
-
 
 class HpuRotaryEmbedding(nn.Module):
 
