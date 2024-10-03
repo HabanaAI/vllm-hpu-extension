@@ -6,6 +6,8 @@
 ###############################################################################
 
 import math
+from typing import Dict, List, Union
+
 import torch
 import torch.nn as nn
 
@@ -18,8 +20,9 @@ try:
         RotaryPosEmbeddingHelperV1 as FusedRoPE)
 except ImportError:
     logger.warning("Could not import HPU FusedRoPE kernel. "
-                    "vLLM will use forward_native implementation of RoPE.")
+                   "vLLM will use forward_native implementation of RoPE.")
     FusedRoPE = None
+
 
 class HpuRotaryEmbedding(nn.Module):
 
@@ -30,20 +33,21 @@ class HpuRotaryEmbedding(nn.Module):
                  base=10000,
                  is_neox_style=None,
                  device='hpu',
+                 dtype=torch.float,
                  RoPEFallback=None,
                  skip_fallback=False):
         super().__init__()
 
         self.head_size = head_size
-        self.dim = rotary_dim
+        self.rotary_dim = rotary_dim
         self.max_position_embeddings = max_position_embeddings
         self.base = base
         self.device = device
+        self.is_neox_style = is_neox_style
+        self.dtype = dtype
 
         # Build here to make `torch.jit.trace` work.
-        self._set_cos_sin_cache(seq_len=max_position_embeddings,
-                                device=device,
-                                dtype=torch.get_default_dtype())
+        self._set_cos_sin_cache(seq_len=max_position_embeddings)
         if FusedRoPE is None and not skip_fallback:
             assert RoPEFallback is not None, (
                 "HPU FusedRoPE kernel could not be imported, and "
@@ -53,19 +57,19 @@ class HpuRotaryEmbedding(nn.Module):
                                               max_position_embeddings,
                                               base,
                                               is_neox_style,
-                                              dtype=torch.get_default_dtype())
+                                              dtype=self.dtype)
 
     def _compute_inv_freq(self) -> torch.Tensor:
-        inv_freq = 1.0 / (self.base**(
-            torch.arange(0, self.dim, 2).float().to(self.device) / self.dim))
+        inv_freq = 1.0 / (self.base**(torch.arange(
+            0, self.rotary_dim, 2).float().to(self.device) / self.rotary_dim))
         return inv_freq
 
-    def _set_cos_sin_cache(self, seq_len, device, dtype):
+    def _set_cos_sin_cache(self, seq_len):
         self.max_seq_len_cached = seq_len
 
         inv_freq = self._compute_inv_freq()
         t = torch.arange(self.max_seq_len_cached,
-                         device=device,
+                         device=self.device,
                          dtype=inv_freq.dtype)
 
         freqs = torch.einsum("i,j->ij", t, inv_freq)
@@ -73,14 +77,19 @@ class HpuRotaryEmbedding(nn.Module):
         # to obtain the same calculation
         emb = torch.cat((freqs, freqs), dim=-1)
         self.register_buffer("cos_cached",
-                             emb.cos().to(dtype),
+                             emb.cos().to(self.dtype),
                              persistent=False)
         self.register_buffer("sin_cached",
-                             emb.sin().to(dtype),
+                             emb.sin().to(self.dtype),
                              persistent=False)
 
-    def forward(self, positions: torch.Tensor, query: torch.Tensor,
-                key: torch.Tensor):
+    def forward(self,
+                positions: torch.Tensor,
+                query: torch.Tensor,
+                key: torch.Tensor,
+                offsets=None):
+        if offsets is not None:
+            positions = positions + offsets
         if FusedRoPE is None:
             return self.fallback_impl(positions, query, key)
         if query.dim() == 2:
@@ -91,22 +100,20 @@ class HpuRotaryEmbedding(nn.Module):
             positions = positions.unsqueeze(0)
         seq_len = key.shape[-2]
         if seq_len > self.max_seq_len_cached:
-            self._set_cos_sin_cache(seq_len=seq_len,
-                                    device=query.device,
-                                    dtype=query.dtype)
+            self._set_cos_sin_cache(seq_len=seq_len)
 
-        cos, sin = self.cos_cached[:seq_len].to(
-            dtype=query.dtype), self.sin_cached[:seq_len].to(dtype=query.dtype)
+        cos, sin = self.cos_cached.to(dtype=query.dtype), self.sin_cached.to(
+            dtype=query.dtype)
         query = query.reshape(
             (query.shape[0], query.shape[1], query.shape[2] // self.head_size,
              self.head_size))
         key = key.reshape((key.shape[0], key.shape[1],
                            key.shape[2] // self.head_size, self.head_size))
-        query_rot = query[..., :self.dim]
-        key_rot = key[..., :self.dim]
-        if self.dim < self.head_size:
-            query_pass = query[..., self.dim:]
-            key_pass = key[..., self.dim:]
+        query_rot = query[..., :self.rotary_dim]
+        key_rot = key[..., :self.rotary_dim]
+        if self.rotary_dim < self.head_size:
+            query_pass = query[..., self.rotary_dim:]
+            key_pass = key[..., self.rotary_dim:]
 
         if len(positions[0]) == 1:
             cos = self.cos_cached[positions].unsqueeze(2).to(dtype=query.dtype)
@@ -116,13 +123,72 @@ class HpuRotaryEmbedding(nn.Module):
             sin = sin[positions].unsqueeze(2)
         query, key = FusedRoPE.apply(query_rot, cos, sin,
                                      0), FusedRoPE.apply(key_rot, cos, sin, 0)
-        if self.dim < self.head_size:
+        if self.rotary_dim < self.head_size:
             query = torch.cat((query, query_pass), dim=-1)
             key = torch.cat((key, key_pass), dim=-1)
         return query.reshape(
             (query.shape[0], query.shape[1],
              query.shape[2] * query.shape[3])), key.reshape(
                  (key.shape[0], key.shape[1], key.shape[2] * key.shape[3]))
+
+
+class HpuLinearScalingRotaryEmbedding(HpuRotaryEmbedding):
+
+    def __init__(
+        self,
+        head_size: int,
+        rotary_dim: int,
+        max_position_embeddings: int,
+        base: int,
+        is_neox_style: bool,
+        scaling_factors: Union[List[float], float],
+        dtype: torch.dtype,
+    ) -> None:
+        if isinstance(scaling_factors, float):
+            scaling_factors = [scaling_factors]
+        self.scaling_factors: List[float] = scaling_factors
+        super().__init__(head_size, rotary_dim, max_position_embeddings, base,
+                         is_neox_style, 'hpu', dtype)
+        self._scaling_factor_to_offset: Dict[float, int]
+
+    def _set_cos_sin_cache(self, seq_len):
+        self.max_seq_len_cached = seq_len
+
+        inv_freq = self._compute_inv_freq()
+
+        cache_list: List[torch.Tensor] = []
+        offsets: List[int] = []
+        for scaling_factor in self.scaling_factors:
+            max_len = self.max_position_embeddings * scaling_factor
+            t = torch.arange(max_len, device=self.device, dtype=inv_freq.dtype)
+            t = t / scaling_factor
+            freqs = torch.einsum("i,j -> ij", t, inv_freq)
+
+            if not cache_list:
+                offset = 0
+            else:
+                last_offset = offsets[-1]
+                next_max_len = cache_list[-1].shape[0]
+                offset = last_offset + next_max_len
+            cache_list.append(torch.cat((freqs, freqs), dim=-1))
+            offsets.append(offset)
+        emb = torch.cat(cache_list, dim=0)
+
+        self.register_buffer("cos_cached",
+                             emb.cos().to(self.dtype),
+                             persistent=False)
+        self.register_buffer("sin_cached",
+                             emb.sin().to(self.dtype),
+                             persistent=False)
+        self._scaling_factor_to_offset = {
+            float(scaling_factor): offsets[i]
+            for i, scaling_factor in enumerate(self.scaling_factors)
+        }
+        assert len(self.scaling_factors) == len(offsets)
+
+    @property
+    def scaling_factor_to_offset(self) -> Dict[float, int]:
+        return self._scaling_factor_to_offset
 
 
 class HpuLlama3RotaryEmbedding(HpuRotaryEmbedding):
@@ -184,3 +250,4 @@ class HpuLlama3RotaryEmbedding(HpuRotaryEmbedding):
             ),
         )
         return new_freqs
+
