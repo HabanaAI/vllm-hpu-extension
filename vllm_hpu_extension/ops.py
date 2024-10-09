@@ -30,7 +30,7 @@ except ImportError:
     logger.warning("Could not import HPU FusedSDPA kernel. "
                    "vLLM will use native implementation.")
 
-VLLM_PA_SOFTMAX_IMPL_OPTIONS = ['amax', 'scatter_reduce', 'index_reduce']
+VLLM_PA_SOFTMAX_IMPL_OPTIONS = ['wsum', 'amax']
 VLLM_PA_SOFTMAX_IMPL = os.environ.get('VLLM_PA_SOFTMAX_IMPL', VLLM_PA_SOFTMAX_IMPL_OPTIONS[0])
 assert VLLM_PA_SOFTMAX_IMPL in VLLM_PA_SOFTMAX_IMPL_OPTIONS, f'Unsupported pa softmax impl - {VLLM_PA_SOFTMAX_IMPL} . Supported values: {VLLM_PA_SOFTMAX_IMPL_OPTIONS}'
 
@@ -45,44 +45,31 @@ def block2batch(tensor, block_mapping):
     return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def normalize_amax(attn):
+def normalize_amax(batch_size, attn, **rest):
     tail_dims = tuple(range(1, attn.dim()))
     attn_max = attn.amax(tail_dims).amax()
     return attn.sub_(attn_max)
 
 
-def normalize_scatter_reduce(batch_size, attn, block_groups):
-    block_max_attn = attn.amax(-1)
-    grouped_attn_shape = (batch_size + 1,) + tuple(block_max_attn.shape[1:])
-    grouped_attn = torch.full(grouped_attn_shape, -math.inf, dtype=attn.dtype, device=attn.device)
-    indices_shape = (-1,) + tuple(1 for _ in range(block_max_attn.dim() - 1))
-    indices = block_groups.view(indices_shape).expand_as(block_max_attn)
-    grouped_attn = grouped_attn.scatter_reduce_(0, indices, block_max_attn, "amax")
-    attn_max = grouped_attn.index_select(0, block_groups).unsqueeze(-1)
-    return attn.sub_(attn_max)
+def normalize_wsum(batch_size, attn, block_mapping, block_scales, **rest):
+    block_sum_attn = attn.amax(-1)
+    missing_dims = block_sum_attn.dim() - block_scales.dim()
+    block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+    block_sum_attn = block2batch(block_sum_attn, block_mapping)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping)
+    return attn.sub_(block_sum_attn.unsqueeze(-1))
 
 
-def normalize_index_reduce(batch_size, attn, block_groups):
-    block_max_attn = attn.amax(-1)
-    grouped_attn_shape = (batch_size + 1,) + tuple(block_max_attn.shape[1:])
-    grouped_attn = torch.full(grouped_attn_shape, -math.inf, dtype=attn.dtype, device=attn.device)
-    grouped_attn.index_reduce_(0, block_groups, block_max_attn, "amax")
-    attn_max = grouped_attn.index_select(0, block_groups).unsqueeze(-1)
-    return attn.sub_(attn_max)
-
-
-def normalize(batch_size, attn, block_groups):
+def normalize(**kwargs):
     match VLLM_PA_SOFTMAX_IMPL:
         case 'amax':
-            return normalize_amax(attn)
-        case 'scatter_reduce':
-            return normalize_scatter_reduce(batch_size, attn, block_groups)
-        case 'index_reduce':
-            return normalize_index_reduce(batch_size, attn, block_groups)
+            return normalize_amax(**kwargs)
+        case 'wsum':
+            return normalize_wsum(**kwargs)
 
 
-def block_softmax(batch_size, attn, block_mapping, block_groups):
-    attn = normalize(batch_size, attn, block_groups)
+def block_softmax(batch_size, attn, block_mapping, block_scales):
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     sums = block2batch(sums, block_mapping)
@@ -93,7 +80,7 @@ def block_softmax(batch_size, attn, block_mapping, block_groups):
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_groups, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
+            block_bias, block_scales, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
             values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
@@ -113,7 +100,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping, block_groups)
+    attn = block_softmax(batch_size, attn, block_mapping, block_scales)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping)
     attn = attn.squeeze(-2)
