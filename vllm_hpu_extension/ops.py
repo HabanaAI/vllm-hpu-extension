@@ -8,7 +8,6 @@ from typing import Optional, Tuple
 
 import habana_frameworks.torch as htorch
 import torch
-import math
 import os
 import torch.nn.functional as F
 
