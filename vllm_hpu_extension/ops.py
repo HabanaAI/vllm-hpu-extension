@@ -241,12 +241,8 @@ class MoeMatmul(torch.nn.Module):
     def set_weight(self, w):
         self.weight = w
 
-    def calc(self, state, expert_id, w):
-        self.weight = w[expert_id].transpose(0, 1)
-        return self.forward(state)
-
-    def forward(self, state):
-        return torch.matmul(state, self.weight)
+    def forward(self, state, expert_id, w):
+        return torch.matmul(state, w[expert_id].transpose(0, 1))
 
 
 class StaticFusedMOE(torch.nn.Module):
@@ -281,10 +277,9 @@ class StaticFusedMOE(torch.nn.Module):
         for expert_idx in range(self.num_total_experts):
             padded_weight = padded_weights[expert_idx]
             current_state_static = hidden_states.reshape(-1, D)
-            w_output = self.w13_list[expert_idx].calc(current_state_static,
-                                                      expert_idx, w1)
+            w_output = self.w13_list[expert_idx](current_state_static, expert_idx, w1)
             w_output = silu_and_mul(w_output)
-            w_output = self.w2_list[expert_idx].calc(w_output, expert_idx, w2)
+            w_output = self.w2_list[expert_idx](w_output, expert_idx, w2)
             current_hidden_states_static = w_output * padded_weight
             final_hidden_states += current_hidden_states_static
 
