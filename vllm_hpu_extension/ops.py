@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 import habana_frameworks.torch as htorch
 import torch
+import os
 import torch.nn.functional as F
 
 from vllm.logger import init_logger
@@ -28,6 +29,10 @@ except ImportError:
     logger.warning("Could not import HPU FusedSDPA kernel. "
                    "vLLM will use native implementation.")
 
+VLLM_PA_SOFTMAX_IMPL_OPTIONS = ['wsum', 'amax']
+VLLM_PA_SOFTMAX_IMPL = os.environ.get('VLLM_PA_SOFTMAX_IMPL', VLLM_PA_SOFTMAX_IMPL_OPTIONS[0])
+assert VLLM_PA_SOFTMAX_IMPL in VLLM_PA_SOFTMAX_IMPL_OPTIONS, f'Unsupported pa softmax impl - {VLLM_PA_SOFTMAX_IMPL} . Supported values: {VLLM_PA_SOFTMAX_IMPL_OPTIONS}'
+
 
 def batch2block(tensor, block_mapping):
     shape = tuple(tensor.shape)
@@ -39,30 +44,43 @@ def block2batch(tensor, block_mapping):
     return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def block_softmax(batch_size, attn, block_mapping):
-    # We're using global maximum to decrease the exponent as
-    # it's fast to compute and performs reasonably well.
-    # This is by no means a final solution and needs to
-    # be properly addressed in the future.
-    #
-    # Additionally there's a bug where 'max' is not parallelized
-    # across TPC cores, so we need to split the tensor manually
-    # instead of simply doing attn_max = attn.max()
-
+def normalize_amax(batch_size, attn, **rest):
     tail_dims = tuple(range(1, attn.dim()))
     attn_max = attn.amax(tail_dims).amax()
-    attn.sub_(attn_max)
+    return attn.sub_(attn_max)
+
+
+def normalize_wsum(batch_size, attn, block_mapping, block_scales, **rest):
+    block_sum_attn = attn.amax(-1)
+    missing_dims = block_sum_attn.dim() - block_scales.dim()
+    block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+    block_sum_attn = block2batch(block_sum_attn, block_mapping)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping)
+    return attn.sub_(block_sum_attn.unsqueeze(-1))
+
+
+def normalize(**kwargs):
+    match VLLM_PA_SOFTMAX_IMPL:
+        case 'amax':
+            return normalize_amax(**kwargs)
+        case 'wsum':
+            return normalize_wsum(**kwargs)
+
+
+def block_softmax(batch_size, attn, block_mapping, block_scales):
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
+    block_sum = sums
     sums = block2batch(sums, block_mapping)
     sums = batch2block(sums, block_mapping)
-    sums.add_(torch.finfo(sums.dtype).tiny)
+    sums = torch.maximum(block_sum, sums)
     attn.div_(sums)
     return attn
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
+            block_bias, block_scales, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
             values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
@@ -72,7 +90,6 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
     value = values_fetch_func(value_cache, block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
-
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
         query = query.unflatten(1, (kv_heads, -1))
@@ -83,7 +100,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping)
+    attn = block_softmax(batch_size, attn, block_mapping, block_scales)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping)
     attn = attn.squeeze(-2)
