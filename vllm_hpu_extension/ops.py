@@ -29,9 +29,59 @@ except ImportError:
     logger.warning("Could not import HPU FusedSDPA kernel. "
                    "vLLM will use native implementation.")
 
-VLLM_PA_SOFTMAX_IMPL_OPTIONS = ['wsum', 'amax']
-VLLM_PA_SOFTMAX_IMPL = os.environ.get('VLLM_PA_SOFTMAX_IMPL', VLLM_PA_SOFTMAX_IMPL_OPTIONS[0])
-assert VLLM_PA_SOFTMAX_IMPL in VLLM_PA_SOFTMAX_IMPL_OPTIONS, f'Unsupported pa softmax impl - {VLLM_PA_SOFTMAX_IMPL} . Supported values: {VLLM_PA_SOFTMAX_IMPL_OPTIONS}'
+
+class SoftmaxNormalization:
+
+    def __init__(self, selected_impl):
+        implementations = {
+            'wsum': self.wsum,
+            'pos_wsum': self.pos_wsum,
+            'amax': self.amax,
+            'head_amax': self.head_amax,
+        }
+        supported_impls = implementations.keys()
+        for impl in selected_impl:
+            assert impl in supported_impls, f'Unsupported pa softmax impl - {impl} . Supported values: {list(supported_impls)}'
+        self.selected_impl = [implementations[impl] for impl in selected_impl]
+
+    def __call__(self, attn, **kwargs):
+        for impl in self.selected_impl:
+            attn = impl(attn, **kwargs)
+        return attn
+
+    @staticmethod
+    def amax(attn, **rest):
+        dims = tuple(range(1, attn.dim()))
+        attn_max = attn.amax(dims).amax()
+        return attn.sub_(attn_max)
+
+    @staticmethod
+    def head_amax(attn, **rest):
+        dims = tuple([0, attn.dim() - 1])
+        attn_max = attn.amax(dims).unsqueeze(0).unsqueeze(-1)
+        return attn.sub_(attn_max)
+
+    @staticmethod
+    def wsum(attn, block_mapping, block_scales, **rest):
+        block_sum_attn = attn.amax(-1)
+        missing_dims = block_sum_attn.dim() - block_scales.dim()
+        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn = block2batch(block_sum_attn, block_mapping)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping)
+        return attn.sub_(block_sum_attn.unsqueeze(-1))
+
+    @staticmethod
+    def pos_wsum(attn, block_mapping, block_scales, **rest):
+        block_sum_attn = attn.amax(-1)
+        missing_dims = block_sum_attn.dim() - block_scales.dim()
+        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn.clamp_(0.01)
+        block_sum_attn = block2batch(block_sum_attn, block_mapping)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping)
+        return attn.sub_(block_sum_attn.unsqueeze(-1))
+
+
+normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum,amax').split(','))
 
 
 def batch2block(tensor, block_mapping):
@@ -44,31 +94,8 @@ def block2batch(tensor, block_mapping):
     return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def normalize_amax(batch_size, attn, **rest):
-    tail_dims = tuple(range(1, attn.dim()))
-    attn_max = attn.amax(tail_dims).amax()
-    return attn.sub_(attn_max)
-
-
-def normalize_wsum(batch_size, attn, block_mapping, block_scales, **rest):
-    block_sum_attn = attn.amax(-1)
-    missing_dims = block_sum_attn.dim() - block_scales.dim()
-    block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-    block_sum_attn = block2batch(block_sum_attn, block_mapping)
-    block_sum_attn = batch2block(block_sum_attn, block_mapping)
-    return attn.sub_(block_sum_attn.unsqueeze(-1))
-
-
-def normalize(**kwargs):
-    match VLLM_PA_SOFTMAX_IMPL:
-        case 'amax':
-            return normalize_amax(**kwargs)
-        case 'wsum':
-            return normalize_wsum(**kwargs)
-
-
 def block_softmax(batch_size, attn, block_mapping, block_scales):
-    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales)
+    attn = normalize(attn=attn, block_mapping=block_mapping, block_scales=block_scales)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
