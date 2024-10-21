@@ -10,6 +10,7 @@ import habana_frameworks.torch as htorch
 import torch
 import os
 import torch.nn.functional as F
+import math
 
 from vllm.logger import init_logger
 
@@ -35,9 +36,11 @@ class SoftmaxNormalization:
     def __init__(self, selected_impl):
         implementations = {
             'wsum': self.wsum,
-            'pos_wsum': self.pos_wsum,
             'amax': self.amax,
             'head_amax': self.head_amax,
+            'wsum_amax': self.wsum_amax,
+            'index_reduce': self.index_reduce,
+            'scatter_reduce': self.scatter_reduce,
         }
         supported_impls = implementations.keys()
         for impl in selected_impl:
@@ -71,14 +74,38 @@ class SoftmaxNormalization:
         return attn.sub_(block_sum_attn.unsqueeze(-1))
 
     @staticmethod
-    def pos_wsum(attn, block_mapping, block_scales, **rest):
-        block_sum_attn = attn.amax(-1)
-        missing_dims = block_sum_attn.dim() - block_scales.dim()
-        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-        block_sum_attn.clamp_(0.01)
+    def wsum_amax(attn, block_mapping, block_scales, **rest):
+        attn_max = attn.amax(-1)
+        missing_dims = attn_max.dim() - block_scales.dim()
+        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
         block_sum_attn = block2batch(block_sum_attn, block_mapping)
         block_sum_attn = batch2block(block_sum_attn, block_mapping)
-        return attn.sub_(block_sum_attn.unsqueeze(-1))
+        attn.sub_(block_sum_attn.unsqueeze(-1))
+        if True:
+            dims = tuple(range(1, attn.dim()))
+            attn_max = attn.amax(dims).amax()
+        else:
+            attn_max = attn_max.sub_(block_sum_attn.amax())
+        return attn.sub_(attn_max)
+
+    @staticmethod
+    def index_reduce(attn, batch_size, block_groups, **rest):
+        block_max = attn.amax(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        grouped_max = grouped_max.index_select(0, block_groups)
+        attn.sub_(grouped_max.unsqueeze(-1))
+        return attn
+
+    @staticmethod
+    def scatter_reduce(attn, batch_size, block_groups, **rest):
+        block_max = attn.amax(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
+        indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
+        grouped_max.scatter_reduce_(0, indices, block_max, 'amax')
+        grouped_max = grouped_max.index_select(0, block_groups)
+        attn.sub_(grouped_max.unsqueeze(-1))
+        return attn
 
 
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum,amax').split(','))
@@ -94,8 +121,8 @@ def block2batch(tensor, block_mapping):
     return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def block_softmax(batch_size, attn, block_mapping, block_scales):
-    attn = normalize(attn=attn, block_mapping=block_mapping, block_scales=block_scales)
+def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
@@ -107,7 +134,7 @@ def block_softmax(batch_size, attn, block_mapping, block_scales):
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
+            block_bias, block_scales, block_groups, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
             values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
@@ -127,7 +154,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping, block_scales)
+    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping)
     attn = attn.squeeze(-2)
