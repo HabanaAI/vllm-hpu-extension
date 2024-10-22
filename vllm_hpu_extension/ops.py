@@ -81,12 +81,8 @@ class SoftmaxNormalization:
         block_sum_attn = block2batch(block_sum_attn, block_mapping)
         block_sum_attn = batch2block(block_sum_attn, block_mapping)
         attn.sub_(block_sum_attn.unsqueeze(-1))
-        if True:
-            dims = tuple(range(1, attn.dim()))
-            attn_max = attn.amax(dims).amax()
-        else:
-            attn_max = attn_max.sub_(block_sum_attn.amax())
-        return attn.sub_(attn_max)
+        attn_max.sub_(block_sum_attn)
+        return attn.sub_(attn_max.amax())
 
     @staticmethod
     def index_reduce(attn, batch_size, block_groups, **rest):
