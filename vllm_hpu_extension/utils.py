@@ -8,6 +8,7 @@
 from functools import wraps
 import os
 from functools import lru_cache
+import torch.nn.functional as F
 
 import habana_frameworks.torch as htorch
 import torch
@@ -39,6 +40,15 @@ class Matmul(torch.nn.Module):
 
     def forward(self, x, y):
         return torch.matmul(x, y)
+
+
+class FunctionalLinear(torch.nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, weight, bias=None):
+        return F.linear(x, weight, bias)
 
 
 class Softmax(torch.nn.Module):
