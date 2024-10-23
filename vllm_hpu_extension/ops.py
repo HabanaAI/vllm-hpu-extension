@@ -38,7 +38,7 @@ class SoftmaxNormalization:
             'wsum': self.wsum,
             'amax': self.amax,
             'head_amax': self.head_amax,
-            'wsum_amax': self.wsum_amax,
+            'wsum_head_amax': self.wsum_head_amax,
             'index_reduce': self.index_reduce,
             'scatter_reduce': self.scatter_reduce,
         }
@@ -54,18 +54,21 @@ class SoftmaxNormalization:
 
     @staticmethod
     def amax(attn, **rest):
+        """Normalize by global maximum values"""
         dims = tuple(range(1, attn.dim()))
         attn_max = attn.amax(dims).amax()
         return attn.sub_(attn_max)
 
     @staticmethod
     def head_amax(attn, **rest):
-        dims = tuple([0, attn.dim() - 1])
-        attn_max = attn.amax(dims).unsqueeze(0).unsqueeze(-1)
+        """Normalize by head maximum values"""
+        dims = (0, attn.dim() - 1)
+        attn_max = attn.amax(dims, keepdim=True)
         return attn.sub_(attn_max)
 
     @staticmethod
     def wsum(attn, block_mapping, block_scales, **rest):
+        """Normalize by weighted sum of block maximums"""
         block_sum_attn = attn.amax(-1)
         missing_dims = block_sum_attn.dim() - block_scales.dim()
         block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
@@ -74,7 +77,8 @@ class SoftmaxNormalization:
         return attn.sub_(block_sum_attn.unsqueeze(-1))
 
     @staticmethod
-    def wsum_amax(attn, block_mapping, block_scales, **rest):
+    def wsum_head_amax(attn, block_mapping, block_scales, **rest):
+        """Perform weighted sum fused with head maximum normalization"""
         attn_max = attn.amax(-1)
         missing_dims = attn_max.dim() - block_scales.dim()
         block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
@@ -82,10 +86,12 @@ class SoftmaxNormalization:
         block_sum_attn = batch2block(block_sum_attn, block_mapping)
         attn.sub_(block_sum_attn.unsqueeze(-1))
         attn_max.sub_(block_sum_attn)
-        return attn.sub_(attn_max.amax())
+        attn_max = attn_max.amax(0, keepdim=True)
+        return attn.sub_(attn_max.unsqueeze(-1))
 
     @staticmethod
     def index_reduce(attn, batch_size, block_groups, **rest):
+        """Normalize by max in block groups using index_reduce"""
         block_max = attn.amax(-1)
         grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
         grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
@@ -95,6 +101,7 @@ class SoftmaxNormalization:
 
     @staticmethod
     def scatter_reduce(attn, batch_size, block_groups, **rest):
+        """Normalize by max in block groups using scatter_reduce"""
         block_max = attn.amax(-1)
         grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
         indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
@@ -104,7 +111,7 @@ class SoftmaxNormalization:
         return attn
 
 
-normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum,amax').split(','))
+normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum_head_amax').split(','))
 
 
 def batch2block(tensor, block_mapping):
@@ -124,6 +131,7 @@ def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
     block_sum = sums
     sums = block2batch(sums, block_mapping)
     sums = batch2block(sums, block_mapping)
+    sums.add_(torch.finfo(sums.dtype).tiny)
     sums = torch.maximum(block_sum, sums)
     attn.div_(sums)
     return attn
