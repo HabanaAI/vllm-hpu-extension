@@ -92,23 +92,21 @@ class SoftmaxNormalization:
     @staticmethod
     def index_reduce(attn, batch_size, block_groups, **rest):
         """Normalize by max in block groups using index_reduce"""
-        block_max = attn.amax(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
-        grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
         grouped_max = grouped_max.index_select(0, block_groups)
-        attn.sub_(grouped_max.unsqueeze(-1))
-        return attn
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
     @staticmethod
     def scatter_reduce(attn, batch_size, block_groups, **rest):
         """Normalize by max in block groups using scatter_reduce"""
-        block_max = attn.amax(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-1]], -math.inf, dtype=attn.dtype, device=attn.device)
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
         indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
         grouped_max.scatter_reduce_(0, indices, block_max, 'amax')
         grouped_max = grouped_max.index_select(0, block_groups)
-        attn.sub_(grouped_max.unsqueeze(-1))
-        return attn
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
 
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum_head_amax').split(','))
