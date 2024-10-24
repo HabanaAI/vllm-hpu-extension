@@ -112,6 +112,68 @@ class SoftmaxNormalization:
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum_head_amax').split(','))
 
 
+def fetch_from_cache(cache, blocks, permutations=None):
+    if permutations == None:
+        return cache.index_select(0, blocks)
+    return [
+        cache.index_select(0, blocks[:, i]).permute(permutations)
+        for i in range(blocks.size(1))
+    ]
+
+
+def paged_attention_v1(
+    query,
+    key_cache,
+    value_cache,
+    head_mapping,
+    scale,
+    block_tables,
+    context_lens,
+    alibi_slopes=None,
+    kv_cache_dtype=None,
+    matmul_qk_op=torch.matmul,
+    softmax_op=torch.softmax,
+    matmul_av_op=torch.matmul,
+    keys_fetch_func=fetch_from_cache,
+    values_fetch_func=fetch_from_cache
+) -> None:
+    block_size = value_cache.shape[1]
+    seq_len = block_tables.size(1)
+    batch_size, query_heads, _ = query.shape
+    _, _, kv_heads, _ = key_cache.shape
+    min_inf = torch.finfo(query.dtype).min
+    mask = (torch.arange(0,
+                         seq_len * block_size,
+                         dtype=torch.int32,
+                         device=key_cache.device).view(1, -1).expand(
+                             batch_size, -1).ge(context_lens.view(-1, 1)).view(
+                                 batch_size, 1, 1, -1))
+    query.mul_(scale)
+    query = query.unsqueeze(-2)
+    keys = keys_fetch_func(key_cache, block_tables, (0, 2, 3, 1))
+    if query_heads != kv_heads:
+        query = query.unflatten(1, (kv_heads, -1))
+        keys = [k.unflatten(1, (kv_heads, 1)) for k in keys]
+        mask = mask.unsqueeze(2)
+
+    attn_weights = torch.cat([matmul_qk_op(query, k) for k in keys], dim=-1)
+    if alibi_slopes is not None:
+        attn_weights.add_(alibi_slopes[:, :, -attn_weights.size(2):, -attn_weights.size(3):])
+    attn_weights = softmax_op(attn_weights.masked_fill(mask, min_inf), dim=-1)
+
+    values = values_fetch_func(value_cache, block_tables, (0, 2, 1, 3))
+    attn_weights = attn_weights.split(block_size, dim=-1)
+    if query_heads != kv_heads:
+        values = [v.unflatten(1, (kv_heads, 1)) for v in values]
+    attn_weights = [matmul_av_op(a, v) for a, v in zip(attn_weights, values)]
+    if query_heads != kv_heads:
+        attn_weights = [a.flatten(1, 2) for a in attn_weights]
+    attn_weights = sum(attn_weights)
+    attn_weights = attn_weights.squeeze(-2)
+
+    return attn_weights
+
+
 def batch2block(tensor, block_mapping):
     shape = tuple(tensor.shape)
     return (block_mapping @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
@@ -135,9 +197,21 @@ def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
     return attn
 
 
-def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, block_groups, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
-            values_fetch_func):
+def flat_pa(
+    query,
+    key_cache,
+    value_cache,
+    block_list,
+    block_mapping,
+    block_bias,
+    block_scales,
+    block_groups,
+    scale,
+    matmul_qk_op,
+    matmul_av_op,
+    keys_fetch_func,
+    values_fetch_func
+):
     batch_size = query.size(0)
     q_heads = query.size(1)
     kv_heads = key_cache.size(2)
