@@ -171,22 +171,6 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
-
-#TODO: remove after fusedsdpa fix for query_head != kv_head
-def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """
-    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
-    The kv go from (batch, num_key_value_heads, seqlen, head_dim) to
-    (batch, num_attention_heads, seqlen, head_dim)
-    """
-    batch, num_key_value_heads, slen, head_dim = kv.shape
-    if n_rep == 1:
-        return kv
-    kv = kv[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen,
-                                     head_dim)
-    return kv.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
-
-
 def prompt_attention(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -219,10 +203,6 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        #TODO: remove after fusedsdpa fix for query_heads != kv_heads
-        if query_heads != kv_heads:
-            key = repeat_kv(key, int(query_heads // kv_heads))
-            value = repeat_kv(value, int(query_heads // kv_heads))
         softmax_mode = 'fast'
         recompute_mode = True
         attn_weights = FusedSDPA.apply(query, key, value, None, 0.0, True,
