@@ -8,7 +8,9 @@ from typing import Optional, Tuple
 
 import habana_frameworks.torch as htorch
 import torch
+import os
 import torch.nn.functional as F
+import math
 
 from vllm.logger import init_logger
 
@@ -29,6 +31,87 @@ except ImportError:
                    "vLLM will use native implementation.")
 
 
+class SoftmaxNormalization:
+
+    def __init__(self, selected_impl):
+        implementations = {
+            'wsum': self.wsum,
+            'amax': self.amax,
+            'head_amax': self.head_amax,
+            'wsum_head_amax': self.wsum_head_amax,
+            'index_reduce': self.index_reduce,
+            'scatter_reduce': self.scatter_reduce,
+        }
+        supported_impls = implementations.keys()
+        for impl in selected_impl:
+            assert impl in supported_impls, f'Unsupported pa softmax impl - {impl} . Supported values: {list(supported_impls)}'
+        self.selected_impl = [implementations[impl] for impl in selected_impl]
+
+    def __call__(self, attn, **kwargs):
+        for impl in self.selected_impl:
+            attn = impl(attn, **kwargs)
+        return attn
+
+    @staticmethod
+    def amax(attn, **rest):
+        """Normalize by global maximum values"""
+        dims = tuple(range(1, attn.dim()))
+        attn_max = attn.amax(dims).amax()
+        return attn.sub_(attn_max)
+
+    @staticmethod
+    def head_amax(attn, **rest):
+        """Normalize by head maximum values"""
+        dims = (0, attn.dim() - 1)
+        attn_max = attn.amax(dims, keepdim=True)
+        return attn.sub_(attn_max)
+
+    @staticmethod
+    def wsum(attn, block_mapping, block_scales, **rest):
+        """Normalize by weighted sum of block maximums"""
+        block_sum_attn = attn.amax(-1)
+        missing_dims = block_sum_attn.dim() - block_scales.dim()
+        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn = block2batch(block_sum_attn, block_mapping)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping)
+        return attn.sub_(block_sum_attn.unsqueeze(-1))
+
+    @staticmethod
+    def wsum_head_amax(attn, block_mapping, block_scales, **rest):
+        """Perform weighted sum fused with head maximum normalization"""
+        attn_max = attn.amax(-1)
+        missing_dims = attn_max.dim() - block_scales.dim()
+        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn = block2batch(block_sum_attn, block_mapping)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping)
+        attn.sub_(block_sum_attn.unsqueeze(-1))
+        attn_max.sub_(block_sum_attn)
+        attn_max = attn_max.amax(0, keepdim=True)
+        return attn.sub_(attn_max.unsqueeze(-1))
+
+    @staticmethod
+    def index_reduce(attn, batch_size, block_groups, **rest):
+        """Normalize by max in block groups using index_reduce"""
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        grouped_max = grouped_max.index_select(0, block_groups)
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
+
+    @staticmethod
+    def scatter_reduce(attn, batch_size, block_groups, **rest):
+        """Normalize by max in block groups using scatter_reduce"""
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
+        grouped_max.scatter_reduce_(0, indices, block_max, 'amax')
+        grouped_max = grouped_max.index_select(0, block_groups)
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
+
+
+normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum_head_amax').split(','))
+
+
 def batch2block(tensor, block_mapping):
     shape = tuple(tensor.shape)
     return (block_mapping @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
@@ -39,30 +122,21 @@ def block2batch(tensor, block_mapping):
     return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def block_softmax(batch_size, attn, block_mapping):
-    # We're using global maximum to decrease the exponent as
-    # it's fast to compute and performs reasonably well.
-    # This is by no means a final solution and needs to
-    # be properly addressed in the future.
-    #
-    # Additionally there's a bug where 'max' is not parallelized
-    # across TPC cores, so we need to split the tensor manually
-    # instead of simply doing attn_max = attn.max()
-
-    tail_dims = tuple(range(1, attn.dim()))
-    attn_max = attn.amax(tail_dims).amax()
-    attn.sub_(attn_max)
+def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
+    block_sum = sums
     sums = block2batch(sums, block_mapping)
     sums = batch2block(sums, block_mapping)
     sums.add_(torch.finfo(sums.dtype).tiny)
+    sums = torch.maximum(block_sum, sums)
     attn.div_(sums)
     return attn
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
+            block_bias, block_scales, block_groups, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
             values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
@@ -72,7 +146,6 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
     value = values_fetch_func(value_cache, block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
-
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
         query = query.unflatten(1, (kv_heads, -1))
@@ -83,8 +156,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
+    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
 
-    attn = block_softmax(batch_size, attn, block_mapping)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping)
     attn = attn.squeeze(-2)
@@ -135,6 +208,64 @@ def prompt_attention(
                                        scale, softmax_mode, recompute_mode,
                                        valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
+    return attn_weights
+
+
+def prompt_attention_with_context(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    key_cache: torch.Tensor,
+    value_cache: torch.Tensor,
+    block_list: torch.Tensor,
+    attn_bias: torch.Tensor,
+    scale: float,
+    matmul_qk_op,
+    matmul_av_op,
+    softmax_op,
+    keys_fetch_func,
+    values_fetch_func, 
+) -> torch.Tensor:
+    htorch.core.mark_step()
+    query.mul_(scale)
+
+    batch_size, _, query_heads, _ = query.shape
+    _, block_size, kv_heads, _ = key_cache.shape
+    max_num_blocks = block_list.size(-1) // batch_size
+    context_len = max_num_blocks * block_size
+
+    query = query.transpose(1, 2)
+    key = key.transpose(1, 2)
+    value = value.transpose(1, 2)
+
+    past_keys = keys_fetch_func(key_cache, block_list)
+    past_keys = past_keys.reshape(batch_size, context_len, kv_heads, -1)
+    past_keys = past_keys.transpose(1, 2)
+    key = torch.concat((past_keys, key), dim=-2)
+
+    past_values = values_fetch_func(value_cache, block_list)
+    past_values = past_values.reshape(batch_size, context_len, kv_heads, -1)
+    past_values = past_values.transpose(1, 2)
+    value = torch.concat((past_values, value), dim=-2)
+
+    if query_heads != kv_heads:
+        query = query.unflatten(1, (kv_heads, -1))
+        key = key.unflatten(1, (kv_heads, 1))
+        past_keys = past_keys.unflatten(1, (kv_heads, 1))
+        value = value.unflatten(1, (kv_heads, 1))
+        past_values = past_values.unflatten(1, (kv_heads, 1))
+        attn_bias = attn_bias.unsqueeze(2)
+
+    attn_weights = matmul_qk_op(query, key.transpose(-1, -2))
+    attn_weights.add_(attn_bias)
+    attn_weights = softmax_op(attn_weights, dim=-1)
+    attn_weights = matmul_av_op(attn_weights, value)
+
+    if query_heads != kv_heads:
+        attn_weights = attn_weights.flatten(1, 2)
+
+    attn_weights = attn_weights.transpose(1, 2)
+    htorch.core.mark_step()
     return attn_weights
 
 
@@ -222,12 +353,18 @@ class MoeMatmul(torch.nn.Module):
     def set_weight(self, w):
         self.weight = w
 
-    def calc(self, state, expert_id, w):
-        self.weight = w[expert_id].transpose(0, 1)
-        return self.forward(state)
+    def forward(self, state, expert_id, w):
+        return torch.matmul(state, w[expert_id].transpose(0, 1))
 
-    def forward(self, state):
-        return torch.matmul(state, self.weight)
+
+def calculate_routing_tensors(score, topk, hidden_states_dtype):
+    routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
+    routing_weights, selected_experts = torch.topk(routing_weights,
+                                                   topk,
+                                                   dim=-1)
+    routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+    routing_weights = routing_weights.to(hidden_states_dtype)
+    return routing_weights, selected_experts
 
 
 class StaticFusedMOE(torch.nn.Module):
@@ -242,12 +379,8 @@ class StaticFusedMOE(torch.nn.Module):
 
     def forward(self, hidden_states, w1, w2, score, topk):
         B, D = hidden_states.shape
-        routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
-        routing_weights, selected_experts = torch.topk(routing_weights,
-                                                       topk,
-                                                       dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-        routing_weights = routing_weights.to(hidden_states.dtype)
+        routing_weights, selected_experts = calculate_routing_tensors(
+                        score, topk, hidden_states.dtype)
         final_hidden_states = torch.zeros((1, B, D),
                                           dtype=hidden_states.dtype,
                                           device=hidden_states.device)
@@ -262,14 +395,44 @@ class StaticFusedMOE(torch.nn.Module):
         for expert_idx in range(self.num_total_experts):
             padded_weight = padded_weights[expert_idx]
             current_state_static = hidden_states.reshape(-1, D)
-            w_output = self.w13_list[expert_idx].calc(current_state_static,
-                                                      expert_idx, w1)
+            w_output = self.w13_list[expert_idx](current_state_static, expert_idx, w1)
             w_output = silu_and_mul(w_output)
-            w_output = self.w2_list[expert_idx].calc(w_output, expert_idx, w2)
+            w_output = self.w2_list[expert_idx](w_output, expert_idx, w2)
             current_hidden_states_static = w_output * padded_weight
             final_hidden_states += current_hidden_states_static
 
         return final_hidden_states.view(-1, D)
+
+
+class DynamicFusedMOE(torch.nn.Module):
+
+    def __init__(self, num_total_experts):
+        super().__init__()
+        self.num_total_experts = num_total_experts
+
+    def forward(self, hidden_states, w1, w2, score, topk):
+        htorch.core.mark_step()
+        routing_weights, selected_experts = calculate_routing_tensors(
+                score, topk, hidden_states.dtype)
+        # pre-processing for custom op inputs
+        experts_range = range(self.num_total_experts)
+        w1_list = [w1[i,:,:].squeeze() for i in experts_range]
+        w2_list = [w2[i,:,:].squeeze() for i in experts_range]
+
+        final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                hidden_states=hidden_states,
+                expert_routing_table=selected_experts,
+                router_weights=routing_weights,
+                w12=w1_list,
+                w3=w2_list,
+                permuted_weights=True,
+                activation="silu",
+                experts_min=0,
+                experts_max=7
+        )
+
+        return final_hidden_states.view(-1, hidden_states.shape[1])
+
 
 # fp8
 def scaled_fp8_quant(
