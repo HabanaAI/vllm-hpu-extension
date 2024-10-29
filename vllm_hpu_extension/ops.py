@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import math
 
 from vllm.logger import init_logger
+from vllm_hpu_extension.capabilities import capabilities
 
 logger = init_logger(__name__)
 HPUFusedRMSNorm = None
@@ -109,7 +110,8 @@ class SoftmaxNormalization:
         return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
 
-normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', 'wsum_head_amax').split(','))
+DEFAULT_PA_SOFTMAX_IMPL = 'index_reduce' if 'index_reduce' in capabilities() else 'wsum_head_amax'
+normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
 
 def batch2block(tensor, block_mapping):
