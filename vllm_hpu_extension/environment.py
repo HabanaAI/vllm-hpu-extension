@@ -9,6 +9,19 @@ from pathlib import Path
 import re
 
 
+def get_hw():
+    import habana_frameworks.torch.utils.experimental as htexp
+    device_type = htexp._get_device_type()
+    match device_type:
+        case htexp.synDeviceType.synDeviceGaudi:
+            return "gaudi"
+        case htexp.synDeviceType.synDeviceGaudi2:
+            return "gaudi2"
+        case htexp.synDeviceType.synDeviceGaudi3:
+            return "gaudi3"
+    raise RuntimeError(f'Unknown device type: {device_type}')
+
+
 def get_build():
     import habana_frameworks.torch as htorch
     # This is ugly as hell, but it's the only reliable way of querying build number
@@ -25,6 +38,7 @@ def get_build():
 def get_environment(**overrides):
     overrides = {k: lambda: v for k, v in overrides.items()}
     getters = {
-        "build": get_build
+        "build": get_build,
+        "hw": get_hw,
     }
     return {k: g() for k, g, in (getters | overrides).items()}

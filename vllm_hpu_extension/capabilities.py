@@ -21,6 +21,14 @@ class VersionRange:
         return any(version in s for s in self.specifiers)
 
 
+class Hardware:
+    def __init__(self, target_hw):
+        self.target_hw = target_hw
+
+    def __call__(self, hw, **_):
+        return hw == self.target_hw
+
+
 class Capabilities:
     def __init__(self, features, environment):
         self.all = set(features.keys())
@@ -40,7 +48,10 @@ class Capabilities:
 @cache
 def capabilities():
     supported_features = {
-        "index_copy": VersionRange(">=1.19.0-272"),
+        "index_copy": VersionRange(">=1.19.0.272"),
+        "gaudi": Hardware("gaudi"),
+        "gaudi2": Hardware("gaudi2"),
+        "gaudi3": Hardware("gaudi3"),
     }
     environment = get_environment()
     capabilities = Capabilities(supported_features, environment)
