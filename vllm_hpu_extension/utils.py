@@ -54,10 +54,16 @@ class VLLMKVCache(torch.nn.Module):
 
     def __init__(self):
         super(VLLMKVCache, self).__init__()
+        self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
+                                                'false').lower() == 'true'
 
     def forward(self, input, cache, block_indices, block_offset):
         insert_or_update_cache(input, cache, block_indices, block_offset)
         return cache
 
     def fetch_from_cache(self, cache, blocks):
-        return cache.index_select(0, blocks)
+        if self.use_contiguous_pa:
+            return cache[:blocks.size(0)]
+        else:
+            return cache.index_select(0, blocks)
+
