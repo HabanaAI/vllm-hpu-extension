@@ -48,7 +48,7 @@ class Capabilities:
 @cache
 def capabilities():
     supported_features = {
-        "index_copy": VersionRange(">=1.19.0.272"),
+        "index_reduce": VersionRange(">=1.19.0.272"),
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
