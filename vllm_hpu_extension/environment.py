@@ -5,10 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from pathlib import Path
-import re
-
-
 def get_hw():
     import habana_frameworks.torch.utils.experimental as htexp
     device_type = htexp._get_device_type()
@@ -23,16 +19,18 @@ def get_hw():
 
 
 def get_build():
-    import habana_frameworks.torch as htorch
-    # This is ugly as hell, but it's the only reliable way of querying build number
-    # from python that doesn't involve parsing external process output.
-    # version.py can be found in gpu-migration package which means we cannot load it
-    # directly as this would trigger enabling that feature. Instead we parse the file.
-    version_re = re.compile(r'__version__\s+=\s+"(?P<version>.+)"')
-    path = Path(htorch.__file__).parent
-    for p in path.rglob("version.py"):
-        if m := version_re.search(open(p).read()):
-            return m.group('version')
+    import re
+    import subprocess
+    output = subprocess.run("pip show habana-torch-plugin",
+                            shell=True,
+                            text=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    version_re = re.compile(r'Version:\s*(?P<version>.*)')
+    match = version_re.search(output.stdout)
+    if output.returncode == 0 and match:
+        return match.group('version')
+    raise RuntimeError("Unable to detect habana-torch-plugin version!")
 
 
 def get_environment(**overrides):
