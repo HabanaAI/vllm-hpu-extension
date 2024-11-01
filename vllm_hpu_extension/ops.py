@@ -41,6 +41,7 @@ class SoftmaxNormalization:
             'wsum_head_amax': self.wsum_head_amax,
             'index_reduce': self.index_reduce,
             'scatter_reduce': self.scatter_reduce,
+            'const': self.const,
         }
         supported_impls = implementations.keys()
         for impl in selected_impl:
@@ -51,6 +52,12 @@ class SoftmaxNormalization:
         for impl in self.selected_impl:
             attn = impl(attn, **kwargs)
         return attn
+
+    @staticmethod
+    def const(attn, **rest):
+        """Normalize by global maximum values"""
+        attn_max = os.environ.get('VLLM_PA_SOFTMAX_NORM_CONST', 10)
+        return attn.sub_(attn_max)
 
     @staticmethod
     def amax(attn, **rest):
