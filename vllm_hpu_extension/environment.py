@@ -5,6 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
+from vllm.logger import init_logger
+from vllm_hpu_extension.utils import is_fake_hpu
+
+logger = init_logger(__name__)
+
+
 def get_hw():
     import habana_frameworks.torch.utils.experimental as htexp
     device_type = htexp._get_device_type()
@@ -15,7 +21,10 @@ def get_hw():
             return "gaudi2"
         case htexp.synDeviceType.synDeviceGaudi3:
             return "gaudi3"
-    raise RuntimeError(f'Unknown device type: {device_type}')
+    if is_fake_hpu():
+        return "cpu"
+    logger.warning(f'Unknown device type: {device_type}')
+    return None
 
 
 def get_build():
@@ -30,7 +39,8 @@ def get_build():
     match = version_re.search(output.stdout)
     if output.returncode == 0 and match:
         return match.group('version')
-    raise RuntimeError("Unable to detect habana-torch-plugin version!")
+    logger.warning("Unable to detect habana-torch-plugin version!")
+    return None
 
 
 def get_environment(**overrides):

@@ -12,20 +12,36 @@ from functools import cache
 from vllm_hpu_extension.environment import get_environment
 
 
-class VersionRange:
+class Check:
+    def __init__(self, *required_params):
+        self.required_params = required_params
+
+    def __call__(self, **kwargs):
+        if any(kwargs[rp] is None for rp in self.required_params):
+            return False
+        return self.check(**kwargs)
+
+
+class VersionRange(Check):
     def __init__(self, *specifiers):
+        super().__init__('build')
         self.specifiers = [SpecifierSet(s) for s in specifiers]
 
     def __call__(self, build, **_):
+        if build is None:
+            return False
         version = Version(build)
         return any(version in s for s in self.specifiers)
 
 
-class Hardware:
+class Hardware(Check):
     def __init__(self, target_hw):
+        super().__init__('hw')
         self.target_hw = target_hw
 
     def __call__(self, hw, **_):
+        if hw is None:
+            return False
         return hw == self.target_hw
 
 
@@ -52,6 +68,7 @@ def capabilities():
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
+        "cpu": Hardware("cpu"),
     }
     environment = get_environment()
     capabilities = Capabilities(supported_features, environment)
