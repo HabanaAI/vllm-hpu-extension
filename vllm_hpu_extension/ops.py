@@ -131,7 +131,7 @@ def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
     block_sum = sums
     sums = block2batch(sums, block_mapping)
     sums = batch2block(sums, block_mapping)
-    sums.add_(torch.finfo(sums.dtype).tiny)
+    sums.add_(torch.tensor(torch.finfo(sums.dtype).tiny, dtype=sums.dtype, device=sums.device))
     sums = torch.maximum(block_sum, sums)
     attn.div_(sums)
     return attn
