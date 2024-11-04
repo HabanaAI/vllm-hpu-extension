@@ -27,9 +27,7 @@ class VersionRange(Check):
         super().__init__('build')
         self.specifiers = [SpecifierSet(s) for s in specifiers]
 
-    def __call__(self, build, **_):
-        if build is None:
-            return False
+    def check(self, build, **_):
         version = Version(build)
         return any(version in s for s in self.specifiers)
 
@@ -39,9 +37,7 @@ class Hardware(Check):
         super().__init__('hw')
         self.target_hw = target_hw
 
-    def __call__(self, hw, **_):
-        if hw is None:
-            return False
+    def check(self, hw, **_):
         return hw == self.target_hw
 
 
