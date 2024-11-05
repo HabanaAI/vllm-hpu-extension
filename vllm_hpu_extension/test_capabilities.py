@@ -95,3 +95,11 @@ def test_capability_checks(capabilities):
     assert "foo,qux" in capabilities
     assert "qux,foo" in capabilities
     assert "foo,bar,qux" not in capabilities
+
+
+def test_capability_signed_checks(capabilities):
+    assert "-bar" in capabilities
+    assert "+foo" in capabilities
+    assert "+foo,-bar,+qux" in capabilities
+    assert "+foo,bar,+qux" not in capabilities
+    assert "-foo,-bar,+qux" not in capabilities

@@ -45,16 +45,27 @@ class Capabilities:
     def __init__(self, features, environment):
         self.all = set(features.keys())
         self.enabled = set(name for name, check in features.items() if check(**environment))
+        self.disabled = self.all - self.enabled
 
     def is_enabled(self, *names):
         return all(n in self.enabled for n in names)
+
+    def is_disabled(self, *names):
+        return all(n in self.disabled for n in names)
 
     def __repr__(self):
         feature_list = [('+' if self.is_enabled(f) else '-') + f for f in sorted(self.all)]
         return f'[{(" ").join(feature_list)}]'
 
+    def _check(self, name):
+        if name.startswith('-'):
+            return self.is_disabled(name[1:])
+        if name.startswith('+'):
+            return self.is_enabled(name[1:])
+        return self.is_enabled(name)
+
     def __contains__(self, names):
-        return self.is_enabled(*names.split(','))
+        return all(self._check(name) for name in names.split(','))
 
 
 @cache
