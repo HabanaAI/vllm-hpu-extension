@@ -5,10 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm.logger import init_logger
-from vllm_hpu_extension.utils import is_fake_hpu
+from functools import cache
 
-logger = init_logger(__name__)
+
+@cache
+def lazy_logger():
+    from vllm.logger import init_logger
+    return init_logger(__name__)
 
 
 def get_hw():
@@ -21,9 +24,10 @@ def get_hw():
             return "gaudi2"
         case htexp.synDeviceType.synDeviceGaudi3:
             return "gaudi3"
+    from vllm_hpu_extension.utils import is_fake_hpu
     if is_fake_hpu():
         return "cpu"
-    logger.warning(f'Unknown device type: {device_type}')
+    lazy_logger().warning(f'Unknown device type: {device_type}')
     return None
 
 
@@ -39,7 +43,7 @@ def get_build():
     match = version_re.search(output.stdout)
     if output.returncode == 0 and match:
         return match.group('version')
-    logger.warning("Unable to detect habana-torch-plugin version!")
+    lazy_logger().warning("Unable to detect habana-torch-plugin version!")
     return None
 
 
