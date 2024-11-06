@@ -417,7 +417,7 @@ class DynamicFusedMOE(torch.nn.Module):
         self.num_total_experts = num_total_experts
 
     def forward(self, hidden_states, w1, w2, score, topk):
-        htorch.core.mark_step()
+        #htorch.core.mark_step()
         routing_weights, selected_experts = calculate_routing_tensors(
                 score, topk, hidden_states.dtype)
         # pre-processing for custom op inputs
