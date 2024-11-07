@@ -127,13 +127,13 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
+def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups, batch2block_softmax_op, block2batch_softmax_op):
     attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
     attn = attn.exp_()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
-    sums = block2batch(sums, block_mapping)
-    sums = batch2block(sums, block_mapping)
+    sums = block2batch(sums, block_mapping, block2batch_softmax_op)
+    sums = batch2block(sums, block_mapping, batch2block_softmax_op)
     sums.add_(torch.finfo(sums.dtype).tiny)
     sums = torch.maximum(block_sum, sums)
     attn.div_(sums)
@@ -143,6 +143,7 @@ def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
+            batch2block_softmax_op, block2batch_softmax_op,
             keys_fetch_func, values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
@@ -162,7 +163,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups, batch2block_softmax_op, block2batch_softmax_op)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
