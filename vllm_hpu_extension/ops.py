@@ -114,14 +114,17 @@ DEFAULT_PA_SOFTMAX_IMPL = 'wsum_head_amax'
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
 
-def batch2block(tensor, block_mapping):
+def b2b_impl(tensor, block_mapping, matmul_op):
     shape = tuple(tensor.shape)
-    return (block_mapping @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
+    return matmul_op(block_mapping, tensor.view(shape[0], -1)).view(-1, *shape[1:])
 
 
-def block2batch(tensor, block_mapping):
-    shape = tuple(tensor.shape)
-    return (block_mapping.t() @ tensor.view(shape[0], -1)).view(-1, *shape[1:])
+def batch2block(tensor, block_mapping, matmul_op=torch.matmul):
+    return b2b_impl(tensor, block_mapping, matmul_op)
+
+
+def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
+    return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
 def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
@@ -138,13 +141,14 @@ def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, block_groups, scale, matmul_qk_op, matmul_av_op, keys_fetch_func,
-            values_fetch_func):
+            block_bias, block_scales, block_groups, scale, matmul_qk_op,
+            matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
+            keys_fetch_func, values_fetch_func):
     batch_size = query.size(0)
     q_heads = query.size(1)
     kv_heads = key_cache.size(2)
 
-    query = batch2block(scale * query, block_mapping).unsqueeze(-2)
+    query = batch2block(scale * query, block_mapping, batch2block_matmul_op).unsqueeze(-2)
     key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
     value = values_fetch_func(value_cache, block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
@@ -160,7 +164,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = matmul_qk_op(query, key) + block_bias
     attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
     attn = matmul_av_op(attn, value)
-    attn = block2batch(attn, block_mapping)
+    attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
