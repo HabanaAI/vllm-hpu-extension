@@ -24,13 +24,6 @@ try:
 except ImportError:
     logger.warning("Could not import HPU FusedRMSNorm kernel. "
                    "vLLM will use forward_native implementation of RMSNorm.")
-HPUFusedSDPA = None
-try:
-    from habana_frameworks.torch.hpex.kernels import FusedSDPA
-    HPUFusedSDPA = FusedSDPA
-except ImportError:
-    logger.warning("Could not import HPU FusedSDPA kernel. "
-                   "vLLM will use native implementation.")
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -175,13 +168,14 @@ def prompt_attention(
     softmax_op=torch.softmax,
     matmul_av_op=torch.matmul,
     valid_seq_lengths: Optional[torch.Tensor] = None,
+    fsdpa_op = None,
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
     query_heads = query.size(1)
     kv_heads = key.size(1)
-    if attn_bias is not None or HPUFusedSDPA is None:
+    if attn_bias is not None or fsdpa_op is None:
         if query_heads != kv_heads:
             query = query.unflatten(1, (kv_heads, -1))
             key = key.unflatten(1, (kv_heads, 1))
@@ -208,7 +202,7 @@ def prompt_attention(
                 value = repeat_kv(value, int(query_heads // kv_heads))
         softmax_mode = 'fast'
         recompute_mode = True
-        attn_weights = FusedSDPA.apply(query, key, value, None, 0.0, True,
+        attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
                                        scale, softmax_mode, recompute_mode,
                                        valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
