@@ -93,11 +93,18 @@ class SoftmaxNormalization:
     @staticmethod
     def index_reduce(attn, batch_size, block_groups, **rest):
         """Normalize by max in block groups using index_reduce"""
-        block_max = attn.amax(-1).squeeze(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        #block_max = attn.amax(-1).squeeze(-1)
+        #grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        #grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        #grouped_max = grouped_max.index_select(0, block_groups)
+        attn_shape = attn.shape
+        attn = attn.flatten(1, 3)
+        print(attn.shape)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max = grouped_max.index_reduce_(0, block_groups, attn, 'amax')
         grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
+        attn.sub_(grouped_max)
+        return attn.reshape(attn_shape)
 
     @staticmethod
     def scatter_reduce(attn, batch_size, block_groups, **rest):
@@ -161,8 +168,17 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     else:
         key = key.transpose(2, 3)
 
-    attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+    print(query.shape, key.shape, block_bias.shape)
+    if os.environ.get('VLLM_PA_SPLIT_HEADS', 'false') == 'true':
+        query_slices = query.split(1, dim=2)
+    else:
+        query_slices = [query]
+    attn_slices = []
+    for q in query_slices:
+        attn = matmul_qk_op(q, key) + block_bias
+        attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+        attn_slices.append(attn)
+    attn = torch.cat(attn_slices, dim=2)
     attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
