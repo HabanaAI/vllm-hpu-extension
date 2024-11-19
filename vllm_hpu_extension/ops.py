@@ -117,6 +117,15 @@ class SoftmaxNormalization:
         return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
 
+def renorm(block_max, batch_size, block_groups):
+    shape = block_max.shape
+    block_max = block_max.flatten(1, 3)
+    grouped_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf, dtype=block_max.dtype, device=block_max.device)
+    grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+    grouped_max = grouped_max.index_select(0, block_groups)
+    return grouped_max.reshape(shape)
+
+
 DEFAULT_PA_SOFTMAX_IMPL = 'wsum_head_amax'
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
@@ -135,15 +144,20 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 
 def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
-    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
-    attn = attn.exp_()
-    sums = attn.sum(dim=-1).unsqueeze(-1)
-    block_sum = sums
-    sums = block2batch(sums, block_mapping)
-    sums = batch2block(sums, block_mapping)
-    sums.add_(torch.finfo(sums.dtype).tiny)
-    sums = torch.maximum(block_sum, sums)
-    attn.div_(sums)
+    block_max = attn.amax(dim=-1, keepdim=True)
+    print(attn.shape, block_max.shape)
+    attn.sub_(block_max)
+    #renorm(block_max, batch_size, block_groups)
+    #attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
+    #attn = attn.exp_()
+    #sums = attn.sum(dim=-1, keepdim=True)
+    #renorm(attn, batch_size, block_groups)
+    #block_sum = sums
+    #sums = block2batch(sums, block_mapping)
+    #sums = batch2block(sums, block_mapping)
+    #sums.add_(torch.finfo(sums.dtype).tiny)
+    #sums = torch.maximum(block_sum, sums)
+    #attn.div_(sums)
     return attn
 
 
