@@ -110,7 +110,7 @@ class SoftmaxNormalization:
         return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
 
-DEFAULT_PA_SOFTMAX_IMPL = 'wsum_head_amax'
+DEFAULT_PA_SOFTMAX_IMPL = 'index_reduce'
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
 
@@ -128,8 +128,9 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 
 def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
-    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
-    attn = attn.exp_()
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
+                     block_scales=block_scales, block_groups=block_groups)
+    attn = torch.exp(attn)
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
     sums = block2batch(sums, block_mapping)
@@ -174,6 +175,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
 def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
+
 
 def prompt_attention(
     query: torch.Tensor,
@@ -229,7 +231,7 @@ def prompt_attention_with_context(
     matmul_av_op,
     softmax_op,
     keys_fetch_func,
-    values_fetch_func, 
+    values_fetch_func,
 ) -> torch.Tensor:
     htorch.core.mark_step()
     query.mul_(scale)
@@ -387,7 +389,7 @@ class StaticFusedMOE(torch.nn.Module):
     def forward(self, hidden_states, w1, w2, score, topk):
         B, D = hidden_states.shape
         routing_weights, selected_experts = calculate_routing_tensors(
-                        score, topk, hidden_states.dtype)
+            score, topk, hidden_states.dtype)
         final_hidden_states = torch.zeros((1, B, D),
                                           dtype=hidden_states.dtype,
                                           device=hidden_states.device)
@@ -420,22 +422,22 @@ class DynamicFusedMOE(torch.nn.Module):
     def forward(self, hidden_states, w1, w2, score, topk):
         htorch.core.mark_step()
         routing_weights, selected_experts = calculate_routing_tensors(
-                score, topk, hidden_states.dtype)
+            score, topk, hidden_states.dtype)
         # pre-processing for custom op inputs
         experts_range = range(self.num_total_experts)
-        w1_list = [w1[i,:,:].squeeze() for i in experts_range]
-        w2_list = [w2[i,:,:].squeeze() for i in experts_range]
+        w1_list = [w1[i, :, :].squeeze() for i in experts_range]
+        w2_list = [w2[i, :, :].squeeze() for i in experts_range]
 
         final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                hidden_states=hidden_states,
-                expert_routing_table=selected_experts,
-                router_weights=routing_weights,
-                w12=w1_list,
-                w3=w2_list,
-                permuted_weights=True,
-                activation="silu",
-                experts_min=0,
-                experts_max=7
+            hidden_states=hidden_states,
+            expert_routing_table=selected_experts,
+            router_weights=routing_weights,
+            w12=w1_list,
+            w3=w2_list,
+            permuted_weights=True,
+            activation="silu",
+            experts_min=0,
+            experts_max=7
         )
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
@@ -478,7 +480,7 @@ def scaled_fp8_quant(
         output = torch.empty_like(input, dtype=torch.float8_e4m3fn)
     if scale is None:
         raise "dynamic scaled_fp8_quant not implemented for HPU"
-        #TODO: calculate scale to match gaudi2 240 range instead of 448
+        # TODO: calculate scale to match gaudi2 240 range instead of 448
         if use_per_token_if_dynamic:
             scale = torch.empty((input.numel() // input.shape[-1], 1),
                                 device=input.device,
@@ -494,5 +496,5 @@ def scaled_fp8_quant(
                                               False,
                                               False,
                                               dtype=torch.float8_e4m3fn)[0]
- 
+
     return output, scale
