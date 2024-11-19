@@ -95,9 +95,15 @@ class SoftmaxNormalization:
         """Normalize by max in block groups using index_reduce"""
         block_max = attn.amax(-1).squeeze(-1)
         grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        if grouped_max.dim() == 2:
+            block_max=block_max.unsqueeze(-1)
+            grouped_max=grouped_max.unsqueeze(-1)
         grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
         grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
+        if attn.dim() == 4:
+            return attn.sub_(grouped_max.unsqueeze(-1))
+        else:
+            return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
     @staticmethod
     def scatter_reduce(attn, batch_size, block_groups, **rest):
