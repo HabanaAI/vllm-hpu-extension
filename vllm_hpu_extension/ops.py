@@ -93,18 +93,11 @@ class SoftmaxNormalization:
     @staticmethod
     def index_reduce(attn, batch_size, block_groups, **rest):
         """Normalize by max in block groups using index_reduce"""
-        # block_max = attn.amax(-1).squeeze(-1)
-        # grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        # grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
-        # grouped_max = grouped_max.index_select(0, block_groups)
-        attn_shape = attn.shape
-        attn = attn.flatten(1, 3)
-        print(attn.shape)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:]], -math.inf, dtype=attn.dtype, device=attn.device)
-        grouped_max = grouped_max.index_reduce_(0, block_groups, attn, 'amax')
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
         grouped_max = grouped_max.index_select(0, block_groups)
-        attn.sub_(grouped_max)
-        return attn.reshape(attn_shape)
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
     @staticmethod
     def scatter_reduce(attn, batch_size, block_groups, **rest):
@@ -117,14 +110,14 @@ class SoftmaxNormalization:
         return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
 
 
-def renorm(block_max, batch_size, block_groups):
+def grouped_max(block_max, batch_size, block_groups):
     shape = block_max.shape
     block_max = block_max.flatten(1, 3)
-    grouped_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
-                             dtype=block_max.dtype, device=block_max.device)
-    grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
-    grouped_max = grouped_max.index_select(0, block_groups)
-    return grouped_max.reshape(shape)
+    group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
+                           dtype=block_max.dtype, device=block_max.device)
+    group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax')
+    group_max = group_max.index_select(0, block_groups)
+    return group_max.unflatten(1, shape[1:4])
 
 
 DEFAULT_PA_SOFTMAX_IMPL = 'wsum_head_amax'
@@ -146,19 +139,18 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
     block_max = attn.amax(dim=-1, keepdim=True)
-    print(attn.shape, block_max.shape)
-    attn.sub_(block_max)
-    # renorm(block_max, batch_size, block_groups)
-    # attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping, block_scales=block_scales, block_groups=block_groups)
-    # attn = attn.exp_()
-    # sums = attn.sum(dim=-1, keepdim=True)
-    # renorm(attn, batch_size, block_groups)
-    # block_sum = sums
-    # sums = block2batch(sums, block_mapping)
-    # sums = batch2block(sums, block_mapping)
-    # sums.add_(torch.finfo(sums.dtype).tiny)
-    # sums = torch.maximum(block_sum, sums)
-    # attn.div_(sums)
+    group_max = grouped_max(block_max, batch_size, block_groups)
+    block_adjustment = (group_max - block_max).exp().reciprocal()
+    attn = attn.sub(block_max)
+    attn = attn.exp()
+    sums = attn.sum(dim=-1, keepdim=True)
+    block_sum = sums
+    sums = block2batch(sums, block_mapping)
+    sums = batch2block(sums, block_mapping)
+    sums = sums.add(torch.finfo(sums.dtype).tiny)
+    sums = torch.maximum(block_sum, sums)
+    attn = attn.div(sums)
+    attn = attn.mul(block_adjustment)
     return attn
 
 
@@ -183,18 +175,16 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     else:
         key = key.transpose(2, 3)
 
-    print(query.shape, key.shape, block_bias.shape)
-    if os.environ.get('VLLM_PA_SPLIT_HEADS', 'false') == 'true':
-        query_slices = query.split(1, dim=2)
-    else:
-        query_slices = [query]
-    attn_slices = []
-    for q in query_slices:
-        attn = matmul_qk_op(q, key) + block_bias
-        attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
-        attn_slices.append(attn)
-    attn = torch.cat(attn_slices, dim=2)
+    attn = matmul_qk_op(query, key) + block_bias
+    block_max = attn.amax(dim=-1, keepdim=True)
+    attn = attn.sub(block_max)
+    attn = attn.exp()
+    sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
+    attn = attn.div(sums)
+    group_max = grouped_max(block_max, batch_size, block_groups)
+    block_adjustment = (group_max - block_max).exp().reciprocal()
+    attn = attn.mul(block_adjustment)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
