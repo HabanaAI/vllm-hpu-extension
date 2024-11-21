@@ -119,7 +119,7 @@ def grouped_max(block_max, batch_size, block_groups):
     return group_max.unflatten(1, shape[1:4])
 
 
-DEFAULT_PA_SOFTMAX_IMPL = 'wsum_head_amax'
+DEFAULT_PA_SOFTMAX_IMPL = 'index_reduce'
 normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
 
@@ -137,19 +137,40 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 
 def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
-    block_max = attn.amax(dim=-1, keepdim=True)
-    group_max = grouped_max(block_max, batch_size, block_groups)
-    block_adjustment = (group_max - block_max).exp().reciprocal()
-    attn = attn.sub(block_max)
-    attn = attn.exp()
-    sums = attn.sum(dim=-1, keepdim=True)
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
+                     block_scales=block_scales, block_groups=block_groups)
+    attn = torch.exp(attn)
+    sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
     sums = block2batch(sums, block_mapping)
     sums = batch2block(sums, block_mapping)
-    sums = sums.add(torch.finfo(sums.dtype).tiny)
+    sums.add_(torch.finfo(sums.dtype).tiny)
     sums = torch.maximum(block_sum, sums)
-    attn = attn.div(sums)
-    attn = attn.mul(block_adjustment)
+    attn.div_(sums)
+    return attn
+
+
+VLLM_USE_FFPA = os.environ.get('VLLM_USE_FFPA', 'false') == 'true'
+
+
+def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales):
+    if use_ffpa:
+        block_max = attn.amax(dim=-1, keepdim=True)
+        group_max = grouped_max(block_max, batch_size, block_groups)
+        block_adjustment = (group_max - block_max).exp()
+        attn = attn.sub(block_max)
+        attn = attn.exp()
+        sums = attn.sum(dim=-1, keepdim=True)
+        attn = matmul_av_op(attn, value)
+        attn = attn.div(block_adjustment)
+        sums = sums.div(block_adjustment)
+        prev_sums = sums
+        sums = batch2block(block2batch(sums, block_mapping), block_mapping)
+        sums = torch.maximum(sums, prev_sums)
+        attn = attn.div(sums)
+    else:
+        attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+        attn = matmul_av_op(attn, value)
     return attn
 
 
@@ -175,15 +196,26 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    block_max = attn.amax(dim=-1, keepdim=True)
-    attn = attn.sub(block_max)
-    attn = attn.exp()
-    sums = attn.sum(dim=-1, keepdim=True)
-    attn = matmul_av_op(attn, value)
-    attn = attn.div(sums)
-    group_max = grouped_max(block_max, batch_size, block_groups)
-    block_adjustment = (group_max - block_max).exp().reciprocal()
-    attn = attn.mul(block_adjustment)
+    attn = attn_impl(VLLM_USE_FFPA, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    #attn_true = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    #attn_false = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    #diff = (attn_true[0][0][0] - attn_false[0][0][0]).abs().max().item()#.tolist()
+    #print('diff:', diff)
+    #attn = attn_true
+    #attn = attn_true
+    #if VLLM_USE_FFPA:
+    #    block_max = attn.amax(dim=-1, keepdim=True)
+    #    attn = attn.sub(block_max)
+    #    attn = attn.exp()
+    #    sums = attn.sum(dim=-1, keepdim=True)
+    #    attn = matmul_av_op(attn, value)
+    #    attn = attn.div(sums)
+    #    group_max = grouped_max(block_max, batch_size, block_groups)
+    #    block_adjustment = (group_max - block_max).exp().reciprocal()
+    #    attn = attn.mul(block_adjustment)
+    #else:
+    #    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+    #    attn = matmul_av_op(attn, value)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
