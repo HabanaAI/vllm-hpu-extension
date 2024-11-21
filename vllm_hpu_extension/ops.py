@@ -157,17 +157,21 @@ VLLM_USE_FFPA = os.environ.get('VLLM_USE_FFPA', 'false')
 def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales):
     if use_ffpa:
         block_max = attn.amax(dim=-1, keepdim=True)
-        group_max = grouped_max(block_max, batch_size, block_groups)
-        block_adjustment = (group_max - block_max).exp()
         attn = attn.sub(block_max)
         attn = attn.exp()
         sums = attn.sum(dim=-1, keepdim=True)
         attn = matmul_av_op(attn, value)
-        attn = attn.div(block_adjustment)
-        sums = sums.div(block_adjustment)
+
+        group_max = grouped_max(block_max, batch_size, block_groups)
+        block_adjustment = (group_max - block_max).exp().reciprocal()
+
+        sums = sums.mul_(block_adjustment)
         prev_sums = sums
-        sums = batch2block(block2batch(sums, block_mapping), block_mapping)
+        sums = block2batch(sums, block_mapping)
+        sums = batch2block(sums, block_mapping)
         sums = torch.maximum(sums, prev_sums)
+
+        attn = attn.mul_(block_adjustment)
         attn = attn.div(sums)
         attn = block2batch(attn, block_mapping)
     else:
