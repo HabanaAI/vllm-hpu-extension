@@ -25,16 +25,16 @@ def hpu_bucketing_context():
 
 def test_singleton():
     context1 = HPUBucketingContext(
-        max_num_seqs=10,
-        max_num_prefill_seqs=5,
-        block_size=32,
-        max_num_batched_tokens=1024,
+        max_num_seqs=128,
+        max_num_prefill_seqs=16,
+        block_size=128,
+        max_num_batched_tokens=4096,
     )
     context2 = HPUBucketingContext(
-        max_num_seqs=10,
-        max_num_prefill_seqs=5,
-        block_size=32,
-        max_num_batched_tokens=1024,
+        max_num_seqs=128,
+        max_num_prefill_seqs=16,
+        block_size=128,
+        max_num_batched_tokens=4096,
     )
     assert context1 is context2
 
@@ -47,7 +47,7 @@ def test_read_bucket_settings(monkeypatch):
     assert config == [1, 16, 64]
 
 
-def test_read_bucket_settings_empty_flags(monkeypatch):
+def test_read_bucket_settings_empty_flags():
     config = read_bucket_settings("prompt", "bs", min=1, step=32, max=128)
     assert config == [1, 32, 128]
 
@@ -111,31 +111,36 @@ def test_generate_decode_buckets_method(hpu_bucketing_context):
     assert len(hpu_bucketing_context.decode_buckets) > 0
 
 
+def test_get_max_prompt_shape(hpu_bucketing_context):
+    max_shape = hpu_bucketing_context.get_max_prompt_shape()
+    assert max_shape == (16, 1024)
+
+
 def test_get_padded_prompt_batch_size(hpu_bucketing_context):
     padded_size = hpu_bucketing_context.get_padded_prompt_batch_size(5)
-    assert padded_size >= 5
+    assert padded_size == 8
 
 
 def test_get_padded_decode_batch_size(hpu_bucketing_context):
     padded_size = hpu_bucketing_context.get_padded_decode_batch_size(5)
-    assert padded_size >= 5
+    assert padded_size == 8
 
 
 def test_get_padded_prompt_seq_len(hpu_bucketing_context):
-    padded_len = hpu_bucketing_context.get_padded_prompt_seq_len(5)
-    assert padded_len >= 5
+    padded_len = hpu_bucketing_context.get_padded_prompt_seq_len(100)
+    assert padded_len == 128
 
 
 def test_get_padded_decode_num_blocks(hpu_bucketing_context):
-    padded_blocks = hpu_bucketing_context.get_padded_decode_num_blocks(5)
-    assert padded_blocks >= 5
+    padded_blocks = hpu_bucketing_context.get_padded_decode_num_blocks(100)
+    assert padded_blocks == 128
 
 
 def test_get_padded_batch_size(hpu_bucketing_context):
     padded_size = hpu_bucketing_context.get_padded_batch_size(5, is_prompt=True)
-    assert padded_size >= 5
+    assert padded_size == 8
 
 
 def test_get_padded_seq_or_block(hpu_bucketing_context):
-    padded_value = hpu_bucketing_context.get_padded_seq_or_block(5, is_prompt=True)
-    assert padded_value >= 5
+    padded_value = hpu_bucketing_context.get_padded_seq_or_block(100, is_prompt=True)
+    assert padded_value == 128
