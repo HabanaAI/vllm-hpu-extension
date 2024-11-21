@@ -168,9 +168,11 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         sums = batch2block(block2batch(sums, block_mapping), block_mapping)
         sums = torch.maximum(sums, prev_sums)
         attn = attn.div(sums)
+        attn = block2batch(attn, block_mapping)
     else:
         attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
         attn = matmul_av_op(attn, value)
+        attn = block2batch(attn, block_mapping)
     return attn
 
 
@@ -196,13 +198,14 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = attn_impl(VLLM_USE_FFPA, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-    #attn_true = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-    #attn_false = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-    #diff = (attn_true[0][0][0] - attn_false[0][0][0]).abs().max().item()#.tolist()
-    #print('diff:', diff)
+    #attn = attn_impl(VLLM_USE_FFPA, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    attn_true = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    attn_false = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+    #diff = (attn_true[1][0][0] - attn_false[1][0][0]).abs().max().item()#.tolist()
+    diff = (attn_true - attn_false).abs().max().item()#.tolist()
+    print('diff:', diff)
     #attn = attn_true
-    #attn = attn_true
+    attn = attn_false
     #if VLLM_USE_FFPA:
     #    block_max = attn.amax(dim=-1, keepdim=True)
     #    attn = attn.sub(block_max)
@@ -216,7 +219,6 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     #else:
     #    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
     #    attn = matmul_av_op(attn, value)
-    attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
