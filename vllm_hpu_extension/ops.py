@@ -137,20 +137,6 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
-    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
-                     block_scales=block_scales, block_groups=block_groups)
-    attn = torch.exp(attn)
-    sums = attn.sum(dim=-1).unsqueeze(-1)
-    block_sum = sums
-    sums = block2batch(sums, block_mapping)
-    sums = batch2block(sums, block_mapping)
-    sums.add_(torch.finfo(sums.dtype).tiny)
-    sums = torch.maximum(block_sum, sums)
-    attn.div_(sums)
-    return attn
-
-
 VLLM_USE_FFPA = os.environ.get('VLLM_USE_FFPA', 'false')
 
 
@@ -175,7 +161,16 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
         attn = block2batch(attn, block_mapping)
     else:
-        attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
+        attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
+                         block_scales=block_scales, block_groups=block_groups)
+        attn = torch.exp(attn)
+        sums = attn.sum(dim=-1).unsqueeze(-1)
+        block_sum = sums
+        sums = block2batch(sums, block_mapping)
+        sums = batch2block(sums, block_mapping)
+        sums.add_(torch.finfo(sums.dtype).tiny)
+        sums = torch.maximum(block_sum, sums)
+        attn.div_(sums)
         attn = matmul_av_op(attn, value)
         attn = block2batch(attn, block_mapping)
     return attn
@@ -206,15 +201,11 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     if VLLM_USE_FFPA == 'diff':
         attn_true = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
         attn_false = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-        diff = (attn_true - attn_false).abs().max().item()#.tolist()
+        diff = (attn_true - attn_false).abs().max().item()
         print('diff:', diff)
         attn = attn_false
-    elif VLLM_USE_FFPA == 'true':
-        attn = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-    elif VLLM_USE_FFPA == 'false':
-        attn = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
     else:
-        assert False
+        attn = attn_impl(VLLM_USE_FFPA == 'true', attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
