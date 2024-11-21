@@ -94,6 +94,10 @@ class HPUBucketingContext(metaclass=Singleton):
                     len(self.global_state.decode_buckets),
                     list(sorted(self.global_state.decode_buckets)))
 
+    def get_max_prompt_shape(self):
+        return (self.global_state.prompt_bs_bucket_cfg[-1],
+                self.global_state.prompt_seq_bucket_cfg[-1])
+
     def get_padded_prompt_batch_size(self, batch_size):
         return find_bucket(batch_size,
                            self.global_state.prompt_bs_bucket_cfg)
