@@ -158,11 +158,11 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         block_max = attn.amax(dim=-1, keepdim=True)
         attn = attn.sub(block_max)
         attn = attn.exp()
-        sums = attn.sum(dim=-1, keepdim=True)
+        sums = attn.sum(dim=-1).squeeze(-1)
         attn = matmul_av_op(attn, value)
 
         group_max = grouped_max(block_max, batch_size, block_groups)
-        block_adjustment = (group_max - block_max).exp().reciprocal()
+        block_adjustment = (group_max.squeeze(-1).squeeze(-1) - block_max.squeeze(-1).squeeze(-1)).exp().reciprocal()
 
         sums = sums.mul_(block_adjustment)
         prev_sums = sums
@@ -170,8 +170,8 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         sums = batch2block(sums, block_mapping)
         sums = torch.maximum(sums, prev_sums)
 
-        attn = attn.mul_(block_adjustment)
-        attn = attn.div(sums)
+        attn = attn.mul_(block_adjustment.unsqueeze(-1).unsqueeze(-1))
+        attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
         attn = block2batch(attn, block_mapping)
     else:
         attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
