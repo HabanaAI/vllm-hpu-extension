@@ -157,7 +157,7 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         sums = torch.maximum(sums, prev_sums)
 
         attn = attn.mul_(block_adjustment.unsqueeze(-1).unsqueeze(-1))
-        attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
+        attn = attn.div_(sums.unsqueeze(-1).unsqueeze(-1))
         attn = block2batch(attn, block_mapping)
     else:
         attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
