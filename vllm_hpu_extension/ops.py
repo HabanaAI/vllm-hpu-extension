@@ -111,13 +111,11 @@ class SoftmaxNormalization:
 
 
 def grouped_max(block_max, batch_size, block_groups):
-    shape = block_max.shape
-    block_max = block_max.flatten(1, 3)
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
                            dtype=block_max.dtype, device=block_max.device)
     group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax')
     group_max = group_max.index_select(0, block_groups)
-    return group_max.unflatten(1, shape[1:4])
+    return group_max
 
 
 DEFAULT_PA_SOFTMAX_IMPL = 'index_reduce'
@@ -145,20 +143,21 @@ def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, blo
         block_max = attn.amax(dim=-1, keepdim=True)
         attn = attn.sub(block_max)
         attn = attn.exp()
-        sums = attn.sum(dim=-1).squeeze(-1)
+        sums = attn.squeeze(-2).sum(dim=-1)
         attn = matmul_av_op(attn, value)
 
+        block_max = block_max.flatten(2, -1)
         group_max = grouped_max(block_max, batch_size, block_groups)
-        block_adjustment = (group_max.squeeze(-1).squeeze(-1) - block_max.squeeze(-1).squeeze(-1)).exp().reciprocal()
+        block_adjustment = (group_max - block_max).exp().reciprocal()
 
-        sums = sums.mul_(block_adjustment)
+        sums = sums.mul(block_adjustment)
         prev_sums = sums
         sums = block2batch(sums, block_mapping)
         sums = batch2block(sums, block_mapping)
         sums = torch.maximum(sums, prev_sums)
 
-        attn = attn.mul_(block_adjustment.unsqueeze(-1).unsqueeze(-1))
-        attn = attn.div_(sums.unsqueeze(-1).unsqueeze(-1))
+        attn = attn.mul(block_adjustment.unsqueeze(-1).unsqueeze(-1))
+        attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
         attn = block2batch(attn, block_mapping)
     else:
         attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
@@ -205,7 +204,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         print('diff:', diff)
         attn = attn_false
     else:
-        attn = attn_impl(VLLM_USE_FFPA == 'true', attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
+        attn = attn_impl(VLLM_USE_FFPA == 'true', attn, value, matmul_av_op,
+                         batch_size, block_groups, block_mapping, block_scales)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
