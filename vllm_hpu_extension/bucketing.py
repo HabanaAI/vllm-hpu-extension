@@ -74,8 +74,8 @@ class HPUBucketingContext(metaclass=Singleton):
             self.max_num_batched_tokens)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
-               f"prompt buckets [bs, seq]: \
-                {list(sorted(self.global_state.prompt_buckets))}")
+               f"prompt buckets [bs, seq]: "
+               f"{list(sorted(self.global_state.prompt_buckets))}")
         print(msg)
 
         msg = (f"Omitted {len(prompt_omitted_buckets)} "
@@ -90,9 +90,9 @@ class HPUBucketingContext(metaclass=Singleton):
         self.global_state.decode_buckets = generate_decode_buckets(
             self.global_state.decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks)
-        print("Generated %d decode buckets [bs, total_blocks]: %s",
-                    len(self.global_state.decode_buckets),
-                    list(sorted(self.global_state.decode_buckets)))
+        print(f"Generated {len(self.global_state.decode_buckets)} "
+              f"decode buckets [bs, total_blocks]: "
+              f"{list(sorted(self.global_state.decode_buckets))}")
 
     def get_max_prompt_shape(self):
         return (self.global_state.prompt_bs_bucket_cfg[-1],
