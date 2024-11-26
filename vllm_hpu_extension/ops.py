@@ -32,94 +32,12 @@ except ImportError:
                    "vLLM will use native implementation.")
 
 
-class SoftmaxNormalization:
-
-    def __init__(self, selected_impl):
-        implementations = {
-            'wsum': self.wsum,
-            'amax': self.amax,
-            'head_amax': self.head_amax,
-            'wsum_head_amax': self.wsum_head_amax,
-            'index_reduce': self.index_reduce,
-            'scatter_reduce': self.scatter_reduce,
-        }
-        supported_impls = implementations.keys()
-        for impl in selected_impl:
-            assert impl in supported_impls, f'Unsupported pa softmax impl - {impl} . Supported values: {list(supported_impls)}'
-        self.selected_impl = [implementations[impl] for impl in selected_impl]
-
-    def __call__(self, attn, **kwargs):
-        for impl in self.selected_impl:
-            attn = impl(attn, **kwargs)
-        return attn
-
-    @staticmethod
-    def amax(attn, **rest):
-        """Normalize by global maximum values"""
-        dims = tuple(range(1, attn.dim()))
-        attn_max = attn.amax(dims).amax()
-        return attn.sub_(attn_max)
-
-    @staticmethod
-    def head_amax(attn, **rest):
-        """Normalize by head maximum values"""
-        dims = (0, attn.dim() - 1)
-        attn_max = attn.amax(dims, keepdim=True)
-        return attn.sub_(attn_max)
-
-    @staticmethod
-    def wsum(attn, block_mapping, block_scales, **rest):
-        """Normalize by weighted sum of block maximums"""
-        block_sum_attn = attn.amax(-1)
-        missing_dims = block_sum_attn.dim() - block_scales.dim()
-        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-        block_sum_attn = block2batch(block_sum_attn, block_mapping)
-        block_sum_attn = batch2block(block_sum_attn, block_mapping)
-        return attn.sub_(block_sum_attn.unsqueeze(-1))
-
-    @staticmethod
-    def wsum_head_amax(attn, block_mapping, block_scales, **rest):
-        """Perform weighted sum fused with head maximum normalization"""
-        attn_max = attn.amax(-1)
-        missing_dims = attn_max.dim() - block_scales.dim()
-        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-        block_sum_attn = block2batch(block_sum_attn, block_mapping)
-        block_sum_attn = batch2block(block_sum_attn, block_mapping)
-        attn.sub_(block_sum_attn.unsqueeze(-1))
-        attn_max.sub_(block_sum_attn)
-        attn_max = attn_max.amax(0, keepdim=True)
-        return attn.sub_(attn_max.unsqueeze(-1))
-
-    @staticmethod
-    def index_reduce(attn, batch_size, block_groups, **rest):
-        """Normalize by max in block groups using index_reduce"""
-        block_max = attn.amax(-1).squeeze(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
-        grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
-
-    @staticmethod
-    def scatter_reduce(attn, batch_size, block_groups, **rest):
-        """Normalize by max in block groups using scatter_reduce"""
-        block_max = attn.amax(-1).squeeze(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
-        grouped_max.scatter_reduce_(0, indices, block_max, 'amax')
-        grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
-
-
 def grouped_max(block_max, batch_size, block_groups):
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
                            dtype=block_max.dtype, device=block_max.device)
     group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax')
     group_max = group_max.index_select(0, block_groups)
     return group_max
-
-
-DEFAULT_PA_SOFTMAX_IMPL = 'index_reduce'
-normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
 
 
 def b2b_impl(tensor, block_mapping, matmul_op):
@@ -133,46 +51,6 @@ def batch2block(tensor, block_mapping, matmul_op=torch.matmul):
 
 def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
-
-
-VLLM_USE_FFPA = os.environ.get('VLLM_USE_FFPA', 'false')
-
-
-def attn_impl(use_ffpa, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales):
-    if use_ffpa:
-        block_max = attn.amax(dim=-1, keepdim=True)
-        attn = attn.sub(block_max)
-        attn = attn.exp()
-        sums = attn.squeeze(-2).sum(dim=-1)
-        attn = matmul_av_op(attn, value)
-
-        block_max = block_max.flatten(2, -1)
-        group_max = grouped_max(block_max, batch_size, block_groups)
-        block_adjustment = (group_max - block_max).exp().reciprocal()
-
-        sums = sums.mul(block_adjustment)
-        prev_sums = sums
-        sums = block2batch(sums, block_mapping)
-        sums = batch2block(sums, block_mapping)
-        sums = torch.maximum(sums, prev_sums)
-
-        attn = attn.mul(block_adjustment.unsqueeze(-1).unsqueeze(-1))
-        attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
-        attn = block2batch(attn, block_mapping)
-    else:
-        attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
-                         block_scales=block_scales, block_groups=block_groups)
-        attn = torch.exp(attn)
-        sums = attn.sum(dim=-1).unsqueeze(-1)
-        block_sum = sums
-        sums = block2batch(sums, block_mapping)
-        sums = batch2block(sums, block_mapping)
-        sums.add_(torch.finfo(sums.dtype).tiny)
-        sums = torch.maximum(block_sum, sums)
-        attn.div_(sums)
-        attn = matmul_av_op(attn, value)
-        attn = block2batch(attn, block_mapping)
-    return attn
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
@@ -197,15 +75,29 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    if VLLM_USE_FFPA == 'diff':
-        attn_true = attn_impl(True, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-        attn_false = attn_impl(False, attn, value, matmul_av_op, batch_size, block_groups, block_mapping, block_scales)
-        diff = (attn_true - attn_false).abs().max().item()
-        print('diff:', diff)
-        attn = attn_false
-    else:
-        attn = attn_impl(VLLM_USE_FFPA == 'true', attn, value, matmul_av_op,
-                         batch_size, block_groups, block_mapping, block_scales)
+    # Normalize the attention scores
+    block_max = attn.amax(dim=-1, keepdim=True)
+    attn = attn.sub(block_max)
+    attn = attn.exp()
+    block_sums = attn.squeeze(-2).sum(dim=-1)
+
+    attn = matmul_av_op(attn, value)
+    block_max = block_max.flatten(2, -1)
+    # Calculate maximum of blocks that belong to the same sequences
+    group_max = grouped_max(block_max, batch_size, block_groups)
+    block_adjustment = (group_max - block_max).exp().reciprocal()
+    block_sums = block_sums.mul(block_adjustment)
+    prev_sums = block_sums
+    # Sum block_sums that belongs to the same sequeneces
+    block_sums = block2batch(block_sums, block_mapping)
+    sums = batch2block(block_sums, block_mapping)
+    # For stability in case some of the sums have been zeroed out during block aggretation
+    sums = torch.maximum(sums, prev_sums)
+    # Post processing for the attention scores
+    attn = attn.mul(block_adjustment.unsqueeze(-1).unsqueeze(-1))
+    attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
+    attn = block2batch(attn, block_mapping)
+
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
