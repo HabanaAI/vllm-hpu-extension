@@ -82,4 +82,4 @@ if __name__ == "__main__":
     print(
         f"Last batch finished: {i + 1}/{calibration_ds.shape[0]} samples done")
 
-    llm.finish_measurements()
+    del llm
