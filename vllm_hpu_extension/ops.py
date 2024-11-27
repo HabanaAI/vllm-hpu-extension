@@ -85,17 +85,18 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     block_max = block_max.flatten(2, -1)
     # Calculate maximum of blocks that belong to the same sequences
     group_max = grouped_max(block_max, batch_size, block_groups)
-    block_adjustment = (group_max - block_max).exp().reciprocal()
-    block_sums = block_sums.mul(block_adjustment)
-    prev_sums = block_sums
-    # Sum block_sums that belongs to the same sequeneces
-    block_sums = block2batch(block_sums, block_mapping)
-    sums = batch2block(block_sums, block_mapping)
+    block_adjustment = (block_max - group_max).exp()
+    sum_adjusted = block_sums.mul(block_adjustment)
+    prev_sums = sum_adjusted.unsqueeze(-1).unsqueeze(-1)
+    # Sum block's sums that belongs to the same sequeneces
+    sum_adjusted = block2batch(sum_adjusted, block_mapping)
+    group_sum_adjusted = batch2block(sum_adjusted, block_mapping).unsqueeze(-1).unsqueeze(-1)
     # For stability in case some of the sums have been zeroed out during block aggretation
-    sums = torch.maximum(sums, prev_sums)
+    group_sum_adjusted = torch.maximum(group_sum_adjusted, prev_sums)
     # Post processing for the attention scores
-    attn = attn.mul(block_adjustment.unsqueeze(-1).unsqueeze(-1))
-    attn = attn.div(sums.unsqueeze(-1).unsqueeze(-1))
+    block_adjustment = block_adjustment.unsqueeze(-1).unsqueeze(-1)
+    rescale = block_adjustment.div(group_sum_adjusted)
+    attn = attn.mul(rescale)
     attn = block2batch(attn, block_mapping)
 
     attn = attn.squeeze(-2)
