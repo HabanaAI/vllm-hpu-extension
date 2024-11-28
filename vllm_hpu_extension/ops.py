@@ -53,7 +53,8 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size, matmul_av_op):
+def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # Normalize the attention scores
     block_max = attn.amax(dim=-1, keepdim=True)
     attn = attn.sub(block_max)
@@ -68,8 +69,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     sum_adjusted = block_sums.mul(block_adjustment)
     prev_sums = sum_adjusted.unsqueeze(-1).unsqueeze(-1)
     # Sum block's sums that belongs to the same sequeneces
-    sum_adjusted = block2batch(sum_adjusted, block_mapping)
-    group_sum_adjusted = batch2block(sum_adjusted, block_mapping).unsqueeze(-1).unsqueeze(-1)
+    sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
+    group_sum_adjusted = batch2block(sum_adjusted, block_mapping, batch2block_matmul_op).unsqueeze(-1).unsqueeze(-1)
     # For stability in case some of the sums have been zeroed out during block aggretation
     group_sum_adjusted = torch.maximum(group_sum_adjusted, prev_sums)
     # Post processing for the attention scores
@@ -79,12 +80,13 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     return attn
 
 
-def pa(attn, value, block_groups, block_mapping, block_scales, batch_size, matmul_av_op):
+def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+       matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     attn_max = attn.amax(-1)
     missing_dims = attn_max.dim() - block_scales.dim()
     block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-    block_sum_attn = block2batch(block_sum_attn, block_mapping)
-    block_sum_attn = batch2block(block_sum_attn, block_mapping)
+    block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
     attn.sub_(block_sum_attn.unsqueeze(-1))
     attn_max.sub_(block_sum_attn)
     attn_max = attn_max.amax(0, keepdim=True)
@@ -93,8 +95,8 @@ def pa(attn, value, block_groups, block_mapping, block_scales, batch_size, matmu
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
     # Sum block's sums that belongs to the same sequeneces
-    sums = block2batch(sums, block_mapping)
-    group_sums = batch2block(sums, block_mapping)
+    sums = block2batch(sums, block_mapping, block2batch_matmul_op)
+    group_sums = batch2block(sums, block_mapping, batch2block_matmul_op)
     group_sums.add_(torch.finfo(group_sums.dtype).tiny)
     group_sums = torch.maximum(block_sum, group_sums)
     attn.div_(group_sums)
@@ -130,8 +132,9 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
 
     attn = matmul_qk_op(query, key) + block_bias
     attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
-                   batch_size=batch_size, matmul_av_op=matmul_av_op)
-    attn = block2batch(attn, block_mapping)
+                   batch_size=batch_size, matmul_av_op=matmul_av_op,
+                   batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
+    attn = block2batch(attn, block_mapping, block2batch_matmul_op)
 
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
