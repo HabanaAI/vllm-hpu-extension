@@ -53,28 +53,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, block_groups, scale, matmul_qk_op,
-            matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
-            keys_fetch_func, values_fetch_func):
-    batch_size = query.size(0)
-    q_heads = query.size(1)
-    kv_heads = key_cache.size(2)
-
-    query = batch2block(scale * query, block_mapping, batch2block_matmul_op).unsqueeze(-2)
-    key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
-    value = values_fetch_func(value_cache, block_list).transpose(1, 2)
-    block_bias = block_bias.view(key.size(0), 1, 1, -1)
-    if kv_heads != q_heads:
-        block_bias = block_bias.unsqueeze(1)
-        query = query.unflatten(1, (kv_heads, -1))
-        key = key.unflatten(1, (kv_heads, 1))
-        value = value.unflatten(1, (kv_heads, 1))
-        key = key.transpose(3, 4)
-    else:
-        key = key.transpose(2, 3)
-
-    attn = matmul_qk_op(query, key) + block_bias
+def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size, matmul_av_op):
     # Normalize the attention scores
     block_max = attn.amax(dim=-1, keepdim=True)
     attn = attn.sub(block_max)
@@ -97,6 +76,61 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     block_adjustment = block_adjustment.unsqueeze(-1).unsqueeze(-1)
     rescale = block_adjustment.div(group_sum_adjusted)
     attn = attn.mul(rescale)
+    return attn
+
+
+def pa(attn, value, block_groups, block_mapping, block_scales, batch_size, matmul_av_op):
+    attn_max = attn.amax(-1)
+    missing_dims = attn_max.dim() - block_scales.dim()
+    block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+    block_sum_attn = block2batch(block_sum_attn, block_mapping)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping)
+    attn.sub_(block_sum_attn.unsqueeze(-1))
+    attn_max.sub_(block_sum_attn)
+    attn_max = attn_max.amax(0, keepdim=True)
+    attn.sub_(attn_max.unsqueeze(-1))
+    attn = attn.exp()
+    sums = attn.sum(dim=-1).unsqueeze(-1)
+    block_sum = sums
+    # Sum block's sums that belongs to the same sequeneces
+    sums = block2batch(sums, block_mapping)
+    group_sums = batch2block(sums, block_mapping)
+    group_sums.add_(torch.finfo(group_sums.dtype).tiny)
+    group_sums = torch.maximum(block_sum, group_sums)
+    attn.div_(group_sums)
+    attn = matmul_av_op(attn, value)
+    return attn
+
+
+pipelined_pa_enabled = True if "index_reduce" in capabilities() else False
+pipelined_pa_enabled = os.environ.get('VLLM_PIPELINED_PA', pipelined_pa_enabled)
+pa_impl = pipelined_pa if pipelined_pa_enabled else pa
+
+
+def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
+            block_bias, block_scales, block_groups, scale, matmul_qk_op,
+            matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
+            keys_fetch_func, values_fetch_func):
+    batch_size = query.size(0)
+    q_heads = query.size(1)
+    kv_heads = key_cache.size(2)
+
+    query = batch2block(scale * query, block_mapping, batch2block_matmul_op).unsqueeze(-2)
+    key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
+    value = values_fetch_func(value_cache, block_list).transpose(1, 2)
+    block_bias = block_bias.view(key.size(0), 1, 1, -1)
+    if kv_heads != q_heads:
+        block_bias = block_bias.unsqueeze(1)
+        query = query.unflatten(1, (kv_heads, -1))
+        key = key.unflatten(1, (kv_heads, 1))
+        value = value.unflatten(1, (kv_heads, 1))
+        key = key.transpose(3, 4)
+    else:
+        key = key.transpose(2, 3)
+
+    attn = matmul_qk_op(query, key) + block_bias
+    attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
+                   batch_size=batch_size, matmul_av_op=matmul_av_op)
     attn = block2batch(attn, block_mapping)
 
     attn = attn.squeeze(-2)
