@@ -58,6 +58,7 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # Normalize the attention scores
     block_max = attn.amax(dim=-1, keepdim=True)
+    adjustment_target_shape = block_max.shape
     attn = attn.sub(block_max)
     attn = attn.exp()
     block_sums = attn.squeeze().sum(dim=-1)
@@ -70,10 +71,9 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     # Sum block's sums that belongs to the same sequeneces
     group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
     group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
-    target_shape = list(group_sum_adjusted.shape) + [1] * (attn.dim() - group_sum_adjusted.dim())
-    sum_adjusted = sum_adjusted.view(*target_shape)
-    group_sum_adjusted = group_sum_adjusted.view(*target_shape)
-    block_adjustment = block_adjustment.view(*target_shape)
+    sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
+    group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
+    block_adjustment = block_adjustment.view(*adjustment_target_shape)
     # For stability in case some of the sums have been zeroed out during block aggretation
     group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
     # Post processing for the attention scores
@@ -136,11 +136,13 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
                    batch_size=batch_size, matmul_av_op=matmul_av_op,
                    batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
+    print(f"attn shape: {attn.shape}")
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
-
+    print(f"attn shape afterblock2batch: {attn.shape}")
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
+    print(f"attn shape at return: {attn.shape}")
     return attn
 
 
@@ -148,7 +150,9 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
-#TODO: remove after fusedsdpa fix for query_head != kv_head
+# TODO: remove after fusedsdpa fix for query_head != kv_head
+
+
 def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
@@ -161,6 +165,7 @@ def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     kv = kv[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen,
                                      head_dim)
     return kv.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
 
 def prompt_attention(
     query: torch.Tensor,
@@ -194,9 +199,10 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE','1') == '1'
-        VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
-        #TODO: remove after fusedsdpa fix for query_heads != kv_heads
+        VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE', '1') == '1'
+        VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get(
+            'VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS', '0') == '1'
+        # TODO: remove after fusedsdpa fix for query_heads != kv_heads
         if query_heads != kv_heads:
             if VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS:
                 htcore.mark_step()
