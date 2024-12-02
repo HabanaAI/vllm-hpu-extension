@@ -136,13 +136,10 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
                    batch_size=batch_size, matmul_av_op=matmul_av_op,
                    batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
-    print(f"attn shape: {attn.shape}")
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
-    print(f"attn shape afterblock2batch: {attn.shape}")
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
         attn = attn.flatten(1, 2)
-    print(f"attn shape at return: {attn.shape}")
     return attn
 
 
