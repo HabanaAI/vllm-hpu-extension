@@ -60,22 +60,23 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     block_max = attn.amax(dim=-1, keepdim=True)
     attn = attn.sub(block_max)
     attn = attn.exp()
-    block_sums = attn.squeeze(-2).sum(dim=-1)
-
+    block_sums = attn.squeeze().sum(dim=-1)
     attn = matmul_av_op(attn, value)
-    block_max = block_max.flatten(2, -1)
+    block_max = block_max.squeeze()
     # Calculate maximum of blocks that belong to the same sequences
     group_max = grouped_max(block_max, batch_size, block_groups)
     block_adjustment = (block_max - group_max).exp()
     sum_adjusted = block_sums.mul(block_adjustment)
-    prev_sums = sum_adjusted.unsqueeze(-1).unsqueeze(-1)
     # Sum block's sums that belongs to the same sequeneces
-    sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
-    group_sum_adjusted = batch2block(sum_adjusted, block_mapping, batch2block_matmul_op).unsqueeze(-1).unsqueeze(-1)
+    group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
+    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
+    target_shape = list(group_sum_adjusted.shape) + [1] * (attn.dim() - group_sum_adjusted.dim())
+    sum_adjusted = sum_adjusted.view(*target_shape)
+    group_sum_adjusted = group_sum_adjusted.view(*target_shape)
+    block_adjustment = block_adjustment.view(*target_shape)
     # For stability in case some of the sums have been zeroed out during block aggretation
-    group_sum_adjusted = torch.maximum(group_sum_adjusted, prev_sums)
+    group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
     # Post processing for the attention scores
-    block_adjustment = block_adjustment.unsqueeze(-1).unsqueeze(-1)
     rescale = block_adjustment.div(group_sum_adjusted)
     attn = attn.mul(rescale)
     return attn
@@ -105,8 +106,8 @@ def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
     return attn
 
 
-pipelined_pa_enabled = True if "index_reduce" in capabilities() else False
-pipelined_pa_enabled = os.environ.get('VLLM_PIPELINED_PA', pipelined_pa_enabled)
+pipelined_pa_enabled = 'True' if "index_reduce" in capabilities() else 'False'
+pipelined_pa_enabled = os.environ.get('VLLM_PIPELINED_PA', pipelined_pa_enabled).lower() == 'true'
 pa_impl = pipelined_pa if pipelined_pa_enabled else pa
 
 
