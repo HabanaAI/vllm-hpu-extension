@@ -72,6 +72,8 @@ class HabanaHighLevelProfiler:
             file_writer = FileWriter(self.filename,
                                      self.profiling_trace_events)
             file_writer.start()
+        if os.getenv('VLLM_PROFILER_ENABLED') == 'full':
+            self.enabled = True # don't save separate high-level traces
 
     def _dump_with_sep(self, entry):
         entry = json.dumps(entry) + ','
