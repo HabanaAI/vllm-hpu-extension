@@ -33,6 +33,46 @@ except ImportError:
                    "vLLM will use native implementation.")
 
 
+class SoftmaxNormalization:
+
+    def __init__(self, selected_impl):
+        implementations = {
+            'wsum_head_amax': self.wsum_head_amax,
+            'index_reduce': self.index_reduce,
+        }
+        supported_impls = implementations.keys()
+        for impl in selected_impl:
+            assert impl in supported_impls, f'Unsupported pa softmax impl - {impl} . Supported values: {list(supported_impls)}'
+        self.selected_impl = [implementations[impl] for impl in selected_impl]
+
+    def __call__(self, attn, **kwargs):
+        for impl in self.selected_impl:
+            attn = impl(attn, **kwargs)
+        return attn
+
+    @staticmethod
+    def wsum_head_amax(attn, block_mapping, block_scales, **rest):
+        """Perform weighted sum fused with head maximum normalization"""
+        attn_max = attn.amax(-1)
+        missing_dims = attn_max.dim() - block_scales.dim()
+        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn = block2batch(block_sum_attn, block_mapping)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping)
+        attn.sub_(block_sum_attn.unsqueeze(-1))
+        attn_max.sub_(block_sum_attn)
+        attn_max = attn_max.amax(0, keepdim=True)
+        return attn.sub_(attn_max.unsqueeze(-1))
+
+    @staticmethod
+    def index_reduce(attn, batch_size, block_groups, **rest):
+        """Normalize by max in block groups using index_reduce"""
+        block_max = attn.amax(-1).squeeze(-1)
+        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
+        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
+        grouped_max = grouped_max.index_select(0, block_groups)
+        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
+
+
 def grouped_max(block_max, batch_size, block_groups):
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
                            dtype=block_max.dtype, device=block_max.device)
@@ -82,17 +122,14 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     return attn
 
 
+DEFAULT_PA_SOFTMAX_IMPL = "index_reduce" if "index_reduce" in capabilities() else "wsum_head_amax"
+normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
+
+
 def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
        matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
-    attn_max = attn.amax(-1)
-    missing_dims = attn_max.dim() - block_scales.dim()
-    block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-    block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
-    block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
-    attn.sub_(block_sum_attn.unsqueeze(-1))
-    attn_max.sub_(block_sum_attn)
-    attn_max = attn_max.amax(0, keepdim=True)
-    attn.sub_(attn_max.unsqueeze(-1))
+    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
+                     block_scales=block_scales, block_groups=block_groups)
     attn = attn.exp()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
@@ -147,9 +184,8 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
+
 # TODO: remove after fusedsdpa fix for query_head != kv_head
-
-
 def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
