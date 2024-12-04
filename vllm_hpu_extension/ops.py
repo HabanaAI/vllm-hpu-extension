@@ -61,9 +61,10 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     adjustment_target_shape = block_max.shape
     attn = attn.sub(block_max)
     attn = attn.exp()
-    block_sums = attn.squeeze().sum(dim=-1)
+    block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
     block_max = block_max.squeeze()
+    block_sums = block_sums.squeeze()
     # Calculate maximum of blocks that belong to the same sequences
     group_max = grouped_max(block_max, batch_size, block_groups)
     block_adjustment = (block_max - group_max).exp()
