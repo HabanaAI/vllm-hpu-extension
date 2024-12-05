@@ -24,7 +24,7 @@ usage() {
 
 create_measure_config() {
     mkdir -p $1/$2/$3
-    tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"whitelist\": {\"types\": [], \"names\":  []},\"blacklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     echo "$tmp_config" > $1/$2/maxabs_measure_$3.json
 }
 
