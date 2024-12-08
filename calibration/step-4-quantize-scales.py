@@ -24,3 +24,5 @@ if __name__ == "__main__":
         dtype=torch.bfloat16,
         quantization='inc',
         kv_cache_dtype="fp8_inc")
+
+    llm.llm_engine.model_executor.shutdown()
