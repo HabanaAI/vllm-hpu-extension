@@ -12,11 +12,11 @@ from contextlib import contextmanager
 from typing import Any, List
 import psutil
 import torch
+import uuid
 from habana_frameworks.torch import torch
 
 from vllm_hpu_extension.utils import is_fake_hpu
 from vllm.logger import init_logger
-from vllm.utils import get_vllm_instance_id
 
 logger = init_logger(__name__)
 
@@ -55,17 +55,18 @@ class FileWriter(threading.Thread):
 class HabanaHighLevelProfiler:
     profiling_trace_events: queue.Queue = queue.Queue()
     event_tid = {'counter': 1, 'external': 2, 'internal': 3}
-    vllm_instance_id = get_vllm_instance_id()
-    filename = f'server_events_{vllm_instance_id}.json'
     event_cache: List[Any] = []
 
-    def __init__(self):
+    def __init__(self, vllm_instance_id = None):
         self.enabled = os.getenv('VLLM_PROFILER_ENABLED',
                                  'false').lower() == 'true' and int(
                                      os.getenv('RANK', '0')) == 0
-        msg = f'Profiler enabled for: {self.vllm_instance_id}'
-        logger.info(msg)
         if self.enabled:
+            self.vllm_instance_id = vllm_instance_id if vllm_instance_id is not None \
+                else f"vllm-instance-{str(uuid.uuid4().hex)}"
+            msg = f'Profiler enabled for: {self.vllm_instance_id}'
+            logger.info(msg)
+            self.filename = f'server_events_{vllm_instance_id}.json'
             # initialize the trace file (JSON Array Format)
             with open(self.filename, 'w') as outfile:
                 outfile.write('[')
