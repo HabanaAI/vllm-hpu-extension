@@ -322,7 +322,6 @@ def dispatch_bgmv_embedding(
     x: torch.Tensor,
     wb_t_all: torch.Tensor,
     layer_idx: int,
-    scale: float,
 ):
     """
     `wb_t_all` contains all LoRA-B weight matrices stacked at dimension 0 into
@@ -343,7 +342,7 @@ def dispatch_bgmv_embedding(
     wb = wb_t_all[:, 0, :, :].transpose(1, 2)
     wb = wb.reshape(wb.shape[0] * wb.shape[1], wb.shape[2])
     out = x @ wb
-    y += out * scale
+    y += out
 
 
 class MoeMatmul(torch.nn.Module):
