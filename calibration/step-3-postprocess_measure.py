@@ -87,8 +87,8 @@ def main(args):
                         layers[layer]["inputs"] = [
                             np.array(x) for x in dlayer["inputs"]]
                         if dlayer.get("outputs") is not None:
-                            layers[layer]["outputs"] = np.array(
-                                dlayer["outputs"])
+                            layers[layer]["outputs"] = [
+                                np.array(x) for x in dlayer["outputs"]]
                         if dlayer.get("params") is not None and dlayer["params"].get("weight") is not None:
                             layers[layer]["params"] = {}
                             layers[layer]["params"]["weight"] = np.array(
