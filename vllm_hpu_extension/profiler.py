@@ -12,13 +12,13 @@ from contextlib import contextmanager
 from typing import Any, List
 import psutil
 import torch
+import logging
 from habana_frameworks.torch import torch
 
 from vllm_hpu_extension.utils import is_fake_hpu
-from vllm.logger import init_logger
 from vllm.utils import get_vllm_instance_id
 
-logger = init_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class FileWriter(threading.Thread):
