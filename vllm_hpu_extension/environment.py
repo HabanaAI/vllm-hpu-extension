@@ -10,8 +10,8 @@ from functools import cache
 
 @cache
 def lazy_logger():
-    from vllm.logger import init_logger
-    return init_logger(__name__)
+    import logging
+    return logging.getLogger(__name__)
 
 
 def get_hw():

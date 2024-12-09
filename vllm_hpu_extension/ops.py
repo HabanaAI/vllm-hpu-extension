@@ -11,12 +11,12 @@ import torch
 import os
 import torch.nn.functional as F
 import math
+import logging
 import habana_frameworks.torch.core as htcore
 
-from vllm.logger import init_logger
 from vllm_hpu_extension.capabilities import capabilities
 
-logger = init_logger(__name__)
+logger = logging.getLogger(__name__)
 HPUFusedRMSNorm = None
 try:
     from habana_frameworks.torch.hpex.normalization import FusedRMSNorm
