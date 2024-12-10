@@ -428,7 +428,7 @@ class DynamicFusedMOE(torch.nn.Module):
             permuted_weights=True,
             activation="silu",
             experts_min=0,
-            experts_max=7
+            experts_max=self.num_total_experts
         )
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
