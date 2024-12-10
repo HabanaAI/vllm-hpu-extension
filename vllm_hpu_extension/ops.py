@@ -223,13 +223,13 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE','1') == '1'
-        VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
+        VLLM_FUSEDSDPA_REPEAT_KV_CACHE = os.environ.get('VLLM_FUSEDSDPA_REPEAT_KV_CACHE','0') == '1'
+        VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get('VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
         #TODO: remove after fusedsdpa fix for query_heads != kv_heads
         if query_heads != kv_heads:
-            if VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS:
+            if VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS:
                 htcore.mark_step()
-            if VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE:
+            if VLLM_FUSEDSDPA_REPEAT_KV_CACHE:
                 key = repeat_kv(key, int(query_heads // kv_heads))
                 value = repeat_kv(value, int(query_heads // kv_heads))
         softmax_mode = 'fast'
