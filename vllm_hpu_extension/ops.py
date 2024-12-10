@@ -148,9 +148,8 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
+
 # TODO: remove after fusedsdpa fix for query_head != kv_head
-
-
 def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
