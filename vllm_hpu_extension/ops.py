@@ -177,6 +177,7 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
+
 #TODO: remove after fusedsdpa fix for query_head != kv_head
 def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
@@ -190,6 +191,7 @@ def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     kv = kv[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen,
                                      head_dim)
     return kv.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
 
 def prompt_attention(
     query: torch.Tensor,
@@ -223,13 +225,15 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        VLLM_FUSEDSDPA_REPEAT_KV_CACHE = os.environ.get('VLLM_FUSEDSDPA_REPEAT_KV_CACHE','0') == '1'
-        VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get('VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
+        do_repeat_kv_cache = os.environ.get(
+            'VLLM_FUSEDSDPA_REPEAT_KV_CACHE','0') == '1'
+        do_split_repeat_kv_cache_graphs = os.environ.get(
+            'VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
         #TODO: remove after fusedsdpa fix for query_heads != kv_heads
         if query_heads != kv_heads:
-            if VLLM_FUSEDSDPA_REPEAT_KV_CACHE_SPLIT_GRAPHS:
+            if do_split_repeat_kv_cache_graphs:
                 htcore.mark_step()
-            if VLLM_FUSEDSDPA_REPEAT_KV_CACHE:
+            if do_repeat_kv_cache:
                 key = repeat_kv(key, int(query_heads // kv_heads))
                 value = repeat_kv(value, int(query_heads // kv_heads))
         softmax_mode = 'fast'
