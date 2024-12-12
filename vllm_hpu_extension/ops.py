@@ -76,17 +76,21 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     return attn
 
 
+const_norm = os.environ.get('VLLM_SOFTMAX_CONST_NORM', 'true').lower() == 'true'
 def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
        matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
-    attn_max = attn.amax(-1)
-    missing_dims = attn_max.dim() - block_scales.dim()
-    block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-    block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
-    block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
-    attn.sub_(block_sum_attn.unsqueeze(-1))
-    attn_max.sub_(block_sum_attn)
-    attn_max = attn_max.amax(0, keepdim=True)
-    attn.sub_(attn_max.unsqueeze(-1))
+    if not const_norm:
+        attn_max = attn.amax(-1)
+        missing_dims = attn_max.dim() - block_scales.dim()
+        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+        block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
+        block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
+        attn.sub_(block_sum_attn.unsqueeze(-1))
+        attn_max.sub_(block_sum_attn)
+        attn_max = attn_max.amax(0, keepdim=True)
+        attn.sub_(attn_max.unsqueeze(-1))
+    else:
+        attn.sub_(10.0)
     attn = attn.exp()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
