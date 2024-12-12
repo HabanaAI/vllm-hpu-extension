@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vllm-hpu-extension"
+dynamic = ["version"]
+description = "HPU extension package for vLLM"
+authors = [
+    {name = "Tomasz Zielinski", email = "tzielinski@habana.ai"},
+    {name = "Konrad Zawora", email = "kzawora@habana.ai"},
+]
+dependencies = []
+requires-python = "==3.10.*"
+readme = "README.md"
+license = {text = "Apache 2.0"}
+
+[tool.setuptools_scm]
