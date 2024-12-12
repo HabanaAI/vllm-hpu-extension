@@ -33,86 +33,12 @@ except ImportError:
                    "vLLM will use native implementation.")
 
 
-class SoftmaxNormalization:
-
-    def __init__(self, selected_impl):
-        implementations = {
-            'wsum': self.wsum,
-            'amax': self.amax,
-            'head_amax': self.head_amax,
-            'wsum_head_amax': self.wsum_head_amax,
-            'index_reduce': self.index_reduce,
-            'scatter_reduce': self.scatter_reduce,
-        }
-        supported_impls = implementations.keys()
-        for impl in selected_impl:
-            assert impl in supported_impls, f'Unsupported pa softmax impl - {impl} . Supported values: {list(supported_impls)}'
-        self.selected_impl = [implementations[impl] for impl in selected_impl]
-
-    def __call__(self, attn, **kwargs):
-        for impl in self.selected_impl:
-            attn = impl(attn, **kwargs)
-        return attn
-
-    @staticmethod
-    def amax(attn, **rest):
-        """Normalize by global maximum values"""
-        dims = tuple(range(1, attn.dim()))
-        attn_max = attn.amax(dims).amax()
-        return attn.sub_(attn_max)
-
-    @staticmethod
-    def head_amax(attn, **rest):
-        """Normalize by head maximum values"""
-        dims = (0, attn.dim() - 1)
-        attn_max = attn.amax(dims, keepdim=True)
-        return attn.sub_(attn_max)
-
-    @staticmethod
-    def wsum(attn, block_mapping, block_scales, **rest):
-        """Normalize by weighted sum of block maximums"""
-        block_sum_attn = attn.amax(-1)
-        missing_dims = block_sum_attn.dim() - block_scales.dim()
-        block_sum_attn.mul_(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-        block_sum_attn = block2batch(block_sum_attn, block_mapping)
-        block_sum_attn = batch2block(block_sum_attn, block_mapping)
-        return attn.sub_(block_sum_attn.unsqueeze(-1))
-
-    @staticmethod
-    def wsum_head_amax(attn, block_mapping, block_scales, **rest):
-        """Perform weighted sum fused with head maximum normalization"""
-        attn_max = attn.amax(-1)
-        missing_dims = attn_max.dim() - block_scales.dim()
-        block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
-        block_sum_attn = block2batch(block_sum_attn, block_mapping)
-        block_sum_attn = batch2block(block_sum_attn, block_mapping)
-        attn.sub_(block_sum_attn.unsqueeze(-1))
-        attn_max.sub_(block_sum_attn)
-        attn_max = attn_max.amax(0, keepdim=True)
-        return attn.sub_(attn_max.unsqueeze(-1))
-
-    @staticmethod
-    def index_reduce(attn, batch_size, block_groups, **rest):
-        """Normalize by max in block groups using index_reduce"""
-        block_max = attn.amax(-1).squeeze(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        grouped_max = grouped_max.index_reduce_(0, block_groups, block_max, 'amax')
-        grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
-
-    @staticmethod
-    def scatter_reduce(attn, batch_size, block_groups, **rest):
-        """Normalize by max in block groups using scatter_reduce"""
-        block_max = attn.amax(-1).squeeze(-1)
-        grouped_max = torch.full([batch_size + 1, *attn.shape[1:-2]], -math.inf, dtype=attn.dtype, device=attn.device)
-        indices = block_groups.view(-1, *[1 for _ in grouped_max.shape[1:]]).expand(-1, *grouped_max.shape[1:])
-        grouped_max.scatter_reduce_(0, indices, block_max, 'amax')
-        grouped_max = grouped_max.index_select(0, block_groups)
-        return attn.sub_(grouped_max.unsqueeze(-1).unsqueeze(-1))
-
-
-DEFAULT_PA_SOFTMAX_IMPL = "index_reduce" if "index_reduce" in capabilities() else "wsum_head_amax"
-normalize = SoftmaxNormalization(os.environ.get('VLLM_PA_SOFTMAX_IMPL', DEFAULT_PA_SOFTMAX_IMPL).split(','))
+def grouped_max(block_max, batch_size, block_groups):
+    group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
+                           dtype=block_max.dtype, device=block_max.device)
+    group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax')
+    group_max = group_max.index_select(0, block_groups)
+    return group_max
 
 
 def b2b_impl(tensor, block_mapping, matmul_op):
@@ -128,18 +54,62 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def block_softmax(batch_size, attn, block_mapping, block_scales, block_groups):
-    attn = normalize(batch_size=batch_size, attn=attn, block_mapping=block_mapping,
-                     block_scales=block_scales, block_groups=block_groups)
-    attn = torch.exp(attn)
+def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    # Normalize the attention scores
+    block_max = attn.amax(dim=-1, keepdim=True)
+    adjustment_target_shape = block_max.shape
+    attn = attn.sub(block_max)
+    attn = attn.exp()
+    block_sums = attn.sum(dim=-1, keepdim=True)
+    attn = matmul_av_op(attn, value)
+    block_max = block_max.squeeze()
+    block_sums = block_sums.squeeze()
+    # Calculate maximum of blocks that belong to the same sequences
+    group_max = grouped_max(block_max, batch_size, block_groups)
+    block_adjustment = (block_max - group_max).exp()
+    sum_adjusted = block_sums.mul(block_adjustment)
+    # Sum block's sums that belongs to the same sequeneces
+    group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
+    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
+    sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
+    group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
+    block_adjustment = block_adjustment.view(*adjustment_target_shape)
+    # For stability in case some of the sums have been zeroed out during block aggretation
+    group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
+    # Post processing for the attention scores
+    rescale = block_adjustment.div(group_sum_adjusted)
+    attn = attn.mul(rescale)
+    return attn
+
+
+def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+       matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    attn_max = attn.amax(-1)
+    missing_dims = attn_max.dim() - block_scales.dim()
+    block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+    block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
+    attn.sub_(block_sum_attn.unsqueeze(-1))
+    attn_max.sub_(block_sum_attn)
+    attn_max = attn_max.amax(0, keepdim=True)
+    attn.sub_(attn_max.unsqueeze(-1))
+    attn = attn.exp()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
-    sums = block2batch(sums, block_mapping)
-    sums = batch2block(sums, block_mapping)
-    sums.add_(torch.finfo(sums.dtype).tiny)
-    sums = torch.maximum(block_sum, sums)
-    attn.div_(sums)
+    # Sum block's sums that belongs to the same sequeneces
+    sums = block2batch(sums, block_mapping, block2batch_matmul_op)
+    group_sums = batch2block(sums, block_mapping, batch2block_matmul_op)
+    group_sums.add_(torch.finfo(group_sums.dtype).tiny)
+    group_sums = torch.maximum(block_sum, group_sums)
+    attn.div_(group_sums)
+    attn = matmul_av_op(attn, value)
     return attn
+
+
+pipelined_pa_enabled = 'True' if "index_reduce" in capabilities() else 'False'
+pipelined_pa_enabled = os.environ.get('VLLM_PIPELINED_PA', pipelined_pa_enabled).lower() == 'true'
+pa_impl = pipelined_pa if pipelined_pa_enabled else pa
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
@@ -164,8 +134,9 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key) + block_bias
-    attn = block_softmax(batch_size, attn, block_mapping, block_scales, block_groups)
-    attn = matmul_av_op(attn, value)
+    attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
+                   batch_size=batch_size, matmul_av_op=matmul_av_op,
+                   batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
@@ -177,7 +148,8 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
-#TODO: remove after fusedsdpa fix for query_head != kv_head
+
+# TODO: remove after fusedsdpa fix for query_head != kv_head
 def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
     This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep).
@@ -190,6 +162,7 @@ def repeat_kv(kv: torch.Tensor, n_rep: int) -> torch.Tensor:
     kv = kv[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen,
                                      head_dim)
     return kv.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
 
 def prompt_attention(
     query: torch.Tensor,
@@ -223,9 +196,10 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE','1') == '1'
-        VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS','0') == '1'
-        #TODO: remove after fusedsdpa fix for query_heads != kv_heads
+        VLLM_DO_NOT_REMOVE_REPEAT_KV_CACHE = os.environ.get('VLLM_REMOVE_REPEAT_KV_CACHE', '1') == '1'
+        VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS = os.environ.get(
+            'VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS', '0') == '1'
+        # TODO: remove after fusedsdpa fix for query_heads != kv_heads
         if query_heads != kv_heads:
             if VLLM_REMOVE_REPEAT_KV_CACHE_SPLIT_GRAPHS:
                 htcore.mark_step()
