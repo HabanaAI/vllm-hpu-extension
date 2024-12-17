@@ -28,18 +28,19 @@ class HPUBucketingContext(metaclass=Singleton):
     global_state = HPUBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens):
+                 max_num_batched_tokens, max_model_len):
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self._setup_buckets()
         self.num_hpu_blocks = None
+        self.max_model_len = max_model_len
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
-        max_prompt_seq = 1024
-        max_decode_seq = 2048
+        max_prompt_seq = self.max_model_len
+        max_decode_seq = self.max_model_len
         max_blocks = max(
             self.block_size,
             self.max_num_seqs * max_decode_seq // self.block_size)

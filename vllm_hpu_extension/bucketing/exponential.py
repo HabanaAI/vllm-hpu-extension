@@ -29,34 +29,39 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens):
+                 max_num_batched_tokens, max_model_len):
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
+        self.max_model_len = max_model_len
         self._setup_buckets()
         self.num_hpu_blocks = None
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
-        max_prompt_seq = 1024
-        max_decode_seq = 2048
+        max_prompt_seq = self.max_model_len
+        max_decode_seq = self.max_model_len
         max_blocks = max(
             self.block_size,
             self.max_num_seqs * max_decode_seq // self.block_size)
 
+        prompt_bs_limit = math.ceil(math.log2(self.max_num_prefill_seqs)) + 1
         self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
-            'prompt', 'bs', min=1, step=1, limit=10,
+            'prompt', 'bs', min=1, step=1, limit=prompt_bs_limit,
             max=self.max_num_prefill_seqs)
+        decode_bs_limit = math.ceil(math.log2(self.max_num_seqs)) + 1
         self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=1, limit=10,
+            'decode', 'bs', min=1, step=1, limit=decode_bs_limit,
             max=self.max_num_seqs)
+        max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
         self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
-            'prompt', 'seq', min=self.block_size, limit=10,
-            step=1, max=max_prompt_seq)
+            'prompt', 'seq', min=self.block_size, limit=max_prompt_seq_limit,
+            step=self.block_size, max=max_prompt_seq)
+        max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
-            'decode', 'block', min=self.block_size, limit=10,
-            step=1, max=max_blocks)
+            'decode', 'block', min=self.block_size, limit=max_decode_block_limit,
+            step=self.block_size, max=max_blocks)
             
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
@@ -73,7 +78,8 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
             generate_prompt_buckets(
             self.global_state.prompt_bs_bucket_cfg,
             self.global_state.prompt_seq_bucket_cfg,
-            self.max_num_batched_tokens)
+            self.max_num_batched_tokens,
+            self.max_model_len)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
                f"prompt buckets [bs, seq]: "
@@ -91,7 +97,7 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
     def generate_decode_buckets(self, max_blocks):
         self.global_state.decode_buckets = generate_decode_buckets(
             self.global_state.decode_bs_bucket_cfg,
-            self.global_state.decode_block_bucket_cfg, max_blocks)
+            self.global_state.decode_block_bucket_cfg, max_blocks, self.max_model_len, self.block_size)
         print(f"Generated {len(self.global_state.decode_buckets)} "
               f"decode buckets [bs, total_blocks]: "
               f"{list(sorted(self.global_state.decode_buckets))}")
@@ -160,7 +166,11 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
 def find_bucket(buckets, value, dim=None):
     if dim is not None:
         buckets = get_buckets_single_dim(buckets, dim)
-    return next(p for p in sorted(buckets) if p >= value)
+    try:
+        return next(p for p in sorted(buckets) if p >= value)
+    except StopIteration:
+        import pdb; pdb.set_trace()
+        
 
 def get_buckets_single_dim(buckets, dim):
     return [b[dim] for b in buckets]
@@ -176,7 +186,8 @@ def get_closest_bucket(buckets, target):
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
-                            max_num_batched_tokens=None):
+                            max_num_batched_tokens=None,
+                            max_model_len=None):
     buckets = list(
         itertools.product(warmup_range_with_limit(bs_bucket_config),
                           warmup_range_with_limit(seq_bucket_config)))
@@ -192,7 +203,7 @@ def generate_prompt_buckets(bs_bucket_config,
         # Remove buckets exceeding batch token budget
         filtered_buckets = list(
             filter(
-                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
+                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens and bucket[1] <= max_model_len,
                 buckets))
 
         if len(filtered_buckets) == 0:
@@ -222,7 +233,7 @@ def generate_prompt_buckets(bs_bucket_config,
 
 
 def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
-                            max_blocks):
+                            max_blocks, max_model_len, block_size):
     buckets = []
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
     tmp_blocks_bucket_config = blocks_bucket_config
@@ -231,6 +242,8 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     last_bucket = max_blocks
     for bs in bs_buckets:
         for blocks in block_buckets:
+            if blocks != tmp_blocks_bucket_config[0] and (blocks/bs) * block_size > max_model_len:
+                continue
             if blocks >= last_bucket:
                 buckets.append((bs, last_bucket))
                 break
