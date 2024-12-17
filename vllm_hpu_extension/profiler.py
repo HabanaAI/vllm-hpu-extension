@@ -66,7 +66,7 @@ class HabanaHighLevelProfiler:
                 else f"vllm-instance-{str(uuid.uuid4().hex)}"
             msg = f'Profiler enabled for: {self.vllm_instance_id}'
             logger.info(msg)
-            self.filename = f'server_events_{vllm_instance_id}.json'
+            self.filename = os.getenv('VLLM_PROFILE_FILE', f'server_events_{vllm_instance_id}.json')
             # initialize the trace file (JSON Array Format)
             with open(self.filename, 'w') as outfile:
                 outfile.write('[')
