@@ -47,6 +47,53 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
+def group_sum(partial_sum, block_mapping, block_groups, type="reduce_sum_T"):
+    if type == "mme":
+        sums = block2batch(partial_sum, block_mapping)
+        sums = batch2block(sums, block_mapping)
+    elif type == "reduce_sum":
+        # [num_blocks, 1, kv_heads, gqa] * [num_blocks, batch_size, 1, 1]
+        sums = partial_sum.unsqueeze(1) * block_mapping.view(block_mapping.shape[0], -1, 1, 1)
+        sums = sums.sum(dim=0)
+        # [batch_size, kv_heads, gqa] -> [num_blocks, kv_heads, gqa]
+        sums = sums.index_select(0, block_groups)
+    elif type == "reduce_sum_T":
+        partial_sum_T = partial_sum.permute(*range(1, partial_sum.dim()), 0)
+        block_mapping_T = block_mapping.t().view(block_mapping.shape[-1], 1, 1, block_mapping.shape[0])
+        # [1, gqa, kv_heads, num_blocks] * [batch_size, 1, 1, num_blocks]
+        sums = partial_sum_T.unsqueeze(0) * block_mapping_T
+        sums = sums.sum(dim=-1)
+        # [batch_size, kv_heads, gqa] -> [num_blocks, kv_heads, gqa]
+        sums = sums.index_select(0, block_groups)
+    return sums
+
+
+group_sum_tpc = os.environ.get('VLLM_SOFTMAX_TPC_GROUPSUM', 'false').lower() == 'true'
+def pipelined_const_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    # Normalize the attention scores
+    block_max = torch.tensor(10.0, dtype=attn.dtype, device=attn.device)
+    attn.sub_(block_max)
+    attn = attn.exp()
+    # Sum block's sums that belongs to the same sequeneces
+    if not group_sum_tpc:
+        block_sums = attn.sum(dim=-1).unsqueeze(-1)
+        group_sums = group_sum(block_sums, block_mapping, block_groups, 'mme')
+    else:
+        block_sums = attn.sum(dim=-1, keepdim=True)
+        adjustment_target_shape = block_sums.shape
+        block_sums = block_sums.squeeze()
+        group_sums = group_sum(block_sums, block_mapping, block_groups, 'reduce_sum_T')
+    # For stability in case some of the sums have been zeroed out during block aggretation
+    group_sums.add_(torch.finfo(group_sums.dtype).tiny)
+    group_sums = torch.maximum(block_sums, group_sums)
+    attn = matmul_av_op(attn, value)
+    if group_sum_tpc:
+        group_sums = group_sums.view(*adjustment_target_shape)
+    attn.div_(group_sums)
+    return attn
+
+
 def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # Normalize the attention scores
@@ -63,8 +110,7 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     block_adjustment = (block_max - group_max).exp()
     sum_adjusted = block_sums.mul(block_adjustment)
     # Sum block's sums that belongs to the same sequeneces
-    group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
-    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
+    group_sum_adjusted = group_sum(sum_adjusted, block_mapping, block_groups, "mme")
     sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
     group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
     block_adjustment = block_adjustment.view(*adjustment_target_shape)
@@ -75,10 +121,10 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     attn = attn.mul(rescale)
     return attn
 
-
-const_norm = os.environ.get('VLLM_SOFTMAX_CONST_NORM', 'true').lower() == 'true'
+const_norm = os.environ.get('VLLM_SOFTMAX_CONST_NORM', 'false').lower() == 'true'
 def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
        matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    #normalization
     if not const_norm:
         attn_max = attn.amax(-1)
         missing_dims = attn_max.dim() - block_scales.dim()
@@ -91,12 +137,12 @@ def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
         attn.sub_(attn_max.unsqueeze(-1))
     else:
         attn.sub_(10.0)
+    # end of norm
     attn = attn.exp()
     sums = attn.sum(dim=-1).unsqueeze(-1)
     block_sum = sums
     # Sum block's sums that belongs to the same sequeneces
-    sums = block2batch(sums, block_mapping, block2batch_matmul_op)
-    group_sums = batch2block(sums, block_mapping, batch2block_matmul_op)
+    group_sums = group_sum(sums, block_mapping, block_groups, 'mme')
     group_sums.add_(torch.finfo(group_sums.dtype).tiny)
     group_sums = torch.maximum(block_sum, group_sums)
     attn.div_(group_sums)
@@ -106,8 +152,12 @@ def pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
 
 pipelined_pa_enabled = 'True' if "index_reduce" in capabilities() else 'False'
 pipelined_pa_enabled = os.environ.get('VLLM_PIPELINED_PA', pipelined_pa_enabled).lower() == 'true'
-pa_impl = pipelined_pa if pipelined_pa_enabled else pa
-
+if pipelined_pa_enabled and const_norm:
+    pa_impl = pipelined_const_pa
+elif pipelined_pa_enabled:
+    pa_impl = pipelined_pa
+else:
+    pa_impl = pa
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
