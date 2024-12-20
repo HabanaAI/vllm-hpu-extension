@@ -225,7 +225,8 @@ def generate_prompt_buckets(bs_bucket_config,
     # i.e eliminate prompt buckets with bs > 1 and seqlen > VLLM_MAX_BATCHED_PROMPT_LEN
     import sys
     max_batched_seq_len = int(os.environ.get('VLLM_MAX_BATCHED_PROMPT_LEN', sys.maxsize))
-    filtered_buckets = list(filter(lambda bucket : bucket[0]==1 or bucket[1] <= max_batched_seq_len, filtered_buckets))
+    max_batch_limit = int(os.environ.get('VLLM_LONG_PROMPT_BATCH_LIMIT', sys.maxsize)) # This is to limit the maximum batch for seqlen > VLLM_MAX_BATCHED_PROMPT_LEN
+    filtered_buckets = list(filter(lambda bucket : bucket[0] <= max_batch_limit or bucket[1] <= max_batched_seq_len, filtered_buckets))
 
     captured_buckets = list(
         sorted(filtered_buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
