@@ -257,10 +257,10 @@ def round_up(value: int, k: int) -> int:
 
 def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
     bmin, bstep, _ = config
-    next_step = round_up(value, bstep)
-    next_pow = next_pow2(value, bmin)
-    found_bucket = min(next_step, next_pow)
-    if value > bmin:
-        return found_bucket
-    else:
+    if value <= bmin:
         return bmin
+    else:      
+        next_step = round_up(value, bstep)
+        next_pow = next_pow2(value, bmin)
+        return min(next_step, next_pow)
+
