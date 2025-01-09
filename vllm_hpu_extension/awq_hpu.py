@@ -204,12 +204,13 @@ class AWQHPULinearMethod(LinearMethodBase):
 
         # This unpacking-packing is required because HPU dequant kernel
         # is not compatible with AWQ format
+        device = layer.qweight.device
         wq = layer.qweight.cpu()
         zq = layer.qzeros.cpu()
         wqu = self.awq_order(self.unpack_tensor(wq))
         zu = self.awq_order(self.unpack_tensor(zq))
-        layer.qweight.data = self.pack_tensor(wqu).to('hpu')
-        layer.qzeros.data = self.pack_tensor(zu).to('hpu')
+        layer.qweight.data = self.pack_tensor(wqu).to(device)
+        layer.qzeros.data = self.pack_tensor(zu).to(device)
 
         layer.qweight = torch.nn.Parameter(layer.qweight.data,
                                            requires_grad=False)
