@@ -357,30 +357,32 @@ class MoeMatmul(torch.nn.Module):
         return torch.matmul(state, w[expert_id].transpose(0, 1))
 
 
-def calculate_routing_tensors(score, topk, hidden_states_dtype):
+def calculate_routing_tensors(score, topk, hidden_states_dtype, renormalize: bool = True):
     routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
     routing_weights, selected_experts = torch.topk(routing_weights,
                                                    topk,
                                                    dim=-1)
-    routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+    if renormalize:
+        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
     routing_weights = routing_weights.to(hidden_states_dtype)
     return routing_weights, selected_experts
 
 
 class StaticFusedMOE(torch.nn.Module):
 
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts, renormalize: bool = True):
         super().__init__()
         self.w13_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_total_experts = num_total_experts
+        self.renormalize = renormalize
 
     def forward(self, hidden_states, w1, w2, score, topk):
         B, D = hidden_states.shape
         routing_weights, selected_experts = calculate_routing_tensors(
-            score, topk, hidden_states.dtype)
+            score, topk, hidden_states.dtype, renormalize=self.renormalize)
         final_hidden_states = torch.zeros((1, B, D),
                                           dtype=hidden_states.dtype,
                                           device=hidden_states.device)
@@ -406,14 +408,15 @@ class StaticFusedMOE(torch.nn.Module):
 
 class DynamicFusedMOE(torch.nn.Module):
 
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts, renormalize: bool = True):
         super().__init__()
         self.num_total_experts = num_total_experts
+        self.renormalize = renormalize
 
     def forward(self, hidden_states, w1, w2, score, topk):
         htorch.core.mark_step()
         routing_weights, selected_experts = calculate_routing_tensors(
-            score, topk, hidden_states.dtype)
+            score, topk, hidden_states.dtype, renormalize=self.renormalize)
         # pre-processing for custom op inputs
         experts_range = range(self.num_total_experts)
         w1_list = [w1[i, :, :].squeeze() for i in experts_range]
@@ -428,7 +431,7 @@ class DynamicFusedMOE(torch.nn.Module):
             permuted_weights=True,
             activation="silu",
             experts_min=0,
-            experts_max=self.num_total_experts
+            experts_max=self.num_total_experts - 1,
         )
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
