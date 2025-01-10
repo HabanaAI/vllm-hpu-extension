@@ -5,8 +5,11 @@ from vllm_hpu_extension.bucketing import (
     HPUBucketingContext,
     read_bucket_settings,
     warmup_range,
+    warmup_range_len,
     generate_prompt_buckets,
+    prompt_buckets_len,
     generate_decode_buckets,
+    decode_buckets_len,
     next_pow2,
     round_up,
     find_bucket,
@@ -79,6 +82,64 @@ def test_generate_decode_buckets():
     )
     assert len(buckets) == 72
     assert all(blocks <= max_blocks for _, blocks in buckets)
+
+
+def test_warmup_range_len():
+    config = (3, 60, 228)
+    length = warmup_range_len(config)
+    assert length == len(warmup_range(config))
+    config = (2, 64, 128)
+    length = warmup_range_len(config)
+    assert length == len(warmup_range(config))
+    config = (10, 2, 20)
+    length = warmup_range_len(config)
+    assert length == len(warmup_range(config))
+    config = (4, 4, 4)
+    length = warmup_range_len(config)
+    assert length == len(warmup_range(config))
+    config = (5, 2, 5)
+    length = warmup_range_len(config)
+    assert length == len(warmup_range(config))
+
+
+def test_prompt_buckets_len():
+    bs_bucket_config = (1, 4, 16)
+    seq_bucket_config = (512, 512, 1024)
+    max_num_batched_tokens = 2048
+    buckets, _ = generate_prompt_buckets(bs_bucket_config, seq_bucket_config)
+    len1 = prompt_buckets_len(bs_bucket_config, seq_bucket_config)
+    assert len1 == len(buckets)
+    buckets, _ = generate_prompt_buckets(bs_bucket_config, seq_bucket_config,
+                                         max_num_batched_tokens)
+    len2 = prompt_buckets_len(bs_bucket_config, seq_bucket_config,
+                              max_num_batched_tokens)
+    assert len2 == len(buckets)
+
+
+def test_decode_buckets_len():
+    bs_bucket_config = (1, 32, 128)
+    blocks_bucket_config = (128, 128, 2048)
+    max_blocks = 1024
+    buckets = generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
+                                      max_blocks)
+    len1 = decode_buckets_len(bs_bucket_config, blocks_bucket_config,
+                              max_blocks)
+    assert len1 == len(buckets)
+
+    max_blocks = 1000
+    buckets = generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
+                                      max_blocks)
+    len1 = decode_buckets_len(bs_bucket_config, blocks_bucket_config,
+                              max_blocks)
+    assert len1 == len(buckets)
+
+    blocks_bucket_config = (12, 128, 2048)
+    max_blocks = 100
+    buckets = generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
+                                      max_blocks)
+    len1 = decode_buckets_len(bs_bucket_config, blocks_bucket_config,
+                              max_blocks)
+    assert len1 == len(buckets)
 
 
 def test_next_pow2():

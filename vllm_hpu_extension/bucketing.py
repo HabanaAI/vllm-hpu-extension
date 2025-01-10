@@ -1,6 +1,7 @@
 import itertools
 import operator
 import os
+import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
@@ -86,7 +87,16 @@ class HPUBucketingContext(metaclass=Singleton):
 
         msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
         print(msg)
-
+    
+    def prompt_buckets_len(self):
+        if hasattr(self.global_state, 'prompt_buckets'):
+            return len(self.global_state.prompt_buckets)
+        else:
+            return prompt_buckets_len(
+                self.global_state.prompt_bs_bucket_cfg,
+                self.global_state.prompt_seq_bucket_cfg,
+                self.max_num_batched_tokens)
+    
     def generate_decode_buckets(self, max_blocks):
         self.global_state.decode_buckets = generate_decode_buckets(
             self.global_state.decode_bs_bucket_cfg,
@@ -94,6 +104,14 @@ class HPUBucketingContext(metaclass=Singleton):
         print(f"Generated {len(self.global_state.decode_buckets)} "
               f"decode buckets [bs, total_blocks]: "
               f"{list(sorted(self.global_state.decode_buckets))}")
+    
+    def decode_buckets_len(self, max_blocks):
+        if hasattr(self.global_state, "decode_buckets"):
+            return len(self.global_state.decode_buckets)
+        else:
+            return decode_buckets_len(
+                self.global_state.decode_bs_bucket_cfg,
+                self.global_state.decode_block_bucket_cfg, max_blocks)
 
     def get_max_prompt_shape(self):
         return (self.global_state.prompt_bs_bucket_cfg[-1],
@@ -180,6 +198,13 @@ def warmup_range(config: Tuple[int, int, int]):
     buckets = list(ramp_up_tw) + list(stable)
     return list(filter(lambda bucket: bucket >= bmin, buckets))
 
+def warmup_range_len(config: Tuple[int, int, int]):
+    """Calculate number of elements returned when call warmup_range()"""
+    bmin, bstep, bmax = config
+    ramp_up = max(0,math.ceil(math.log2(bstep / bmin)))
+    start = max(bstep, round_up(bmin, bstep))
+    stable = int((bmax - start + bstep) / bstep) 
+    return ramp_up + stable
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
@@ -228,6 +253,22 @@ def generate_prompt_buckets(bs_bucket_config,
     return captured_buckets, omitted_buckets
 
 
+def prompt_buckets_len(bs_bucket_config,
+                       seq_bucket_config,
+                       max_num_batched_tokens=None):
+    """Calculate number of elements in first element of tuple returned by 
+    generate_prompt_buckets() with the same parameters.
+    """
+    if max_num_batched_tokens is None:
+        return warmup_range_len(bs_bucket_config) * \
+            warmup_range_len(seq_bucket_config)
+    else:
+        buckets, _ = generate_prompt_buckets(bs_bucket_config,
+                                             seq_bucket_config,
+                                             max_num_batched_tokens)
+        return len(buckets)
+
+
 def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                             max_blocks):
     buckets = []
@@ -241,6 +282,20 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                 break
             buckets.append((bs, blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+
+
+def decode_buckets_len(bs_bucket_config, blocks_bucket_config, max_blocks):
+    """Calculate number of elements in list returned by 
+    generate_decode_buckets() with the same parameters.
+    """
+    bs_buckets_len = warmup_range_len(bs_bucket_config)
+    block_buckets = warmup_range(blocks_bucket_config)
+    block_buckets_len = len(block_buckets)
+    for i, value in enumerate(block_buckets):
+        if value >= max_blocks:
+            block_buckets_len = i + 1
+            break
+    return bs_buckets_len * block_buckets_len
 
 
 def next_pow2(value: int, base: int) -> int:
