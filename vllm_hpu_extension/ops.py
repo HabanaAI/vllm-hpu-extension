@@ -53,7 +53,10 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
-    # Normalize the attention scores
+    # When fp32_softmax is enabled attn is left in fp32 after Q@K
+    # We can return to native dtype after we renormalize and calculate the adjustments
+    
+    # Normalize the attention scores and cast attn to native dtype
     block_max = attn.amax(dim=-1, keepdim=True)
     adjustment_target_shape = block_max.shape
     attn = attn.sub(block_max)
@@ -63,22 +66,26 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     attn = matmul_av_op(attn, value)
     block_max = block_max.squeeze()
     block_sums = block_sums.squeeze()
+
     # Calculate maximum of blocks that belong to the same sequences
+    # and cast adjustments to native dtype
     group_max = grouped_max(block_max, batch_size, block_groups)
     block_adjustment = (block_max - group_max).exp()
+    block_adjustment = block_adjustment.to(value.dtype)
     sum_adjusted = block_sums.mul(block_adjustment)
-    sum_adjusted = sum_adjusted.to(value.dtype)
-    # Sum block's sums that belongs to the same sequeneces
+
+    # Sum block's sums that belongs to the same sequences
     group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
     group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
     sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
     group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
     block_adjustment = block_adjustment.view(*adjustment_target_shape)
+
     # For stability in case some of the sums have been zeroed out during block aggretation
     group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
+
     # Post processing for the attention scores
     rescale = block_adjustment.div(group_sum_adjusted)
-    rescale = rescale.to(attn.dtype)
     attn = attn.mul(rescale)
     return attn
 
