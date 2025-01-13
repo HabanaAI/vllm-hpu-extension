@@ -14,7 +14,7 @@ import math
 import habana_frameworks.torch.core as htcore
 
 from vllm.logger import init_logger
-from vllm_hpu_extension.capabilities import capabilities
+
 
 logger = init_logger(__name__)
 HPUFusedRMSNorm = None
@@ -24,6 +24,8 @@ try:
 except ImportError:
     logger.warning("Could not import HPU FusedRMSNorm kernel. "
                    "vLLM will use forward_native implementation of RMSNorm.")
+
+FP32_SOFTMAX = os.environ.get('VLLM_FP32_SOFTMAX', 'False').lower() == 'true'
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -90,8 +92,6 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     return attn
 
 
-fp32_softmax = os.environ.get('VLLM_FP32_SOFTMAX', 'False').lower() == 'true'
-
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
@@ -114,7 +114,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    if fp32_softmax:
+    if FP32_SOFTMAX:
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
@@ -175,7 +175,7 @@ def prompt_attention(
             if attn_bias is not None:
                 attn_bias = attn_bias.unsqueeze(2)
         attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
-        if fp32_softmax:
+        if FP32_SOFTMAX:
             attn_weights = attn_weights.float()
             htcore.mark_step()
         if attn_bias is not None:
