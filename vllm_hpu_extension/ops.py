@@ -12,20 +12,11 @@ import os
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
+from vllm_hpu_extension.flags import enabled_flags
 
 from vllm.logger import init_logger
 
-
 logger = init_logger(__name__)
-HPUFusedRMSNorm = None
-try:
-    from habana_frameworks.torch.hpex.normalization import FusedRMSNorm
-    HPUFusedRMSNorm = FusedRMSNorm
-except ImportError:
-    logger.warning("Could not import HPU FusedRMSNorm kernel. "
-                   "vLLM will use forward_native implementation of RMSNorm.")
-
-FP32_SOFTMAX = os.environ.get('VLLM_FP32_SOFTMAX', 'False').lower() == 'true'
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -57,7 +48,7 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
-    
+
     # Normalize the attention scores and cast attn to native dtype
     block_max = attn.amax(dim=-1, keepdim=True)
     adjustment_target_shape = block_max.shape
@@ -114,7 +105,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    if FP32_SOFTMAX:
+    if 'fp32_softmax' in enabled_flags():
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
@@ -160,7 +151,7 @@ def prompt_attention(
     softmax_op=torch.softmax,
     matmul_av_op=torch.matmul,
     valid_seq_lengths: Optional[torch.Tensor] = None,
-    fsdpa_op = None,
+    fsdpa_op=None,
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
@@ -175,7 +166,7 @@ def prompt_attention(
             if attn_bias is not None:
                 attn_bias = attn_bias.unsqueeze(2)
         attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
-        if FP32_SOFTMAX:
+        if 'fp32_softmax' in enabled_flags():
             attn_weights = attn_weights.float()
             htcore.mark_step()
         if attn_bias is not None:
@@ -199,8 +190,8 @@ def prompt_attention(
         softmax_mode = 'fast'
         recompute_mode = True
         attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
-                                       scale, softmax_mode, recompute_mode,
-                                       valid_seq_lengths, 'right')
+                                scale, softmax_mode, recompute_mode,
+                                valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
 
