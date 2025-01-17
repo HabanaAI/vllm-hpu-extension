@@ -33,8 +33,13 @@ def unify_measurements(
     for measurement in measurement_group:
         measurement_path = find_measurement_path(
             measurement, measurements_dir_path, scales, groups_size)
-        measurements_paths.append(measurement_path)
+        if measurement_path is not None:
+            measurements_paths.append(measurement_path)
         group_name += measurement
+
+    if len(measurements_paths) == 0:
+        print("Error: invalid measurement paths. No *.json files or no *mod_list.json files.")
+        return
 
     # save all the jsons content in the given measurement group
     measurements_jsons = []
