@@ -141,8 +141,6 @@ def silu_and_mul(x: torch.Tensor) -> torch.Tensor:
     d = x.shape[-1] // 2
     return F.silu(x[..., :d]) * x[..., d:]
 
-# TODO: remove after fusedsdpa fix for query_head != kv_head
-
 
 def prompt_attention(
     query: torch.Tensor,
