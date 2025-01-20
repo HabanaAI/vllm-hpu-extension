@@ -11,7 +11,6 @@ import torch
 import os
 import torch.nn.functional as F
 import math
-import habana_frameworks.torch.core as htcore
 
 from vllm.logger import init_logger
 from vllm_hpu_extension.capabilities import capabilities
