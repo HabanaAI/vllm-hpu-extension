@@ -48,7 +48,7 @@ class And(FeatureTest):
         self.lhs = lhs
         self.rhs = rhs
 
-    def __call__(self, **kwargs):
+    def check(self, **kwargs):
         return self.lhs(**kwargs) and self.rhs(**kwargs)
 
 
