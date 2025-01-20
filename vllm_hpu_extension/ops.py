@@ -43,6 +43,15 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
+def matmul_shape(lhs, rhs):
+    lhs_shape = list(lhs.shape)
+    rhs_shape = list(rhs.shape)
+    common_shape = [max(left, right) for left, right in
+                    zip(lhs_shape[:-2], rhs_shape[:-2])]
+    result = common_shape + [lhs_shape[-2]] + [rhs_shape[-1]]
+    return result
+
+
 def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
@@ -103,10 +112,12 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     else:
         key = key.transpose(2, 3)
 
-    attn = matmul_qk_op(query, key)
+    attn = None
     if 'fp32_softmax' in enabled_flags():
-        attn = attn.float()
-        htcore.mark_step()
+        attn = torch.empty(matmul_shape(query, key),
+                           dtype=torch.float32,
+                           device=query.device)
+    attn = matmul_qk_op(query, key, out=attn)
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
@@ -148,10 +159,13 @@ def prompt_attention(
             value = value.unflatten(1, (kv_heads, 1))
             if attn_bias is not None:
                 attn_bias = attn_bias.unsqueeze(2)
-        attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
+        key = key.transpose(-1, -2)
+        attn_weights = None
         if 'fp32_softmax' in enabled_flags():
-            attn_weights = attn_weights.float()
-            htcore.mark_step()
+            attn_weights = torch.empty(matmul_shape(query, key),
+                                       dtype=torch.float32,
+                                       device=query.device)
+        attn_weights = matmul_qk_op(query * scale, key, out=attn_weights)
         if attn_bias is not None:
             attn_weights = attn_weights.add(attn_bias)
         attn_weights = softmax_op(attn_weights, dim=-1)
