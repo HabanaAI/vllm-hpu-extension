@@ -6,8 +6,9 @@
 ###############################################################################
 
 import pytest
+from unittest.mock import patch, MagicMock
 
-from vllm_hpu_extension.capabilities import VersionRange, Capabilities
+from vllm_hpu_extension.flags import VersionRange, Flags, EnvFlag, Value, Kernel, FeatureTest, Not
 
 
 def test_operators():
@@ -66,7 +67,7 @@ def test_other_releases():
 
 
 @pytest.fixture
-def capabilities():
+def flags():
     def feature(value):
         def check(key):
             assert key == "value"
@@ -74,32 +75,70 @@ def capabilities():
         return check
 
     env = {"key": "value"}
-    return Capabilities({
+    return Flags({
         "foo": feature(True),
         "bar": feature(False),
         "qux": feature(True),
     }, env)
 
 
-def test_capability_repr(capabilities):
-    capabilities_str = str(capabilities)
-    assert "-bar" in capabilities_str
-    assert "+foo" in capabilities_str
-    assert "+qux" in capabilities_str
+def test_capability_repr(flags):
+    flags_str = str(flags)
+    assert "-bar" in flags_str
+    assert "+foo" in flags_str
+    assert "+qux" in flags_str
 
 
-def test_capability_checks(capabilities):
-    assert "bar" not in capabilities
-    assert "foo" in capabilities
-    assert "qux" in capabilities
-    assert "foo,qux" in capabilities
-    assert "qux,foo" in capabilities
-    assert "foo,bar,qux" not in capabilities
+def test_flag_checks(flags):
+    assert "bar" not in flags
+    assert "foo" in flags
+    assert "qux" in flags
+    assert "foo,qux" in flags
+    assert "qux,foo" in flags
+    assert "foo,bar,qux" not in flags
 
 
-def test_capability_signed_checks(capabilities):
-    assert "-bar" in capabilities
-    assert "+foo" in capabilities
-    assert "+foo,-bar,+qux" in capabilities
-    assert "+foo,bar,+qux" not in capabilities
-    assert "-foo,-bar,+qux" not in capabilities
+def test_flag_signed_checks(flags):
+    assert "-bar" in flags
+    assert "+foo" in flags
+    assert "+foo,-bar,+qux" in flags
+    assert "+foo,bar,+qux" not in flags
+    assert "-foo,-bar,+qux" not in flags
+
+
+def test_env_flag():
+    import os
+    os.environ['Alpha'] = 'True'
+    os.environ['Omega'] = '0'
+
+    assert EnvFlag('Alpha', False)()
+    assert not EnvFlag('Omega', True)()
+    assert not EnvFlag('Beta', False)()
+    assert EnvFlag('Beta', True)()
+
+    assert EnvFlag('Alpha', Value('key', '???'))(key='value')
+    assert not EnvFlag('Omega', Value('key', 'value'))(key='value')
+    assert not EnvFlag('Beta', Value('key', '???'))(key='value')
+    assert EnvFlag('Beta', Value('key', 'value'))(key='value')
+
+
+def test_kernel_flag():
+    def loader(success):
+        def load():
+            return success if success else None
+        return load
+    assert Kernel(loader(True))()
+    assert not Kernel(loader(False))()
+
+
+def test_flag_combinators():
+    def create_dummy_feature(value):
+        dummy = FeatureTest()
+        dummy.check = MagicMock(return_value=value)
+        return dummy
+    a = create_dummy_feature(True)
+    b = create_dummy_feature(False)
+    assert (a & a)()
+    assert not (Not(a) & a)()
+    assert not (a & b)()
+    assert (a & Not(b))()

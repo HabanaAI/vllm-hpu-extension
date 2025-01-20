@@ -5,13 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from functools import cache
-
-
-@cache
-def lazy_logger():
-    from vllm.logger import init_logger
-    return init_logger(__name__)
+from .utils import logger
 
 
 def get_hw():
@@ -27,7 +21,7 @@ def get_hw():
     from vllm_hpu_extension.utils import is_fake_hpu
     if is_fake_hpu():
         return "cpu"
-    lazy_logger().warning(f'Unknown device type: {device_type}')
+    logger().warning(f'Unknown device type: {device_type}')
     return None
 
 
@@ -43,8 +37,20 @@ def get_build():
     match = version_re.search(output.stdout)
     if output.returncode == 0 and match:
         return match.group('version')
-    lazy_logger().warning("Unable to detect habana-torch-plugin version!")
+    logger().warning("Unable to detect habana-torch-plugin version!")
     return None
+
+
+runtime_params = {}
+
+
+def get_model_type():
+    return runtime_params.get('model_type', None)
+
+
+def set_model_config(cfg):
+    global runtime_params
+    runtime_params['model_type'] = cfg.hf_config.model_type
 
 
 def get_environment(**overrides):
@@ -52,5 +58,6 @@ def get_environment(**overrides):
     getters = {
         "build": get_build,
         "hw": get_hw,
+        "model_type": get_model_type,
     }
     return {k: g() for k, g, in (getters | overrides).items()}
