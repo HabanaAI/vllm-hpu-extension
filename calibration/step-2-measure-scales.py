@@ -82,5 +82,4 @@ if __name__ == "__main__":
     print(
         f"Last batch finished: {i + 1}/{calibration_ds.shape[0]} samples done")
 
-    llm.llm_engine.model_executor.shutdown_inc()
     llm.llm_engine.model_executor.shutdown()
