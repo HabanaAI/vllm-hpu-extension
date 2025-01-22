@@ -37,8 +37,11 @@ def get_build():
     match = version_re.search(output.stdout)
     if output.returncode == 0 and match:
         return match.group('version')
-    logger().warning("Unable to detect habana-torch-plugin version!")
-    return None
+    # In cpu-test environment we don't have access to habana-torch-plugin
+    from vllm_hpu_extension.utils import is_fake_hpu
+    result = '0.0.0.0' if is_fake_hpu() else None
+    logger().warning(f"Unable to detect habana-torch-plugin version! Returning: {result}")
+    return result
 
 
 runtime_params = {}
