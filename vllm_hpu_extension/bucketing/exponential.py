@@ -1,19 +1,14 @@
 import itertools
+import logging
 import math
-import operator
 import os
-from dataclasses import dataclass, field
-from typing import Dict, List, Set, Tuple
 import numpy as np
+from dataclasses import dataclass, field
+from typing import List, Set, Tuple
+from .common import Singleton
 
-class Singleton(type):
-    _instances: Dict[type, object] = {}
 
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
-        return cls._instances[cls]
-
+logger = logging.getLogger(__name__)
 
 @dataclass
 class HPUExponentialBucketingGlobalState(metaclass=Singleton):
@@ -29,19 +24,40 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, max_model_len):
+                 max_num_batched_tokens, max_model_len=None,
+                 max_prompt_seq=None, max_decode_seq=None):
+        """
+        Initializes the bucketing parameters for sequence padding.
+
+        Args:
+            max_num_seqs (int): The maximum number of sequences.
+            max_num_prefill_seqs (int): The maximum number of prefill sequences.
+            block_size (int): The size cache block.
+            max_num_batched_tokens (int): The maximum number of batched tokens.
+            max_model_len (int, optional): The maximum length of the model. This serves as the default value for max_prompt_seq and max_decode_seq. Defaults to None.
+            max_prompt_seq (int, optional): The maximum length of the prompt sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
+            max_decode_seq (int, optional): The maximum length of the decode sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
+        """
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
-        self.max_model_len = max_model_len
-        self._setup_buckets()
         self.num_hpu_blocks = None
+        self.max_model_len = max_model_len
+        self.max_prompt_seq = max_prompt_seq
+        self.max_decode_seq = max_decode_seq
+        self._setup_buckets()
 
     def _setup_buckets(self) -> None:
-        # FIXME: The default values should be max_model_len
-        max_prompt_seq = self.max_model_len
-        max_decode_seq = self.max_model_len
+        default_max_prompt_seq = 1024
+        default_max_decode_seq = 2048
+        if self.max_model_len is None and self.max_prompt_seq is None:
+            logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
+        if self.max_model_len is None and self.max_decode_seq is None:
+            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
+
+        max_prompt_seq = next((item for item in [self.max_prompt_seq, self.max_model_len] if item is not None), default_max_prompt_seq)
+        max_decode_seq = next((item for item in [self.max_decode_seq, self.max_model_len] if item is not None), default_max_decode_seq)
         max_blocks = max(
             self.block_size,
             self.max_num_seqs * max_decode_seq // self.block_size)
@@ -63,15 +79,15 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
             'decode', 'block', min=self.block_size, limit=max_decode_block_limit,
             step=self.block_size, max=max_blocks)
             
-        msg = ("Prompt bucket config (min, step, max_warmup) "
+        msg = ("Prompt bucket config (min, step, max_warmup, limit) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
                f"seq:{self.global_state.prompt_seq_bucket_cfg}")
-        print(msg)
+        logger.info(msg)
 
-        msg = ("Decode bucket config (min, step, max_warmup) "
+        msg = ("Decode bucket config (min, step, max_warmup, limit) "
                f"bs:{self.global_state.decode_bs_bucket_cfg}, "
                f"block:{self.global_state.decode_block_bucket_cfg}")
-        print(msg)
+        logger.info(msg)
 
     def generate_prompt_buckets(self):
         self.global_state.prompt_buckets, prompt_omitted_buckets = \
@@ -84,21 +100,21 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
                f"prompt buckets [bs, seq]: "
                f"{list(sorted(self.global_state.prompt_buckets))}")
-        print(msg)
+        logger.info(msg)
 
         msg = (f"Omitted {len(prompt_omitted_buckets)} "
                "prompt buckets due to exceeded token budget "
                f"(max_num_batched_tokens={self.max_num_batched_tokens})")
-        print(msg)
+        logger.info(msg)
 
         msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
-        print(msg)
+        logger.info(msg)
 
     def generate_decode_buckets(self, max_blocks):
         self.global_state.decode_buckets = generate_decode_buckets(
             self.global_state.decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks, self.max_model_len, self.block_size)
-        print(f"Generated {len(self.global_state.decode_buckets)} "
+        logger.info(f"Generated {len(self.global_state.decode_buckets)} "
               f"decode buckets [bs, total_blocks]: "
               f"{list(sorted(self.global_state.decode_buckets))}")
 
@@ -144,6 +160,19 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
     def decode_buckets(self):
         return self.global_state.decode_buckets
 
+    @classmethod
+    def get_instance(cls):
+        """
+        Retrieve the singleton instance of the class.
+
+        Returns:
+            The singleton instance of the class.
+
+        Raises:
+            AssertionError: If the class has not been initialized and no instance exists.
+        """
+        assert cls in cls._instances, "Singleton instance not initialized"
+        return type(cls)._instances[cls]
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
     """Read bucketing configuration from env variables.
@@ -154,13 +183,17 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     example env variable: VLLM_DECODE_BS_BUCKET_STEP=128
     """
     params = ['min', 'step', 'max', 'limit']
+    hidden_params = ['min', 'step', 'max']
     env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
     default_values = [defaults[p] for p in params]
     values = [
-        int(os.environ.get(e, d)) for e, d in zip(env_vars, default_values)
+        int(d if p in hidden_params else os.environ.get(e, d)) for p, e, d in zip(params, env_vars, default_values)
     ]
-    for e, v, d in zip(env_vars, values, default_values):
-        print(f'{e}={v} (default:{d})')
+    for p, e, v, d in zip(params, env_vars, values, default_values):
+        prefix = '[non-modifiable] ' if p in hidden_params else ''
+        suffix = '' if p in hidden_params else ' (default: %d)' % d
+        logger_call = logger.debug if p in hidden_params else logger.info
+        logger_call(f'{prefix}{e}={v}{suffix}')
     return values
 
 def find_bucket(buckets, value, dim=None):
@@ -221,7 +254,7 @@ def generate_prompt_buckets(bs_bucket_config,
                 "budget. Please increase max_num_batched_tokens or decrease "
                 "bucket minimum. Ignoring max_num_batched_tokens at risk of "
                 "out-of-memory errors.")
-            print(msg)
+            logger.warning(msg)
             return list(
                 sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0]))), []
 
