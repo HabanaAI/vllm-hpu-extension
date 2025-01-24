@@ -136,7 +136,7 @@ def prompt_attention(
     value = value.transpose(1, 2)
     query_heads = query.size(1)
     kv_heads = key.size(1)
-    if attn_bias is not None or fsdpa_op is None:
+    if fsdpa_op is None:
         if query_heads != kv_heads:
             query = query.unflatten(1, (kv_heads, -1))
             key = key.unflatten(1, (kv_heads, 1))
@@ -155,9 +155,13 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
+        if attn_bias is None:
+           is_causal = True
+        else:
+           is_causal = False
         softmax_mode = 'fast'
         recompute_mode = True
-        attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
+        attn_weights = fsdpa_op(query, key, value, None, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
