@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from functools import wraps
+from functools import cache, wraps
 import os
 from functools import lru_cache
 
@@ -14,9 +14,11 @@ import torch
 
 from .cache_ops import insert_or_update_cache
 
+
 @lru_cache(maxsize=None)
 def is_fake_hpu() -> bool:
     return os.environ.get('VLLM_USE_FAKE_HPU', '0') != '0'
+
 
 def with_mark_steps(fn):
 
@@ -102,3 +104,8 @@ class ModuleFusedSDPA(torch.nn.Module):
             padding_side,
         )
 
+
+@cache
+def logger():
+    from vllm.logger import init_logger
+    return init_logger("vllm-hpu-extension")
