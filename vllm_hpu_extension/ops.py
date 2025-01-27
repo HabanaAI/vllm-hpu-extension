@@ -159,7 +159,7 @@ def prompt_attention(
         recompute_mode = True
         valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
         is_causal = attn_bias is None
-        attn_weights = fsdpa_op(query, key, value, None, 0.0, is_causal,
+        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
