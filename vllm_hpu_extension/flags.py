@@ -14,6 +14,9 @@ from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.kernels import fsdpa
 
 
+detected = None
+
+
 class FeatureTest:
     def __init__(self, *required_params):
         self.required_params = set(required_params)
@@ -137,7 +140,13 @@ class Flags:
 
 
 @cache
-def get_enabled_flags():
+def enabled_flags():
+
+    global detected
+
+    if detected:
+        return detected.enabled
+
     supported_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
