@@ -15,7 +15,16 @@ def insert_or_update_cache(input, cache, block_indices, block_offsets):
     if block_offsets is None:
         cache.index_copy_(0, block_indices, input)
     else:
-        cache.index_put_((block_indices, block_offsets), input)
+        if block_offsets.numel() == 1:
+            cache.index_put_((block_indices, block_offsets), input)
+        else:
+            offsets = None
+            for i in range(block_indices.shape[0]):
+                offsets = block_offsets[i * 128:(i + 1) * 128 - 1]
+                for j in range(offsets.shape[0]):
+                    if j != 0 and offsets[j] == 0:
+                        continue
+                    cache.index_put_((block_indices[i], offsets[j]), input[i][j])
 
 def swap_blocks(src, dst, block_mapping):
     if block_mapping.numel() == 0:
