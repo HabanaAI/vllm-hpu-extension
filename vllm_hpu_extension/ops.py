@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
-from vllm_hpu_extension.flags import enabled_flags as calculate_enabled_flags
+from vllm_hpu_extension.flags import get_enabled_flags
 
 from vllm.logger import init_logger
 
@@ -109,7 +109,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
 
     attn = matmul_qk_op(query, key)
     if not enabled_flags:
-        enabled_flags = calculate_enabled_flags().enabled
+        enabled_flags = get_enabled_flags()
     if 'fp32_softmax' in enabled_flags:
         attn = attn.float()
         htcore.mark_step()
@@ -154,7 +154,7 @@ def prompt_attention(
                 attn_bias = attn_bias.unsqueeze(2)
         attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
         if not enabled_flags:
-            enabled_flags = calculate_enabled_flags().enabled
+            enabled_flags = get_enabled_flags()
         if 'fp32_softmax' in enabled_flags:
             attn_weights = attn_weights.float()
             htcore.mark_step()

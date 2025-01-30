@@ -137,7 +137,7 @@ class Flags:
 
 
 @cache
-def enabled_flags():
+def get_enabled_flags():
     supported_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
@@ -152,4 +152,4 @@ def enabled_flags():
     environment = get_environment()
     detected = Flags(supported_flags, environment)
     print(f'Detected flags: {detected}')
-    return detected
+    return detected.enabled
