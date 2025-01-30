@@ -11,11 +11,12 @@ import torch
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
-from vllm_hpu_extension.flags import enabled_flags
+from vllm_hpu_extension.flags import enabled_flags as calculate_enabled_flags
 
 from vllm.logger import init_logger
 
 logger = init_logger(__name__)
+enabled_flags = None
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -86,6 +87,9 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
             keys_fetch_func, values_fetch_func):
+    
+    global enabled_flags
+
     batch_size = query.size(0)
     q_heads = query.size(1)
     kv_heads = key_cache.size(2)
@@ -104,7 +108,9 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    if 'fp32_softmax' in enabled_flags():
+    if not enabled_flags:
+        enabled_flags = calculate_enabled_flags().enabled
+    if 'fp32_softmax' in enabled_flags:
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
@@ -131,6 +137,9 @@ def prompt_attention(
     valid_seq_lengths: Optional[torch.Tensor] = None,
     fsdpa_op=None,
 ) -> torch.Tensor:
+    
+    global enabled_flags
+
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
@@ -144,7 +153,9 @@ def prompt_attention(
             if attn_bias is not None:
                 attn_bias = attn_bias.unsqueeze(2)
         attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
-        if 'fp32_softmax' in enabled_flags():
+        if not enabled_flags:
+            enabled_flags = calculate_enabled_flags().enabled
+        if 'fp32_softmax' in enabled_flags:
             attn_weights = attn_weights.float()
             htcore.mark_step()
         if attn_bias is not None:
