@@ -145,7 +145,7 @@ def enabled_flags():
     global detected
 
     if detected:
-        return detected.enabled
+        return detected
 
     supported_flags = {
         "gaudi": Hardware("gaudi"),
@@ -161,4 +161,4 @@ def enabled_flags():
     environment = get_environment()
     detected = Flags(supported_flags, environment)
     print(f'Detected flags: {detected}')
-    return detected.enabled
+    return detected
