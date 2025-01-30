@@ -261,6 +261,6 @@ def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
         return bmin
     else:      
         next_step = round_up(value, bstep)
-        next_pow = next_pow2(value, bmin)
+        next_pow = next_pow2(value, 1)
         return min(next_step, next_pow)
 
