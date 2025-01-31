@@ -8,10 +8,12 @@
 import os
 from packaging.version import Version
 from packaging.specifiers import SpecifierSet
-from functools import cache
 
 from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.kernels import fsdpa
+
+
+detected = None
 
 
 class FeatureTest:
@@ -136,8 +138,13 @@ class Flags:
         return all(self._check(name) for name in names.split(','))
 
 
-@cache
 def enabled_flags():
+
+    global detected
+
+    if detected:
+        return detected
+
     supported_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
