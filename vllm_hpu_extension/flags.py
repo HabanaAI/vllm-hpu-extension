@@ -10,8 +10,9 @@ from packaging.version import Version
 from packaging.specifiers import SpecifierSet
 
 from vllm_hpu_extension.environment import get_environment
-from vllm_hpu_extension.kernels import fsdpa
-
+from vllm_hpu_extension.kernels import fsdpa, fused_rope
+import logging
+logger = logging.getLogger(__name__)
 
 detected = None
 
@@ -112,9 +113,11 @@ class VersionRange(FeatureTest):
 
 
 class Flags:
-    def __init__(self, features, environment):
+    def __init__(self, features, environment, overrides=None):
         self.all = set(features.keys())
-        self.enabled = set(name for name, check in features.items() if check(**environment))
+        if overrides is None:
+            overrides = {} 
+        self.enabled = set(name for name, check in features.items() if (check(**environment) and overrides.get(name, True)) or overrides.get(name, False))
         self.disabled = self.all - self.enabled
 
     def is_enabled(self, *names):
@@ -124,7 +127,10 @@ class Flags:
         return all(n in self.disabled for n in names)
 
     def __repr__(self):
-        feature_list = [('+' if self.is_enabled(f) else '-') + f for f in sorted(self.all)]
+        return self._repr_subset(self.all)
+
+    def _repr_subset(self, keys):
+        feature_list = [('+' if self.is_enabled(f) else '-') + f for f in sorted(keys)]
         return f'[{(" ").join(feature_list)}]'
 
     def _check(self, name):
@@ -137,6 +143,26 @@ class Flags:
     def __contains__(self, names):
         return all(self._check(name) for name in names.split(','))
 
+def get_overrides(keys):
+    # NOTE(kzawora): Each capability can be overridden by setting an environment variable
+    # VLLM_HPU_EXT_OVERRIDE_CAPABILITY_<capability_in_uppercase>
+    # to either 'true' or 'false' ('0' or '1' work too). If the variable is not set, 
+    # the capability defaults to auto-detected value.
+    # Examples:
+    # - VLLM_HPU_EXT_OVERRIDE_CAPABILITY_INDEX_REDUCE=0 will disable index_reduce capability,
+    # disabling pipelined_pa as result
+    # - VLLM_HPU_EXT_OVERRIDE_CAPABILITY_FUSED_ROPE=0 will disable fused_rope HPU kernel and
+    # vLLM native implementation will be used instead
+    # Setting these should not be a common practice and should be used for debugging purposes only.
+    overrides = {}
+    for k in keys:
+        env_var = f'VLLM_HPU_EXT_OVERRIDE_CAPABILITY_{k.upper()}'
+        if env_var in os.environ and os.environ[env_var].lower() in ['true', '1', '0', 'false']:
+            overrides[k] = True if os.environ[env_var].lower() in ['true', '1'] else False
+            state = 'enabled' if overrides[k] else 'disabled'
+            logger.warning_once('HPU capabilities are auto-detected and overriding them may result in crashes. This should be used for debugging purposes .')
+            logger.warning(f'Overriding {k} capability to be {state} ({env_var}={os.environ[env_var]}). This may result in crashes.')
+    return overrides
 
 def enabled_flags():
 
@@ -145,18 +171,27 @@ def enabled_flags():
     if detected:
         return detected
 
-    supported_flags = {
+    high_level_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
         "cpu": Hardware("cpu"),
-        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", Not(ModelType('qwen2')))),
+        "fused_rope": (Not(Hardware("cpu"))
+                  & Not(Hardware("gaudi"))
+                  & Kernel(fused_rope)),
+    }
+    low_level_flags = {
+        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
+        "index_reduce": (Not(Hardware("cpu")) & Not(Hardware("gaudi"))), 
         "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1")))
     }
+    supported_flags = {**high_level_flags, **low_level_flags}
     environment = get_environment()
-    detected = Flags(supported_flags, environment)
-    print(f'Detected flags: {detected}')
+    overrides = get_overrides(supported_flags.keys())
+    detected = Flags(supported_flags, environment, overrides)
+    logging.info(f'Supported high-level capabilities: {detected._repr_subset(high_level_flags.keys())}')
+    logging.info(f'Supported low-level capabilities: {detected._repr_subset(low_level_flags.keys())}')
     return detected
