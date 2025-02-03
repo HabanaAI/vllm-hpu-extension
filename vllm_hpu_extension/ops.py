@@ -181,7 +181,7 @@ def prompt_attention(
             attn_weights = attn_weights.flatten(1, 2)
     else:
         # Gaudi1 does not support FSDPA fast softmax
-        softmax_mode = 'fast' if enabled_flags().is_disabled('gaudi') else 'None'
+        softmax_mode = 'fast' if '-gaudi' in enabled_flags() else 'None'
         recompute_mode = True
         attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
                                 scale, softmax_mode, recompute_mode,
