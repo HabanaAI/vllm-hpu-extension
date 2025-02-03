@@ -30,3 +30,24 @@ Here are some examples of how to use the script:
 # Run inference with FP8 models
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
+
+# Multi-node FP8 Calibration
+
+Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in TP-16 mode spanning two Guadi2 nodes.
+
+Step 1: Start a Ray cluster to accomodate the required TP size. 
+```
+# Export the required env variables seperately on all nodes.
+export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
+export EXPERIMENTAL_WEIGHT_SHARING="0"
+export VLLM_SKIP_WARMUP="true"
+export GLOO_SOCKET_IFNAME=eth0
+export QUANT_CONFIG="<path-to-config>/quant_config_buffer.json"
+
+# Start Ray on head node
+ray start --head --port=6379
+
+# Add worker nodes to the Ray cluster
+ray start --address='<ip-of-ray-head-node>:6379'
+```
+
