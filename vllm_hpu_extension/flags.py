@@ -127,7 +127,10 @@ class Flags:
         return all(n in self.disabled for n in names)
 
     def __repr__(self):
-        feature_list = [('+' if self.is_enabled(f) else '-') + f for f in sorted(self.all)]
+        return self._repr_subset(self.all)
+
+    def _repr_subset(self, keys):
+        feature_list = [('+' if self.is_enabled(f) else '-') + f for f in sorted(keys)]
         return f'[{(" ").join(feature_list)}]'
 
     def _check(self, name):
@@ -168,23 +171,27 @@ def enabled_flags():
     if detected:
         return detected
 
-    supported_flags = {
+    high_level_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
         "cpu": Hardware("cpu"),
-        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", Not(ModelType('qwen2')))),
         "fused_rope": (Not(Hardware("cpu"))
                   & Not(Hardware("gaudi"))
                   & Kernel(fused_rope)),
+    }
+    low_level_flags = {
+        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
         "index_reduce": (Not(Hardware("cpu")) & Not(Hardware("gaudi"))), 
         "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1")))
     }
+    supported_flags = {**high_level_flags, **low_level_flags}
     environment = get_environment()
     overrides = get_overrides(supported_flags.keys())
     detected = Flags(supported_flags, environment, overrides)
-    print(f'Detected flags: {detected}')
+    logging.info(f'Supported high-level capabilities: {detected._repr_subset(high_level_flags.keys())}')
+    logging.info(f'Supported low-level capabilities: {detected._repr_subset(low_level_flags.keys())}')
     return detected
