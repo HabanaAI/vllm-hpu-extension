@@ -19,6 +19,15 @@ def fsdpa():
                          "vLLM will use native implementation.")
 
 @cache
+def fused_rope():
+    try:
+        from habana_frameworks.torch.hpex.kernels import apply_rotary_pos_emb
+        return apply_rotary_pos_emb
+    except ImportError:
+        logger().warning("Could not import HPU FusedRoPE kernel. "
+                         "vLLM will use native implementation.")
+
+@cache
 def rms_norm():
     try:
         from habana_frameworks.torch.hpex.normalization import FusedRMSNorm

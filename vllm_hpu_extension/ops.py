@@ -17,7 +17,6 @@ from vllm.logger import init_logger
 
 logger = init_logger(__name__)
 
-
 def grouped_max(block_max, batch_size, block_groups):
     orig_dtype = block_max.dtype
     if orig_dtype == torch.float16:
@@ -82,6 +81,31 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     return attn
 
 
+def legacy_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+       matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    attn_max = attn.amax(-1)
+    missing_dims = attn_max.dim() - block_scales.dim()
+    block_sum_attn = attn_max.mul(block_scales.reshape(-1, *[1 for _ in range(missing_dims)]))
+    block_sum_attn = block2batch(block_sum_attn, block_mapping, block2batch_matmul_op)
+    block_sum_attn = batch2block(block_sum_attn, block_mapping, batch2block_matmul_op)
+    attn.sub_(block_sum_attn.unsqueeze(-1))
+    attn_max.sub_(block_sum_attn)
+    attn_max = attn_max.amax(0, keepdim=True)
+    attn.sub_(attn_max.unsqueeze(-1))
+    attn = attn.exp()
+    sums = attn.sum(dim=-1).unsqueeze(-1)
+    block_sum = sums
+    # Sum block's sums that belongs to the same sequeneces
+    sums = block2batch(sums, block_mapping, block2batch_matmul_op)
+    group_sums = batch2block(sums, block_mapping, batch2block_matmul_op)
+    group_sums.add_(torch.finfo(group_sums.dtype).tiny)
+    group_sums = torch.maximum(block_sum, group_sums)
+    attn.div_(group_sums)
+    attn = matmul_av_op(attn, value)
+    return attn
+
+
+
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
@@ -108,7 +132,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
-    attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
+    pa_impl = pipelined_pa if "index_reduce" in enabled_flags() else legacy_pa
+    attn = pa_impl(attn, value, block_groups, block_mapping, block_scales=block_scales,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
@@ -155,7 +180,8 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        softmax_mode = 'fast'
+        # Gaudi1 does not support FSDPA fast softmax
+        softmax_mode = 'fast' if enabled_flags().is_disabled('gaudi') else 'None'
         recompute_mode = True
         attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
                                 scale, softmax_mode, recompute_mode,
