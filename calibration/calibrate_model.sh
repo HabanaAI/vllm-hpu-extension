@@ -88,6 +88,7 @@ if $MULTI_NODE_RUN; then
         echo "Required TP size : $TP_SIZE" 
         echo "Available HPU's : $RAY_AVAILABLE_RESOURCES "
         echo "!! Exiting since not enough HPU resources available. You can run 'ray status' to see available resources"
+        echo "Refer https://github.com/vishnumadhu365/vllm-hpu-extension/edit/main/calibration/README.md#experimental-multi-node-fp8-calibration for multi-node runs"
         exit 1
     fi
 
@@ -136,7 +137,7 @@ fi
 
 if $MULTI_NODE_RUN; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
-    sleep 2000
+    sleep 2
 else
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
 fi
@@ -164,7 +165,7 @@ echo "Step 3/4 done"
 
 if $MULTI_NODE_RUN; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json > $QUANT_CONFIG
-    sleep 2000
+    sleep 2
 else
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json
 fi
