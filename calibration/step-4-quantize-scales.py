@@ -14,7 +14,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
-    parser.add_argument("--distributed-executor-backend", "--model", type=str, default="mp", 
+    parser.add_argument("--distributed-executor-backend", type=str, default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
