@@ -63,5 +63,5 @@ ray start --address='<ip-of-ray-head-node>:6379'
 
 Step 3: Run calibrate_model.sh script
 ```
-
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o fp8_output -l 10 -t 16 -b 1
 ```
