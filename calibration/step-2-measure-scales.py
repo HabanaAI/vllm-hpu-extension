@@ -44,7 +44,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--distributed-executor-backend", "--model", type=str, default="mp", help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
+    parser.add_argument("--distributed-executor-backend", "--model", type=str, default="mp", 
+                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
 
