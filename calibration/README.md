@@ -31,11 +31,21 @@ Here are some examples of how to use the script:
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
 
-# Multi-node FP8 Calibration
+# (experimental) Multi-node FP8 Calibration 
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in TP-16 mode spanning two Guadi2 nodes.
 
-Step 1: Start a Ray cluster to accomodate the required TP size. 
+Step 1: Pre-requisites
+  - Install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm)
+  - Ensure that all nodes in the multi-node setup are connected to an NFS mount (Network File System).
+  - Create workspace directory on NFS, clone the calibration scripts repo and create an empty file 'quant_config_buffer.json'.
+    ```
+    mkdir <nfs-mount-path>/my_workspace && cd <nfs-mount-path>/my_workspace
+    git clone https://github.com/HabanaAI/vllm-hpu-extension.git && cd vllm-hpu-extension/calibration
+    touch quant_config_buffer.json 
+    ```
+
+Step 2: Start a Ray cluster to accomodate the required TP size. 
 ```
 # Export the required env variables seperately on all nodes.
 export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
@@ -51,3 +61,7 @@ ray start --head --port=6379
 ray start --address='<ip-of-ray-head-node>:6379'
 ```
 
+Step 3: Run calibrate_model.sh script
+```
+
+```
