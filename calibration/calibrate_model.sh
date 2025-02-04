@@ -161,6 +161,7 @@ echo ""
 echo "3/4 Postprocessing scales"
 python step-3-postprocess_measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/ || (echo "Error in step 3" && exit 1)
 cp inc_tmp/$MODEL_NAME/$DEVICE_TYPE/* $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
+rm -rf inc_tmp
 echo "Step 3/4 done"
 
 if $MULTI_NODE_RUN; then
