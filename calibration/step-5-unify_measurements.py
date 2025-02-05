@@ -10,7 +10,7 @@ import numpy as np
 
 
 def find_measurement_path(measurement, measurements_dir_path, scales, group_size):
-    measurment_card = measurement + "_" + str(group_size)
+    measurment_card = "_" + measurement + "_" + str(group_size)
     for measurment_file in os.listdir(measurements_dir_path):
         filename = os.fsdecode(measurment_file)
         if not filename.endswith(".json") or "_mod_list" in filename or measurment_card not in filename:
