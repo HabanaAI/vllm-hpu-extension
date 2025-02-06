@@ -1,6 +1,6 @@
 # FP8 Calibration Procedure
 
-Running inference via [vLLM](https://github.com/vllm-project/vllm) on HPU with FP8 precision is achieved using [Intel® Neural Compressor (INC)](https://docs.habana.ai/en/latest/PyTorch/Inference_on_PyTorch/Quantization/Inference_Using_FP8.html#inference-using-fp8) package. This approach require a model calibration procedure to generate measurements, quantization files, and configurations first. To simplify this process, we've provided the `calibrate_model.sh` script. It requires the following arguments:
+Running inference via [vLLM](https://github.com/vllm-project/vllm) on HPU with FP8 precision is achieved using [Intel® Neural Compressor (INC)](https://docs.habana.ai/en/latest/PyTorch/Inference_on_PyTorch/Quantization/Inference_Using_FP8.html#inference-using-fp8) package. This approach requires a model calibration procedure to generate measurements, quantization files, and configurations first. To simplify this process, we've provided the `calibrate_model.sh` script. It requires the following arguments:
 
 - `-m`, i.e., **model stub or path:** Path to your model (if stored locally) or the model ID from the Hugging Face Hub.
 - `-d`, i.e., **path to the source dataset:** Path to your dataset in pickle format (".pkl").
@@ -33,9 +33,9 @@ An inference with FP8 precision models using vLLM has been described in [README_
 
 # (experimental) Multi-node FP8 Calibration 
 
-Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in TP-16 mode spanning two Guadi2 nodes.
+Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Guadi2 nodes.
 
-Step 1: Pre-requisites
+#### Step 1: Pre-requisites
   - Install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm)
   - Ensure that all nodes in the multi-node setup are connected to an NFS mount (Network File System).
   - Create workspace directory on NFS, clone the calibration scripts repo and create an empty file 'quant_config_buffer.json'.
@@ -45,12 +45,13 @@ Step 1: Pre-requisites
     touch quant_config_buffer.json 
     ```
 
-Step 2: Start a Ray cluster to accomodate the required TP size. 
+#### Step 2: Start a Ray cluster to accommodate the required TP size. 
 ```
-# Export the required env variables seperately on all nodes.
+# Export the required env variables separately on all nodes.
 export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 export EXPERIMENTAL_WEIGHT_SHARING="0"
 export VLLM_SKIP_WARMUP="true"
+# Check the network interface for outbound/inbound comms. Command 'ip a' or 'ifconfig' should list all the interfaces
 export GLOO_SOCKET_IFNAME=eth0
 export QUANT_CONFIG="<path-to-config>/quant_config_buffer.json"
 
@@ -61,7 +62,33 @@ ray start --head --port=6379
 ray start --address='<ip-of-ray-head-node>:6379'
 ```
 
-Step 3: Run calibrate_model.sh script
+#### Step 3: Run model calibration script
 ```
-./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o fp8_output -l 10 -t 16 -b 1
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 10 -t 16 -b 1
 ```
+Running the above command should create the calibration measurement files in the specified output directory with model specific sub-directories.<br>
+<details><summary>Arguments used</summary>
+-m for model-id/path<br> 
+-d dataset pickle path<br> 
+-o output directory on nfs<br> 
+-l limit number of data samples used for calibration to the specified value<br> 
+-t tensor parallelism<br> 
+-b batch_size for calibration<br> </details>
+
+#### Step 4: (optional) Measurement unification <p>
+This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales.<br> For eg: You can perform FP8 calibration on the Llama 3.1 405B model on 2x Gaudi2 nodes with Tensor Parallelism = 16 and then use the unification script to reduce the TP to 8. Refer sample command below
+```
+python step-5-unify_measurements.py -g "0,1--2,3--4,5--6,7--8,9--10,11--12,13--14,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
+```
+<details><summary>Arguments used</summary>
+-g - card grouping to use during unification <br>
+-m - calibration output path which has the measurement files <br>
+-o - output directory where unification output gets written<br></details>
+
+#### Step 5: Serving the FP8 quantized model <p>
+```
+export QUANT_CONFIG='<path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
+vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtype fp8_inc --weights-load-device cpu --tensor_paralel_size 8
+```
+Note : For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
+
