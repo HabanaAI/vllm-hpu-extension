@@ -22,6 +22,10 @@ usage() {
     echo
 }
 
+cleanup_tmp() {
+    rm -rf nc_workspace 
+    rm -rf inc_tmp
+}
 create_measure_config() {
     mkdir -p $1/$2/$3
     tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
@@ -43,6 +47,8 @@ function extract_last_folder_name() {
 
     echo "$last_folder"
 }
+
+cleanup_tmp
 
 EXTRA_FLAGS=""
 BATCH_SIZE=32
@@ -161,7 +167,6 @@ echo ""
 echo "3/4 Postprocessing scales"
 python step-3-postprocess_measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/ || (echo "Error in step 3" && exit 1)
 cp inc_tmp/$MODEL_NAME/$DEVICE_TYPE/* $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
-rm -rf inc_tmp
 echo "Step 3/4 done"
 
 if $MULTI_NODE_RUN; then
@@ -179,4 +184,5 @@ else
     python step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
 fi
 
+cleanup_tmp
 echo "Calibration process done"
