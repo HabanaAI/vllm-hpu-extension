@@ -167,10 +167,9 @@ def parse_args(args):
     parser.add_argument(
         "-g",
         "--groups",
-        type=list,
-        nargs="+",
-        help="groups of cards we want to unify, each group should be seperated by whitespace \
-                        - e.g. 01 23 45 67, card 0 measurement will be unified with card 1 measurement and so on",
+        type=str,
+        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by pipe character \
+                        - e.g. 0,1|2,3|4,5|6,7 card 0 measurement will be unified with card 1 measurement and so on",
     )
     parser.add_argument(
         "-o",
@@ -181,6 +180,11 @@ def parse_args(args):
     )
     return parser.parse_args(args)
 
+def prepare_group_list(grouping_string):
+    # input string 0,1,2,3|4,5,6,7|8,9,10,11
+    grouping_string = grouping_string.replace(" ", "").strip("|").strip(",")
+    group_list=[group.strip(",").split(",") for group in grouping_string.split("|")]  
+    print("Card grouping list >> {}".format(group_list))
 
 def main(args):
     args = parse_args(args)
@@ -188,7 +192,7 @@ def main(args):
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     measurements_path = args.measurements
-    groups = args.groups
+    groups = prepare_group_list(args.groups)
 
     num_jsons_drange = 0
     num_jsons_scales = 0
