@@ -168,8 +168,8 @@ def parse_args(args):
         "-g",
         "--groups",
         type=str,
-        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by pipe character \
-                        - e.g. 0,1|2,3|4,5|6,7 card 0 measurement will be unified with card 1 measurement and so on",
+        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
+                        - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
     )
     parser.add_argument(
         "-o",
@@ -181,10 +181,12 @@ def parse_args(args):
     return parser.parse_args(args)
 
 def prepare_group_list(grouping_string):
-    # input string 0,1,2,3|4,5,6,7|8,9,10,11
-    grouping_string = grouping_string.replace(" ", "").strip("|").strip(",")
-    group_list=[group.strip(",").split(",") for group in grouping_string.split("|")]  
+    group_seperator = '--'
+    card_seperator = ','
+    grouping_string = grouping_string.replace(" ", "").strip(group_seperator).strip(card_seperator)
+    group_list=[group.strip(card_seperator).split(card_seperator) for group in grouping_string.split(group_seperator)]  
     print("Card grouping list >> {}".format(group_list))
+    return group_list
 
 def main(args):
     args = parse_args(args)
