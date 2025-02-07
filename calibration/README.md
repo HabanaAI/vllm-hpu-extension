@@ -86,6 +86,7 @@ Running the above command should create the calibration measurement files in the
   
   1. Facing error "nic/port is down". <br>
   This happens when the Gaudi card nic ports are down. On every node check the port status as below.<br>
+  Note : Follwing commands should be run on the host and NOT inside the container. <br>
      
 ```bash
 cd /opt/habanalabs/qual/gaudi2/bin 
