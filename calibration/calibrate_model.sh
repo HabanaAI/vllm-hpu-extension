@@ -94,13 +94,13 @@ if $MULTI_NODE_RUN; then
         echo "Required TP size : $TP_SIZE" 
         echo "Available HPU's : $RAY_AVAILABLE_RESOURCES "
         echo "!! Exiting since not enough HPU resources available. You can run 'ray status' to see available resources"
-        echo "Refer https://github.com/vishnumadhu365/vllm-hpu-extension/edit/main/calibration/README.md#experimental-multi-node-fp8-calibration for multi-node runs"
+        echo "Refer https://github.com/HabanaAI/vllm-hpu-extension/tree/main/calibration#experimental-multi-node-fp8-calibration for multi-node runs"
         exit 1
     fi
 
     if [[ ! -e $QUANT_CONFIG ]]; then
         echo " !! Exiting. Invalid QUANT_CONFIG env"
-        echo " Multi-node calibration requires QUANT_CONFIG to point to an empty buffer.json file. Refer https://github.com/vishnumadhu365/vllm-hpu-extension/edit/main/calibration/README.md#experimental-multi-node-fp8-calibration"
+        echo " Multi-node calibration requires QUANT_CONFIG to point to an empty buffer.json file. Refer https://github.com/HabanaAI/vllm-hpu-extension/tree/main/calibration#experimental-multi-node-fp8-calibration"
     fi
 fi
 
