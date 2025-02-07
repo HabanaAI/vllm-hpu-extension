@@ -60,6 +60,9 @@ ray start --head --port=6379
 
 # Add worker nodes to the Ray cluster
 ray start --address='<ip-of-ray-head-node>:6379'
+
+# Check if the cluster has required number of HPU's
+ray status
 ```
 
 #### Step 3: Run model calibration script
