@@ -101,7 +101,7 @@ cd /opt/habanalabs/qual/gaudi2/bin
 #### Step 4: (optional) Measurement unification <p>
 This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales.<br> For eg: You can perform FP8 calibration on the Llama 3.1 405B model on 2x Gaudi2 nodes with Tensor Parallelism = 16 and then use the unification script to reduce the TP to 8. Refer sample command below
 ```bash
-python step-5-unify_measurements.py -g "0,1--2,3--4,5--6,7--8,9--10,11--12,13--14,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
+python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
 ```
 <details><summary>Arguments used</summary>
 -g - card grouping to use during unification, card indices separated by commas and groups separated by double dash<br>
