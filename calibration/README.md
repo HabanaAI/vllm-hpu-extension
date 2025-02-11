@@ -36,7 +36,7 @@ An inference with FP8 precision models using vLLM has been described in [README_
 > [!WARNING] 
 > !! Mutli-node calibration is an experimental feature and could have stability issues.
 
-Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Guadi2 nodes.<br>
+Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
 Note : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
 
 #### Step 1: Pre-requisites
@@ -71,7 +71,7 @@ ray status
 
 #### Step 3: Run model calibration script
 ```bash
-./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 10 -t 16 -b 1
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
 ```
 Running the above command should create the calibration measurement files in the specified output directory with model specific sub-directories.<br>
 <details><summary>Arguments used</summary>
