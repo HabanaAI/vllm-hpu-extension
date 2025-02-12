@@ -15,7 +15,7 @@ def insert_or_update_cache(input, cache, block_indices, block_offsets):
     if block_offsets is None:
         cache.index_copy_(0, block_indices, input)
     else:
-        if block_offsets.numel() == 1:
+        if block_offsets.numel() == block_indices.numel():
             cache.index_put_((block_indices, block_offsets), input)
         else:
             offsets = None
