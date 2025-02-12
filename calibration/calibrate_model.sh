@@ -106,7 +106,9 @@ if [[ $TP_SIZE > 1 ]]; then
 fi
 
 if [[ $MODEL_PATH_NAME == llama.*2.* ]]; then
-    EXTRA_FLAGS+="--chat-template ../../benchmarks/acc-mlperf-llama/chat-templates/llama-2-chat.jinja "
+    EXTRA_FLAGS+="--chat-template template/llama-2-chat.jinja "
+elif  [[ "$MODEL_PATH" == *"Mixtral-8x7B"* ]]; then
+    EXTRA_FLAGS+="--chat-template template/mistral_mixtral.jinja "
 fi
 
 if [[ -n $LIMIT ]]; then
