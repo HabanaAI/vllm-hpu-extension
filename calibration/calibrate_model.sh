@@ -24,7 +24,7 @@ usage() {
 }
 
 cleanup_tmp() {
-	if [[ $(pwd) == *vllm-hpu-extension/calibration ]] then
+	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
 		echo " Clearing temporary directory"
 		rm -rf nc_workspace
 		rm -rf inc_tmp
