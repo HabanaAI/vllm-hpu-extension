@@ -34,7 +34,7 @@ An inference with FP8 precision models using vLLM has been described in [README_
 # Multi-node FP8 Calibration 
 
 > [!WARNING] 
-> !! Mutli-node calibration is an experimental feature and could have stability issues.
+> Multi-node calibration is an experimental feature and could have stability issues.
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
 Note : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
