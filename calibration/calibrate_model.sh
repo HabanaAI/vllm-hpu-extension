@@ -90,6 +90,12 @@ while getopts "m:b:l:t:d:h:o:" OPT; do
     esac
 done
 
+if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
+    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
+    usage
+    exit 1
+fi
+
 if [[ $TP_SIZE -gt 8 ]]; then
     MULTI_NODE_RUN=true
 fi
@@ -108,13 +114,6 @@ if $MULTI_NODE_RUN; then
         echo " !! Exiting. Invalid QUANT_CONFIG env"
         echo " Multi-node calibration requires QUANT_CONFIG to point to an empty buffer.json file. Refer https://github.com/HabanaAI/vllm-hpu-extension/tree/main/calibration#experimental-multi-node-fp8-calibration"
     fi
-fi
-
-
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
-    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
-    usage
-    exit 1
 fi
 
 # Store the provided MODEL_PATH name in a variable
