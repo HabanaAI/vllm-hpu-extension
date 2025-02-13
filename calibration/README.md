@@ -4,7 +4,7 @@ Running inference via [vLLM](https://github.com/vllm-project/vllm) on HPU with F
 
 - `-m`, i.e., **model stub or path:** Path to your model (if stored locally) or the model ID from the Hugging Face Hub.
 - `-d`, i.e., **path to the source dataset:** Path to your dataset in pickle format (".pkl").
-- `o`, i.e., **output path:** Path to the directory where the generated measurements, etc., will be stored.
+- `-o`, i.e., **output path:** Path to the directory where the generated measurements, etc., will be stored.
 
 There are also optional arguments, and you can read about them by executing the script with the `-h` option.
 
@@ -48,6 +48,17 @@ Note : Following steps are to be executed within a [Gaudi Pytorch container](htt
     git clone https://github.com/HabanaAI/vllm-hpu-extension.git && cd vllm-hpu-extension/calibration
     touch quant_config_buffer.json 
     ```
+  - Check if all Gaudi NIC ports are up <br>
+    Note : Following commands should be run on the host and NOT inside the container. <br>
+    ```bash
+    cd /opt/habanalabs/qual/gaudi2/bin 
+    ./manage_network_ifs.sh --status 
+    # All the ports should be in 'up' state. Try flipping the state
+    ./manage_network_ifs.sh --down 
+    ./manage_network_ifs.sh --up
+    # Give it a minute for the NIC's to flip and check the status again
+    ```  
+    
 
 #### Step 2: Start a Ray cluster to accommodate the required TP size. 
 ```bash
@@ -74,28 +85,6 @@ ray status
 ./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
 ```
 Running the above command should create the calibration measurement files in the specified output directory with model specific sub-directories.<br>
-<details><summary>Arguments used</summary>
--m for model-id/path<br> 
--d dataset pickle path<br> 
--o output directory on nfs<br> 
--l limit number of data samples used for calibration to the specified value<br> 
--t tensor parallelism<br> 
--b batch_size for calibration<br> </details>
-
-<details><summary>Common issues</summary> 
-  
-  1. Facing error "nic/port is down". <br>
-  This happens when the Gaudi card nic ports are down. On every node check the port status as below.<br>
-  Note : Following commands should be run on the host and NOT inside the container. <br>
-     
-```bash
-cd /opt/habanalabs/qual/gaudi2/bin 
-./manage_network_ifs.sh --status 
-# All the ports should be in 'up' state. Try flipping the state
-./manage_network_ifs.sh --down 
-./manage_network_ifs.sh --up 
-```  
-  </details>
 
 
 #### Step 4: (optional) Measurement unification <p>
@@ -103,10 +92,9 @@ This is an optional step and is used to reduce the target tensor parallelism lev
 ```bash
 python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
 ```
-<details><summary>Arguments used</summary>
--g - card grouping to use during unification, card indices separated by commas and groups separated by double dash<br>
--m - calibration output path which has the measurement files <br>
--o - output directory where unification output gets written<br></details>
+-  `-g` - card grouping to use during unification, card indices separated by commas and groups separated by double dash<br>
+-  `-m` - calibration output path which has the measurement files <br>
+-  `-o` - output directory where unification output gets written<br>
 
 #### Step 5: Serving the FP8 quantized model <p>
 ```bash
