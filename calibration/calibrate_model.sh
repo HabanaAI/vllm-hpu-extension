@@ -31,8 +31,10 @@ create_measure_config() {
 create_quant_config() {
     mkdir -p $1/$2/$3
     
+    model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+
     #note(kwisniewski98): mixtral models has attention masked to not cause regression in accuracy
-    if [[ $2 =~ ^mixtral ]]; then
+    if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
