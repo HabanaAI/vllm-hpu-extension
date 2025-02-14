@@ -143,12 +143,15 @@ def prompt_attention(
     valid_seq_lengths: Optional[torch.Tensor] = None,
     fsdpa_op=None,
 ) -> torch.Tensor:
+
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
     query_heads = query.size(1)
     kv_heads = key.size(1)
-    if attn_bias is not None or fsdpa_op is None:
+    #if attn_bias is not None or fsdpa_op is None:
+    if fsdpa_op is None:# or attn_bias is not None:
+        print(f"OPS::prompt_attention: NO FusedSDPA : attn_mask {attn_bias is not None}, valid_seq_lengths: {valid_seq_lengths}")
         if query_heads != kv_heads:
             query = query.unflatten(1, (kv_heads, -1))
             key = key.unflatten(1, (kv_heads, 1))
@@ -156,9 +159,11 @@ def prompt_attention(
             if attn_bias is not None:
                 attn_bias = attn_bias.unsqueeze(2)
         attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
+
         if 'fp32_softmax' in enabled_flags():
             attn_weights = attn_weights.float()
             htcore.mark_step()
+
         if attn_bias is not None:
             attn_weights = attn_weights.add(attn_bias)
         attn_weights = softmax_op(attn_weights, dim=-1)
@@ -169,7 +174,9 @@ def prompt_attention(
     else:
         softmax_mode = 'fast'
         recompute_mode = True
-        attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
+        is_causal = True if valid_seq_lengths is not None else False
+        print(f"OPS::prompt_attention: Fused SDPA : attn_mask {attn_bias is not None}, valid_seq_lengths: {valid_seq_lengths}")
+        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
