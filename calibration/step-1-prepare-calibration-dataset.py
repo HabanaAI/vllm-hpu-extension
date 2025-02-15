@@ -48,8 +48,12 @@ def main(args):
     for _, row in calibration_ds.iterrows():
         question = row["question"]
         system_prompt = row["system_prompt"]
-        tmp_conversation = [{"role": "system", "content": system_prompt}, {
-            "role": "user", "content": question}]
+        if "mixtral" in args.model or "Mixtral" in args.model:
+            tmp_conversation = [{"role": "user", "content": question},
+                {"role": "assistant", "content": system_prompt}]
+        else:
+            tmp_conversation = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}]
         try:
             tmp_input = tokenizer.apply_chat_template(
                 tmp_conversation, chat_template=chat_template, tokenize=False, truncation=True)
