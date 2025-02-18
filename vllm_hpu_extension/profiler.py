@@ -61,9 +61,10 @@ class HabanaHighLevelProfiler:
         self.enabled = os.getenv('VLLM_PROFILER_ENABLED',
                                  'false').lower() == 'true' and int(
                                      os.getenv('RANK', '0')) == 0
+        self.pid = os.getpid()
         if self.enabled:
             self.vllm_instance_id = vllm_instance_id if vllm_instance_id is not None \
-                else f"vllm-instance-{str(uuid.uuid4().hex)}"
+                else f"vllm-instance-{self.pid}-{str(uuid.uuid4().hex)}"
             msg = f'Profiler enabled for: {self.vllm_instance_id}'
             logger.info(msg)
             self.filename = f'server_events_{self.vllm_instance_id}.json'
@@ -86,7 +87,7 @@ class HabanaHighLevelProfiler:
     def record_counter(self, ts, counter):
         if self.enabled:
             self._dump_with_sep({
-                'pid': 1,
+                'pid': self.pid,
                 'tid': self.event_tid['counter'],
                 'ph': 'C',
                 'name': 'utils',
@@ -101,7 +102,7 @@ class HabanaHighLevelProfiler:
                 self.record_counter(ts, args['counter'])
                 del args['counter']
             event = {
-                'pid': 1,
+                'pid': self.pid,
                 'tid': self.event_tid[type],
                 'ph': 'X',
                 'name': name,
