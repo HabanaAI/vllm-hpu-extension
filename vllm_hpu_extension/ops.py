@@ -161,7 +161,10 @@ def prompt_attention(
             htcore.mark_step()
         if attn_bias is not None:
             attn_weights = attn_weights.add(attn_bias)
-        attn_weights = softmax_op(attn_weights, dim=-1)
+        if 'fp32_softmax' in enabled_flags():
+            attn_weights = torch.softmax(attn_weights, dim=-1)
+	else:
+            attn_weights = softmax_op(attn_weights, dim=-1)
         attn_weights = attn_weights.to(query.dtype)
         attn_weights = matmul_av_op(attn_weights, value)
         if query_heads != kv_heads:
