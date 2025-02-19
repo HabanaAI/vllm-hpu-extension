@@ -37,7 +37,10 @@ An inference with FP8 precision models using vLLM has been described in [README_
 > Multi-node calibration is an experimental feature and could have stability issues.
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
-Note : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
+
+> [!NOTE] 
+> Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
+
 
 #### Step 1: Pre-requisites
   - Install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm)
@@ -68,7 +71,7 @@ export EXPERIMENTAL_WEIGHT_SHARING="0"
 export VLLM_SKIP_WARMUP="true"
 # Check the network interface for outbound/inbound comms. Command 'ip a' or 'ifconfig' should list all the interfaces
 export GLOO_SOCKET_IFNAME=eth0
-export QUANT_CONFIG="<path-to-config>/quant_config_buffer.json"
+export QUANT_CONFIG="<nfs-path-to-config>/quant_config_buffer.json"
 
 # Start Ray on head node
 ray start --head --port=6379
@@ -82,15 +85,17 @@ ray status
 
 #### Step 3: Run model calibration script
 ```bash
-./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <nfs-path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
 ```
 Running the above command should create the calibration measurement files in the specified output directory with model specific sub-directories.<br>
 
+> [!NOTE] 
+> The current calibration procedure works correctly only when the multi-node configuration has more than 8 cards. Calibration on smaller configurations, e.g., 2 nodes with 2 cards each, will be added in the future.
 
 #### Step 4: (optional) Measurement unification <p>
 This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales.<br> For eg: You can perform FP8 calibration on the Llama 3.1 405B model on 2x Gaudi2 nodes with Tensor Parallelism = 16 and then use the unification script to reduce the TP to 8. Refer sample command below
 ```bash
-python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
+python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
 ```
 -  `-g` - card grouping to use during unification, card indices separated by commas and groups separated by double dash<br>
 -  `-m` - calibration output path which has the measurement files <br>
@@ -98,8 +103,9 @@ python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--
 
 #### Step 5: Serving the FP8 quantized model <p>
 ```bash
-export QUANT_CONFIG='<path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
+export QUANT_CONFIG='<nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
 vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtype fp8_inc --weights-load-device cpu --tensor-parallel-size 8
 ```
-Note : For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
 
+> [!NOTE] 
+> For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
