@@ -163,7 +163,7 @@ def prompt_attention(
             attn_weights = attn_weights.add(attn_bias)
         if 'fp32_softmax' in enabled_flags():
             attn_weights = torch.softmax(attn_weights, dim=-1)
-	else:
+        else:
             attn_weights = softmax_op(attn_weights, dim=-1)
         attn_weights = attn_weights.to(query.dtype)
         attn_weights = matmul_av_op(attn_weights, value)
