@@ -64,10 +64,10 @@ class VLLMKVCache(torch.nn.Module):
         return cache
 
     def fetch_from_cache(self, cache, blocks):
-        if self.use_contiguous_pa:
+        '''if self.use_contiguous_pa:
             return cache[:blocks.size(0)]
-        else:
-            return cache.index_select(0, blocks)
+        else:'''
+        return cache.index_select(0, blocks)
 
 
 class ModuleFusedSDPA(torch.nn.Module):
