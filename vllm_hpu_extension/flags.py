@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
@@ -155,7 +155,11 @@ def enabled_flags():
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
                             Not(ModelType('qwen2')) & Not(ModelType('mllama')))),
-        "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1")))
+        "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))),
+        "flex_attention": (Not(Hardware("cpu")) & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))
+                           & ModelType("llama")
+                           & Not(EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", "false"))
+                           & EnvFlag("VLLM_PROMPT_USE_FLEX_ATTENTION", "false")),
     }
     environment = get_environment()
     detected = Flags(supported_flags, environment)
