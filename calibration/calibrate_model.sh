@@ -4,6 +4,7 @@
 ###############################################################################
 
 set -e
+cd "$(dirname "$0")"
 
 ALLOWED_DEVICES=("g2" "g3")
 
@@ -22,6 +23,15 @@ usage() {
     echo
 }
 
+cleanup_tmp() {
+	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
+		echo " Clearing temporary directory"
+		rm -rf nc_workspace
+		rm -rf inc_tmp
+	else
+		echo "Skipping temporary directory removal"
+	fi
+}
 create_measure_config() {
     mkdir -p $1/$2/$3
 
@@ -59,9 +69,12 @@ function extract_last_folder_name() {
     echo "$last_folder"
 }
 
+cleanup_tmp
+
 EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
+MULTI_NODE_RUN=false
 while getopts "m:b:l:t:d:h:o:" OPT; do
     case ${OPT} in
         m )
@@ -98,11 +111,31 @@ if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
     exit 1
 fi
 
+if [[ $TP_SIZE -gt 8 ]]; then
+    MULTI_NODE_RUN=true
+fi
+
+if $MULTI_NODE_RUN; then
+    RAY_AVAILABLE_RESOURCES=$(python3 -c 'import ray; ray.init(); print(int(ray.available_resources()["HPU"]))')
+    if [[ $RAY_AVAILABLE_RESOURCES -lt $TP_SIZE ]]; then
+        echo "Required TP size : $TP_SIZE" 
+        echo "Available HPU's : $RAY_AVAILABLE_RESOURCES "
+        echo "!! Exiting since not enough HPU resources available. You can run 'ray status' to see available resources"
+        echo "Refer https://github.com/HabanaAI/vllm-hpu-extension/tree/main/calibration#experimental-multi-node-fp8-calibration for multi-node runs"
+        exit 1
+    fi
+
+    if [[ ! -e $QUANT_CONFIG ]]; then
+        echo " !! Exiting. Invalid QUANT_CONFIG env"
+        echo " Multi-node calibration requires QUANT_CONFIG to point to an empty buffer.json file. Refer https://github.com/HabanaAI/vllm-hpu-extension/tree/main/calibration#experimental-multi-node-fp8-calibration"
+    fi
+fi
+
 # Store the provided MODEL_PATH name in a variable
 MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
 
 echo "Step 0 - detecting used device type [g2, g3]"
-DEVICE_TYPE=$(python step-0-detect-device.py) || (echo "Detecting device process failed" && exit 1)
+DEVICE_TYPE=$(python3 step-0-detect-device.py) || (echo "Detecting device process failed" && exit 1)
 DEVICE_TYPE="g$DEVICE_TYPE"
 echo "Detected device type: $DEVICE_TYPE"
 echo "Step 0 done"
@@ -130,25 +163,48 @@ if [[ -n $LIMIT ]]; then
     EXTRA_FLAGS+="--max-dataset-samples $LIMIT "
 fi
 
+if $MULTI_NODE_RUN; then
+    cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
+    sleep 2
+else
+    export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
+fi
+
 echo ""
 echo "1/4 Preparing calibration dataset"
-export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
-python step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
+python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
 echo "Step 1/4 done"
 
 echo ""
 echo "2/4 Measuring scales"
-python step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE || (echo "Error in step 2" && exit 1)
+if $MULTI_NODE_RUN; then
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray || (echo "Error in step 2" && exit 1)
+else
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE || (echo "Error in step 2" && exit 1)
+fi
+
 echo "Step 2/4 done"
 
 echo ""
 echo "3/4 Postprocessing scales"
-python step-3-postprocess_measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/ || (echo "Error in step 3" && exit 1)
+python3 step-3-postprocess_measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/ || (echo "Error in step 3" && exit 1)
 cp inc_tmp/$MODEL_NAME/$DEVICE_TYPE/* $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
 echo "Step 3/4 done"
 
+if $MULTI_NODE_RUN; then
+    cat $FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json > $QUANT_CONFIG
+    sleep 2
+else
+    export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json
+fi
+
 echo ""
 echo "4/4 Quantize scales"
-export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json
-python step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
+if $MULTI_NODE_RUN; then
+    python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray || (echo "Error in step 4" && exit 1)
+else
+    python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
+fi
+
+cleanup_tmp
 echo "Calibration process done"
