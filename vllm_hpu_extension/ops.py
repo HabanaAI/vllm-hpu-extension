@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
@@ -129,6 +129,40 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.flatten(1, 2)
     return attn
 
+def flex_attention(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    scale: Optional[float] = None,
+) -> torch.Tensor:
+    query = query.transpose(1, 2)
+    key = key.transpose(1, 2)
+    value = value.transpose(1, 2)
+
+    def _causal(
+        score: torch.Tensor,
+        batch: torch.Tensor,
+        head: torch.Tensor,
+        token_q: torch.Tensor,
+        token_kv: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.where(token_q >= token_kv, score, float("-inf"))
+    
+    from torch.nn.attention.flex_attention import flex_attention
+
+    attn_weights = flex_attention(
+        query,
+        key,
+        value,
+        score_mod=_causal,
+        enable_gqa=True,
+        return_lse=False,
+        block_mask=None,
+        scale=scale,
+    )
+
+    attn_weights = attn_weights.transpose(1, 2)
+    return attn_weights
 
 def prompt_attention(
     query: torch.Tensor,
