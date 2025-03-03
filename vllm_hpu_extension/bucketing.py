@@ -245,8 +245,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
 
 def next_pow2(value: int, base: int) -> int:
     res = base
-    while value > 1:
-        value = (value + 1) // 2
+    while value > res:
         res *= 2
     return res
 
@@ -261,6 +260,6 @@ def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
         return bmin
     else:      
         next_step = round_up(value, bstep)
-        next_pow = next_pow2(value, 1)
+        next_pow = next_pow2(value, bmin)
         return min(next_step, next_pow)
 
