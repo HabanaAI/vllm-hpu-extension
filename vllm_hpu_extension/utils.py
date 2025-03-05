@@ -12,7 +12,7 @@ from functools import lru_cache
 import habana_frameworks.torch as htorch
 import torch
 
-from .cache_ops import insert_or_update_cache
+from .cache_ops import insert_or_update_cache, insert_or_update_cache_chunked
 
 
 @lru_cache(maxsize=None)
@@ -59,14 +59,21 @@ class VLLMKVCache(torch.nn.Module):
         self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
                                                 'true').lower() == 'true'
 
-    def forward(self, input, cache, block_indices, block_offset):
-        insert_or_update_cache(input, cache, block_indices, block_offset)
+    def forward(self, input, cache, block_indices,
+                block_offset, chunk_prefill_enabled=False):
+        if chunk_prefill_enabled:
+            insert_or_update_cache_chunked(input, cache, block_indices, block_offset)
+        else:
+            insert_or_update_cache(input, cache, block_indices, block_offset)
         return cache
 
     def fetch_from_cache(self, cache, blocks):
-        '''if self.use_contiguous_pa:
+        if self.use_contiguous_pa:
             return cache[:blocks.size(0)]
-        else:'''
+        else:
+            return cache.index_select(0, blocks)
+    
+    def fetch_from_cache_chunked_prefill(self, cache, blocks):
         return cache.index_select(0, blocks)
 
 
