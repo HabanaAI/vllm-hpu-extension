@@ -31,7 +31,6 @@ def insert_or_update_cache_chunked(input, cache, block_indices, block_offsets):
                 offset_indices = (offsets == -1).nonzero(as_tuple=True)
                 start_index = offsets[0].item()
                 end_index = offsets[offset_indices[0][0].item() - 1].item() + 1
-                print(input[i][start_index:offset_indices[0][0]].shape)
                 cache[block_indices[i], start_index:end_index] = input[i][:offset_indices[0][0]]
 
 def swap_blocks(src, dst, block_mapping):
