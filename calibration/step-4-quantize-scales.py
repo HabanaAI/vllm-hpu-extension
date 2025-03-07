@@ -5,7 +5,7 @@ import vllm
 import torch
 import argparse
 import os
-os.environ["EXPERIMENTAL_WEIGHT_SHARING"] = "0"
+os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
 
 
