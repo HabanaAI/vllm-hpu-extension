@@ -44,6 +44,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--distributed-executor-backend", type=str, default="mp", 
+                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
 
@@ -55,7 +57,8 @@ if __name__ == "__main__":
         quantization='inc',
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
-        max_model_len=args.max_model_len
+        max_model_len=args.max_model_len,
+        distributed_executor_backend=args.distributed_executor_backend
     )
 
     sampling_params = vllm.SamplingParams(
