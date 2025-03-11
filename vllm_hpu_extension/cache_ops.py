@@ -17,6 +17,22 @@ def insert_or_update_cache(input, cache, block_indices, block_offsets):
     else:
         cache.index_put_((block_indices, block_offsets), input)
 
+def insert_or_update_cache_chunked(input, cache, block_indices, block_offsets):
+    if block_offsets is None:
+        cache.index_copy_(0, block_indices, input)
+    else:
+        if block_offsets.numel() == block_indices.numel():
+            cache.index_put_((block_indices, block_offsets), input)
+        else:
+            offsets = None
+            block_size = cache.shape[1]
+            for i in range(block_indices.shape[0]):
+                offsets = block_offsets[i * block_size:(i + 1) * block_size - 1]
+                offset_indices = (offsets == -1).nonzero(as_tuple=True)
+                start_index = offsets[0].item()
+                end_index = offsets[offset_indices[0][0].item() - 1].item() + 1
+                cache[block_indices[i], start_index:end_index] = input[i][:offset_indices[0][0]]
+
 def swap_blocks(src, dst, block_mapping):
     if block_mapping.numel() == 0:
         return
