@@ -42,6 +42,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--max-dataset-samples", type=int, default=0)
+    parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("-v", "--verbose", action="store_true")
 
@@ -55,7 +56,8 @@ if __name__ == "__main__":
         quantization='inc',
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
-        max_model_len=args.max_model_len
+        max_model_len=args.max_model_len,
+        max_num_prefill_seqs=args.max_num_prefill_seqs
     )
 
     sampling_params = vllm.SamplingParams(
