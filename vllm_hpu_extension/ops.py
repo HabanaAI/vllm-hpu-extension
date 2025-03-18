@@ -247,7 +247,7 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        softmax_mode = 'fast'
+        softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'fast'
         recompute_mode = True
         valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
         is_causal = attn_bias is None
