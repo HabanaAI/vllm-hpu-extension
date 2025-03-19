@@ -360,7 +360,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                                                 permuted_weights=permuted_weights,
                                                 activation=activation,
                                                 experts_min=0,
-                                                experts_max=7)
+                                                experts_max=self.num_experts-1)
 
 
 class DynamicFusedMOE(torch.nn.Module):
