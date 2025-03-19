@@ -150,8 +150,6 @@ def enabled_flags():
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
         "cpu": Hardware("cpu"),
-        "contiguous_pa": EnvFlag("VLLM_CONTIGUOUS_PA", 'true'),
-        "fp32_alibi_biases": EnvFlag("VLLM_ALIBI_USE_FLOAT32_BIASES", '1'),
         "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
