@@ -249,7 +249,8 @@ def prompt_attention(
     else:
         softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'fast'
         recompute_mode = True
-        valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
+        if attn_bias is not None or 'fp32_softmax' in enabled_flags():
+            valid_seq_lengths = None
         is_causal = attn_bias is None
         attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
