@@ -53,8 +53,10 @@ def get_model_type():
 
 def set_model_config(cfg):
     global runtime_params
-    runtime_params['model_type'] = cfg.hf_config.model_type
-
+    if hasattr(cfg, 'hf_config'):
+        runtime_params['model_type'] = cfg.hf_config.model_type
+    else:
+        runtime_params['model_type'] = cfg.model_type
 
 def get_environment(**overrides):
     overrides = {k: lambda: v for k, v in overrides.items()}

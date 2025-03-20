@@ -14,15 +14,22 @@ import habana_frameworks.torch.core as htcore
 import habana_frameworks.torch.utils.experimental as htexp
 from vllm_hpu_extension.flags import enabled_flags
 
-from vllm.logger import init_logger
-from vllm.platforms import current_platform
 
-logger = init_logger(__name__)
+try:
+    from vllm.logger import init_logger
+    logger = init_logger(__name__)
+    from vllm.platforms import current_platform
+    def is_hpu_gaudi2():
+        return current_platform.is_hpu() and htexp._get_device_type(
+        ) == htexp.synDeviceType.synDeviceGaudi2
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    def is_hpu_gaudi2():
+        import habana_frameworks.torch.utils.experimental as htexp
+        device_type = htexp._get_device_type()
+        return device_type == htexp.synDeviceType.synDeviceGaudi2
 
-
-def is_hpu_gaudi2():
-    return current_platform.is_hpu() and htexp._get_device_type(
-    ) == htexp.synDeviceType.synDeviceGaudi2
 
 
 def get_hpu_gaudi2_scale_factor():
@@ -68,8 +75,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     attn = attn.to(value.dtype)
     block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
-    block_max = block_max.squeeze()
-    block_sums = block_sums.squeeze()
+    block_max = block_max.squeeze((-1,-2))
+    block_sums = block_sums.squeeze((-1,-2))
 
     # Calculate maximum of blocks that belong to the same sequences
     # and cast adjustments to native dtype
@@ -391,7 +398,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                                                 permuted_weights=permuted_weights,
                                                 activation=activation,
                                                 experts_min=0,
-                                                experts_max=7)
+                                                experts_max=self.num_experts-1)
 
 
 class DynamicFusedMOE(torch.nn.Module):
