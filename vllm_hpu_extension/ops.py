@@ -13,7 +13,6 @@ import math
 import habana_frameworks.torch.core as htcore
 import habana_frameworks.torch.utils.experimental as htexp
 from vllm_hpu_extension.flags import enabled_flags
-from neural_compressor.torch.algorithms.fp8_quant._core.scale_methods.round_scales_function import ScaleToHwAligned
 from vllm.logger import init_logger
 from vllm.platforms import current_platform
 
