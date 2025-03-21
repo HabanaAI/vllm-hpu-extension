@@ -55,7 +55,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
@@ -95,9 +95,9 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, block_groups, scale, matmul_qk_op,
+            block_bias, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
-            keys_fetch_func, values_fetch_func):
+            keys_fetch_func, values_fetch_func, **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
@@ -121,7 +121,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
-    attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
+    attn = pipelined_pa(attn, value, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
@@ -214,6 +214,7 @@ def _fsdpa_prompt_attention(
         value: torch.Tensor,
         scale: float,
         fsdpa_op,
+        is_causal: bool,
         attn_bias: Optional[torch.Tensor] = None,
         valid_seq_lengths: Optional[torch.Tensor] = None,
         **ignored_args
@@ -227,8 +228,11 @@ def _fsdpa_prompt_attention(
     else:
         softmax_mode = 'fast'
     recompute_mode = True
-    valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
-    is_causal = attn_bias is None
+    if is_causal:
+        # TODO: causal + attn_bias is not yet supported
+        attn_bias = None
+        assert valid_seq_lengths is not None, \
+            'Missing valid_seq_lengths when using fsdpa with causal=True!'
     attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                             scale, softmax_mode, recompute_mode,
                             valid_seq_lengths, 'right')
@@ -241,7 +245,7 @@ def _get_arg(args, name):
 
 
 def prompt_attention(
-        impl,
+        impl: str,
         **args,
 ) -> torch.Tensor:
     impl_mapping = {
@@ -249,7 +253,7 @@ def prompt_attention(
         'fsdpa': _fsdpa_prompt_attention,
         'flex': _flex_prompt_attention,
     }
-    assert impl in impl_mapping, f'Unsupported implementation requested - {impl}'
+    assert impl in impl_mapping, f'Unsupported implementation: {impl}'
     return impl_mapping[impl](**args)
 
 
