@@ -268,6 +268,7 @@ def prompt_attention_with_context(
     softmax_op,
     keys_fetch_func,
     values_fetch_func,
+    **ignored_args,
 ) -> torch.Tensor:
     htorch.core.mark_step()
     query.mul_(scale)
