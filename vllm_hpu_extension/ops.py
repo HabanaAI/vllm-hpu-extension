@@ -138,7 +138,6 @@ def _flex_prompt_attention(
     scale: float,
     **ignored_args,
 ) -> torch.Tensor:
-    print('flex', query.shape, key.shape, value.shape)
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
@@ -180,7 +179,6 @@ def _naive_prompt_attention(
         matmul_av_op=torch.matmul,
         **ignored_args
 ) -> torch.Tensor:
-    print('naive', query.shape, key.shape, value.shape)
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
@@ -219,7 +217,6 @@ def _fsdpa_prompt_attention(
         valid_seq_lengths: Optional[torch.Tensor] = None,
         **ignored_args
 ) -> torch.Tensor:
-    print('fsdpa', query.shape, key.shape, value.shape, attn_bias is None, valid_seq_lengths is None)
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
@@ -315,44 +312,6 @@ def prompt_attention_with_context(
     attn_weights = attn_weights.transpose(1, 2)
     htorch.core.mark_step()
     return attn_weights
-
-
-# def merge_with_cache(tensor, cache, blocks, fetch_fn):
-#     if blocks is None or cache is None:
-#         return tensor
-#     return torch.cat([fetch_fn(cache, blocks).flatten(0, 1), tensor], dim=0)
-
-
-#def merged_prefill(query: torch.Tensor,
-#                   key: torch.Tensor,
-#                   value: torch.Tensor,
-#                   scale: float,
-#                   key_cache: Optional[torch.Tensor],
-#                   value_cache: Optional[torch.Tensor],
-#                   cached_blocks: Optional[torch.Tensor],
-#                   attn_bias: torch.Tensor,
-#                   fsdpa_op,
-#                   keys_fetch_func,
-#                   values_fetch_func):
-#    key = merge_with_cache(key, key_cache, cached_blocks, keys_fetch_func)
-#    value = merge_with_cache(value, value_cache, cached_blocks, values_fetch_func)
-#
-#    print('merged!', query.shape, key.shape, value.shape)
-#
-#    query = query.transpose(1, 2)
-#    key = key.transpose(1, 2)
-#    value = value.transpose(1, 2)
-#
-#    softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'fast'
-#    recompute_mode = True
-#    # TODO: add support for using triangular softmax
-#    valid_seq_lengths = None
-#    is_causal = attn_bias is None
-#    attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
-#                            scale, softmax_mode, recompute_mode,
-#                            valid_seq_lengths, 'right')
-#    attn_weights = attn_weights.transpose(1, 2)
-#    return attn_weights
 
 
 class LoraMask:
