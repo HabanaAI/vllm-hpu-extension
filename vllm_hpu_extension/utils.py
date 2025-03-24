@@ -60,13 +60,7 @@ class VLLMKVCache(torch.nn.Module):
                                                 'true').lower() == 'true'
 
     def forward(self, input, cache, block_indices, block_offset):
-        """
-        NOTE: input(key/value) is None for some cases, e.g. in
-        cross attention decode stage of llama3.2 model, key
-        and value are None.
-        """
-        if input is not None:
-            insert_or_update_cache(input, cache, block_indices, block_offset)
+        insert_or_update_cache(input, cache, block_indices, block_offset)
         return cache
 
     def fetch_from_cache(self, cache, blocks):
