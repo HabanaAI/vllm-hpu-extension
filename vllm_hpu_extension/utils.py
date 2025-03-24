@@ -68,6 +68,9 @@ class VLLMKVCache(torch.nn.Module):
             return cache[:blocks.size(0)]
         else:
             return cache.index_select(0, blocks)
+        
+    def get_cache(self, cache):
+        return cache
 
 
 class ModuleFusedSDPA(torch.nn.Module):
