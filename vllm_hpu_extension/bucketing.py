@@ -255,11 +255,10 @@ def round_up(value: int, k: int) -> int:
 
 
 def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
-    bmin, bstep, _ = config
+    bmin, bstep, bmax = config
     if value <= bmin:
         return bmin
-    else:      
-        next_step = round_up(value, bstep)
-        next_pow = next_pow2(value, bmin)
-        return min(next_step, next_pow)
 
+    next_step = round_up(value, bstep)
+    next_pow = next_pow2(value, bmin)
+    return next_pow if next_pow < bstep and next_pow <= bmax else next_step
