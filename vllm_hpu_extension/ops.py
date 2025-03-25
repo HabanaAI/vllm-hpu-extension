@@ -237,10 +237,6 @@ def _fsdpa_prompt_attention(
     return attn_weights
 
 
-def _get_arg(args, name):
-    return args.get(name, None)
-
-
 def prompt_attention(
         impl: str,
         **args,

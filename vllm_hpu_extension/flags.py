@@ -160,7 +160,6 @@ def enabled_flags():
                            & ModelType("llama")
                            & Not(EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", "false"))
                            & EnvFlag("VLLM_PROMPT_USE_FLEX_ATTENTION", "false")),
-        #"merged_prefill": EnvFlag("VLLM_USE_MERGED_PREFILL", False),
     }
     environment = get_environment()
     detected = Flags(supported_flags, environment)
