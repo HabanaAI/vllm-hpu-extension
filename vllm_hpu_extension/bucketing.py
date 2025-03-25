@@ -258,7 +258,6 @@ def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
     bmin, bstep, _ = config
     if value <= bmin:
         return bmin
-
     else:
         next_step = round_up(value, bstep)
         next_pow = next_pow2(value, bmin)
