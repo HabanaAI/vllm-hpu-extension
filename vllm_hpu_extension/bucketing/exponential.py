@@ -266,21 +266,39 @@ def generate_prompt_buckets(bs_bucket_config,
 
 
 def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
-                            max_blocks, max_model_len, block_size):
+                            max_blocks, max_model_len, block_size, 
+                            skip_invalid=False):
     buckets = []
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
     tmp_blocks_bucket_config = blocks_bucket_config
     tmp_blocks_bucket_config = (*tmp_blocks_bucket_config[:2], max_blocks, tmp_blocks_bucket_config[-1])
     block_buckets = warmup_range_with_limit(tmp_blocks_bucket_config)
     last_bucket = max_blocks
-    for bs in bs_buckets:
-        for blocks in block_buckets:
-            if blocks != tmp_blocks_bucket_config[0] and (blocks/bs) * block_size > max_model_len:
-                continue
-            if blocks >= last_bucket:
-                buckets.append((bs, last_bucket))
-                break
-            buckets.append((bs, blocks))
+    valid_blocks = set()
+    if not skip_invalid:
+        #NOTE(kzawora): this case will generate all possible combinations of
+        # exponentially-spaced bs and blocks, even if combination is
+        # invalid (exceeds max_model_len). Unfortunately, this is necessary 
+        # to handle scenario where bucket dimensions are determined by 
+        # get_padded_decode_num_blocks or get_padded_decode_batch_size, 
+        # since they don't include information about the other dimension. 
+        # This will need to be refactored at some point in the model runner,
+        # but for now, we are dealing with this.
+        valid_blocks = set((bs,x) for x in sorted(block_buckets) for bs in bs_buckets)
+    else:
+        #NOTE(kzawora): this case will generate only valid combinations of
+        # exponentially-spaced bs and blocks, where the product of bs and blocks
+        # is less than or equal to max_model_len. To handle corner cases 
+        # (e.g. longer context due to fragmentation), we're adding an additional
+        # bucket with max_blocks for each batch size.
+        # For this to work properly, bucket dimensions need be requested as 
+        # a combination of (batch_size, num_blocks), not separately.
+        for bs in bs_buckets:
+            max_blocks_per_bs = min(bs * math.ceil(max_model_len / block_size), last_bucket)
+            upper_bucket_bound = next(x for x in sorted(block_buckets) if x >= max_blocks_per_bs)
+            valid_blocks = set((bs,x) for x in sorted(block_buckets) if x <= upper_bucket_bound)
+            
+    buckets.extend(list(valid_blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
