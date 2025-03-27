@@ -276,8 +276,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
 
 def next_pow2(value: int, base: int) -> int:
     res = base
-    while value > 1:
-        value = (value + 1) // 2
+    while value > res:
         res *= 2
     return res
 

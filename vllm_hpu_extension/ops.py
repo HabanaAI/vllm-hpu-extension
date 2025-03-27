@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
@@ -11,11 +11,23 @@ import torch
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
+import habana_frameworks.torch.utils.experimental as htexp
 from vllm_hpu_extension.flags import enabled_flags
 
 from vllm.logger import init_logger
+from vllm.platforms import current_platform
 
 logger = init_logger(__name__)
+
+
+def is_hpu_gaudi2():
+    return current_platform.is_hpu() and htexp._get_device_type(
+    ) == htexp.synDeviceType.synDeviceGaudi2
+
+
+def get_hpu_gaudi2_scale_factor():
+    return (torch.finfo(torch.float8_e4m3fn).max /
+            torch.finfo(torch.float8_e4m3fnuz).max)
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -86,11 +98,12 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_scales, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
             keys_fetch_func, values_fetch_func):
-    batch_size = query.size(0)
-    q_heads = query.size(1)
-    kv_heads = key_cache.size(2)
+    batch_size, _, hidden_size = query.shape
+    _, _, kv_heads, head_size = key_cache.shape
+    q_heads = hidden_size // head_size
 
-    query = batch2block(scale * query, block_mapping, batch2block_matmul_op).unsqueeze(-2)
+    query_shape = (-1, q_heads, 1, head_size)
+    query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
     key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
     value = values_fetch_func(value_cache, block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
@@ -117,6 +130,40 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.flatten(1, 2)
     return attn
 
+def flex_attention(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    scale: Optional[float] = None,
+) -> torch.Tensor:
+    query = query.transpose(1, 2)
+    key = key.transpose(1, 2)
+    value = value.transpose(1, 2)
+
+    def _causal(
+        score: torch.Tensor,
+        batch: torch.Tensor,
+        head: torch.Tensor,
+        token_q: torch.Tensor,
+        token_kv: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.where(token_q >= token_kv, score, float("-inf"))
+    
+    from torch.nn.attention.flex_attention import flex_attention
+
+    attn_weights = flex_attention(
+        query,
+        key,
+        value,
+        score_mod=_causal,
+        enable_gqa=True,
+        return_lse=False,
+        block_mask=None,
+        scale=scale,
+    )
+
+    attn_weights = attn_weights.transpose(1, 2)
+    return attn_weights
 
 def prompt_attention(
     query: torch.Tensor,
@@ -136,7 +183,7 @@ def prompt_attention(
     value = value.transpose(1, 2)
     query_heads = query.size(1)
     kv_heads = key.size(1)
-    if attn_bias is not None or fsdpa_op is None:
+    if fsdpa_op is None:
         if query_heads != kv_heads:
             query = query.unflatten(1, (kv_heads, -1))
             key = key.unflatten(1, (kv_heads, 1))
@@ -149,7 +196,10 @@ def prompt_attention(
             htcore.mark_step()
         if attn_bias is not None:
             attn_weights = attn_weights.add(attn_bias)
-        attn_weights = softmax_op(attn_weights, dim=-1)
+        if 'fp32_softmax' in enabled_flags():
+            attn_weights = torch.softmax(attn_weights, dim=-1)
+        else:
+            attn_weights = softmax_op(attn_weights, dim=-1)
         attn_weights = attn_weights.to(query.dtype)
         attn_weights = matmul_av_op(attn_weights, value)
         if query_heads != kv_heads:
@@ -157,7 +207,9 @@ def prompt_attention(
     else:
         softmax_mode = 'fast'
         recompute_mode = True
-        attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
+        valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
+        is_causal = attn_bias is None
+        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
@@ -339,7 +391,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                                                 permuted_weights=permuted_weights,
                                                 activation=activation,
                                                 experts_min=0,
-                                                experts_max=7)
+                                                experts_max=self.num_experts - 1)
 
 
 class DynamicFusedMOE(torch.nn.Module):

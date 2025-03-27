@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
@@ -8,10 +8,12 @@
 import os
 from packaging.version import Version
 from packaging.specifiers import SpecifierSet
-from functools import cache
 
 from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.kernels import fsdpa
+
+
+detected = None
 
 
 class FeatureTest:
@@ -136,8 +138,13 @@ class Flags:
         return all(self._check(name) for name in names.split(','))
 
 
-@cache
 def enabled_flags():
+
+    global detected
+
+    if detected:
+        return detected
+
     supported_flags = {
         "gaudi": Hardware("gaudi"),
         "gaudi2": Hardware("gaudi2"),
@@ -146,8 +153,13 @@ def enabled_flags():
         "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
-                  & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", Not(ModelType('qwen2')))),
-        "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1")))
+                  & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
+                            Not(ModelType('qwen2')) & Not(ModelType('mllama')))),
+        "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))),
+        "flex_attention": (Not(Hardware("cpu")) & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))
+                           & ModelType("llama")
+                           & Not(EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", "false"))
+                           & EnvFlag("VLLM_PROMPT_USE_FLEX_ATTENTION", "false")),
     }
     environment = get_environment()
     detected = Flags(supported_flags, environment)

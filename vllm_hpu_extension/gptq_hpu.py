@@ -240,7 +240,7 @@ class GPTQHPULinearMethod(LinearMethodBase):
         else:
             g_idx_trivial = [0] * columns
         g_idx_trivial = torch.tensor(g_idx_trivial, dtype=torch.int32)
-        assert torch.equal(layer.g_idx, g_idx_trivial), "Non-trivial tensor g_idx is not supported"
+        assert torch.equal(layer.g_idx, g_idx_trivial.to('hpu')), "Non-trivial tensor g_idx is not supported"
 
         # for torch.compile
         layer.qweight = Parameter(layer.qweight.data, requires_grad=False)

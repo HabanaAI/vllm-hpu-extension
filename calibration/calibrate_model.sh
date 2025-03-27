@@ -24,13 +24,28 @@ usage() {
 
 create_measure_config() {
     mkdir -p $1/$2/$3
-    tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+
+    model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+
+    if [[ $model_name_lower =~ ^mixtral ]]; then
+        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    else
+        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    fi
     echo "$tmp_config" > $1/$2/maxabs_measure_$3.json
 }
 
 create_quant_config() {
     mkdir -p $1/$2/$3
-    tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    
+    model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+
+    #note(kwisniewski98): mixtral models has attention masked to not cause regression in accuracy
+    if [[ $model_name_lower =~ ^mixtral ]]; then
+        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    else
+        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    fi
     echo "$tmp_config" > $1/$2/maxabs_quant_$3.json
 }
 
@@ -106,7 +121,9 @@ if [[ $TP_SIZE > 1 ]]; then
 fi
 
 if [[ $MODEL_PATH_NAME == llama.*2.* ]]; then
-    EXTRA_FLAGS+="--chat-template ../../benchmarks/acc-mlperf-llama/chat-templates/llama-2-chat.jinja "
+    EXTRA_FLAGS+="--chat-template template/llama-2-chat.jinja "
+elif  [[ "$MODEL_PATH" == *"Mixtral-8x7B"* ]]; then
+    EXTRA_FLAGS+="--chat-template template/mistral_mixtral.jinja "
 fi
 
 if [[ -n $LIMIT ]]; then

@@ -33,12 +33,19 @@ def load_chat_template(chat_template_path: str) -> str:
 def main(args):
 
     calibration_ds = get_ds(args)
+    try:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            args.model,
+            model_max_length=args.max_model_length,
+            padding_side="left",
+            use_fast=False,)
+    except:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            args.model,
+            model_max_length=args.max_model_length,
+            padding_side="left",
+            use_fast=True,)
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.model,
-        model_max_length=args.max_model_length,
-        padding_side="left",
-        use_fast=False,)
 
     chat_template = load_chat_template(
         args.chat_template) if args.chat_template else None
@@ -48,8 +55,12 @@ def main(args):
     for _, row in calibration_ds.iterrows():
         question = row["question"]
         system_prompt = row["system_prompt"]
-        tmp_conversation = [{"role": "system", "content": system_prompt}, {
-            "role": "user", "content": question}]
+        if "mixtral" in args.model or "Mixtral" in args.model:
+            tmp_conversation = [{"role": "user", "content": question},
+                {"role": "assistant", "content": system_prompt}]
+        else:
+            tmp_conversation = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}]
         try:
             tmp_input = tokenizer.apply_chat_template(
                 tmp_conversation, chat_template=chat_template, tokenize=False, truncation=True)
