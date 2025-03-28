@@ -55,7 +55,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_size,
+def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
@@ -95,9 +95,9 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
 
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_scales, block_groups, scale, matmul_qk_op,
+            block_bias, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
-            keys_fetch_func, values_fetch_func):
+            keys_fetch_func, values_fetch_func, **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
@@ -121,7 +121,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
-    attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
+    attn = pipelined_pa(attn, value, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
@@ -130,11 +130,13 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.flatten(1, 2)
     return attn
 
-def flex_attention(
+
+def _flex_prompt_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    scale: Optional[float] = None,
+    scale: float,
+    **ignored_args,
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
@@ -148,7 +150,7 @@ def flex_attention(
         token_kv: torch.Tensor,
     ) -> torch.Tensor:
         return torch.where(token_q >= token_kv, score, float("-inf"))
-    
+
     from torch.nn.attention.flex_attention import flex_attention
 
     attn_weights = flex_attention(
@@ -165,55 +167,87 @@ def flex_attention(
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
 
-def prompt_attention(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    attn_bias: Optional[torch.Tensor] = None,
-    p: float = 0.0,
-    scale: Optional[float] = None,
-    matmul_qk_op=torch.matmul,
-    softmax_op=torch.softmax,
-    matmul_av_op=torch.matmul,
-    valid_seq_lengths: Optional[torch.Tensor] = None,
-    fsdpa_op=None,
+
+def _naive_prompt_attention(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        scale: float,
+        attn_bias: Optional[torch.Tensor] = None,
+        matmul_qk_op=torch.matmul,
+        softmax_op=torch.softmax,
+        matmul_av_op=torch.matmul,
+        **ignored_args
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
     query_heads = query.size(1)
     kv_heads = key.size(1)
-    if fsdpa_op is None:
-        if query_heads != kv_heads:
-            query = query.unflatten(1, (kv_heads, -1))
-            key = key.unflatten(1, (kv_heads, 1))
-            value = value.unflatten(1, (kv_heads, 1))
-            if attn_bias is not None:
-                attn_bias = attn_bias.unsqueeze(2)
-        attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
-        if 'fp32_softmax' in enabled_flags():
-            attn_weights = attn_weights.float()
-            htcore.mark_step()
+    if query_heads != kv_heads:
+        query = query.unflatten(1, (kv_heads, -1))
+        key = key.unflatten(1, (kv_heads, 1))
+        value = value.unflatten(1, (kv_heads, 1))
         if attn_bias is not None:
-            attn_weights = attn_weights.add(attn_bias)
-        if 'fp32_softmax' in enabled_flags():
-            attn_weights = torch.softmax(attn_weights, dim=-1)
-        else:
-            attn_weights = softmax_op(attn_weights, dim=-1)
-        attn_weights = attn_weights.to(query.dtype)
-        attn_weights = matmul_av_op(attn_weights, value)
-        if query_heads != kv_heads:
-            attn_weights = attn_weights.flatten(1, 2)
-    else:
-        softmax_mode = 'fast'
-        recompute_mode = True
-        valid_seq_lengths = valid_seq_lengths if attn_bias is None else None
-        is_causal = attn_bias is None
-        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
-                                scale, softmax_mode, recompute_mode,
-                                valid_seq_lengths, 'right')
+            attn_bias = attn_bias.unsqueeze(2)
+    attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
+    if 'fp32_softmax' in enabled_flags():
+        softmax_op = torch.softmax
+        attn_weights = attn_weights.float()
+        htcore.mark_step()
+    if attn_bias is not None:
+        attn_weights = attn_weights.add(attn_bias)
+    attn_weights = softmax_op(attn_weights, dim=-1)
+    attn_weights = attn_weights.to(query.dtype)
+    attn_weights = matmul_av_op(attn_weights, value)
+    if query_heads != kv_heads:
+        attn_weights = attn_weights.flatten(1, 2)
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
+
+
+def _fsdpa_prompt_attention(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        scale: float,
+        fsdpa_op,
+        is_causal: bool,
+        attn_bias: Optional[torch.Tensor] = None,
+        valid_seq_lengths: Optional[torch.Tensor] = None,
+        **ignored_args
+) -> torch.Tensor:
+    query = query.transpose(1, 2)
+    key = key.transpose(1, 2)
+    value = value.transpose(1, 2)
+    if 'fp32_softmax' in enabled_flags():
+        softmax_mode = 'fp32'
+    else:
+        softmax_mode = 'fast'
+    recompute_mode = True
+    if is_causal:
+        # TODO: causal + attn_bias is not yet supported
+        attn_bias = None
+        assert valid_seq_lengths is not None, \
+            'Missing valid_seq_lengths when using fsdpa with causal=True!'
+    attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
+                            scale, softmax_mode, recompute_mode,
+                            valid_seq_lengths, 'right')
+    attn_weights = attn_weights.transpose(1, 2)
+    return attn_weights
+
+
+def prompt_attention(
+        impl: str,
+        **args,
+) -> torch.Tensor:
+    impl_mapping = {
+        'naive': _naive_prompt_attention,
+        'fsdpa': _fsdpa_prompt_attention,
+        'flex': _flex_prompt_attention,
+    }
+    assert impl in impl_mapping, f'Unsupported implementation: {impl}'
+    return impl_mapping[impl](**args)
 
 
 def prompt_attention_with_context(
@@ -230,6 +264,7 @@ def prompt_attention_with_context(
     softmax_op,
     keys_fetch_func,
     values_fetch_func,
+    **ignored_args,
 ) -> torch.Tensor:
     htorch.core.mark_step()
     query.mul_(scale)
