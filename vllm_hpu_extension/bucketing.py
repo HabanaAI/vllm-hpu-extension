@@ -28,11 +28,12 @@ class HPUBucketingContext(metaclass=Singleton):
     global_state = HPUBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens):
+                 max_num_batched_tokens, use_merged_prefill):
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
+        self.use_merged_prefill = use_merged_prefill
         self._setup_buckets()
         self.num_hpu_blocks = None
 
@@ -56,7 +57,15 @@ class HPUBucketingContext(metaclass=Singleton):
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=self.block_size,
             step=self.block_size, max=max_blocks)
-            
+
+        if self.use_merged_prefill:
+            print('Merged prefill is enabled! '
+                  'Overriding prompt bucketing settings!')
+            seq_min, seq_step, seq_max = self.global_state.prompt_seq_bucket_cfg
+            max_bs = self.global_state.prompt_bs_bucket_cfg[2]
+            self.global_state.prompt_bs_bucket_cfg = (1, 1, 1)
+            self.global_state.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
+
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
                f"seq:{self.global_state.prompt_seq_bucket_cfg}")
