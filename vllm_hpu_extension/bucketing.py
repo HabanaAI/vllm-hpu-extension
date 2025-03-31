@@ -3,7 +3,8 @@ import operator
 import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
-
+import numpy as np
+import random
 
 class Singleton(type):
     _instances: Dict[type, object] = {}
@@ -12,6 +13,38 @@ class Singleton(type):
         if cls not in cls._instances:
             cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
+
+
+
+# A decorator for input/output validation of bucketing algorithms
+def check_bucket(bucketer):
+    def helper(shapes, num_buckets, *args, **kwargs):
+        for k in shapes:
+            assert type(k) == type(1)
+            assert k >= 0
+        assert num_buckets >= 1
+        assert type(num_buckets) == type(1)
+        buckets = bucketer(shapes, num_buckets, *args, **kwargs)
+        assert len(buckets) <= num_buckets
+        assert buckets[-1] <= max(shapes)
+        return buckets
+    return helper
+
+# Percentile based bucketing
+@check_bucket
+def percentile_bucket(shapes, num_buckets):
+    buckets = np.unique(
+      np.percentile(
+            shapes,
+            np.linspace(0, 100, num_buckets + 1),
+            interpolation="lower",
+      )[1:]
+    )
+    return buckets
+
+
+def sample_with_batch(prompt_lens, bs, num_batches):
+    return [max([random.choice(prompt_lens) for _ in range(bs)]) for __ in range(num_batches)]
 
 
 @dataclass
@@ -184,9 +217,29 @@ def warmup_range(config: Tuple[int, int, int]):
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
                             max_num_batched_tokens=None):
-    buckets = list(
-        itertools.product(warmup_range(bs_bucket_config),
-                          warmup_range(seq_bucket_config)))
+    if 'EXPLICIT_PROMPT_BUCKETS' in os.environ:
+        # Run as: EXPLICIT_PROMPT_BUCKETS=128,512,1024,4096 cmd_to_run
+        explicit_prompt_buckets = [int(i) for i in os.environ['EXPLICIT_PROMPT_BUCKETS'].split(',')]
+        print(f'Explicit prompt buckets, {explicit_prompt_buckets}')
+        buckets = list(
+            itertools.product(warmup_range(bs_bucket_config),
+                            explicit_prompt_buckets))
+    elif 'EXPLICIT_INP_HISTOGRAM' in os.environ:
+        with open(os.environ['EXPLICIT_INP_HISTOGRAM']) as f:
+            lns = f.readlines()
+            assert len(lns) == 1, "Expected 1 single line with comma separated values (prompt length samples)"
+            prompt_lens = list(map(int, lns[0].split(',')))
+        batches = warmup_range(bs_bucket_config)
+        bkts = []
+        for bs in batches:
+            sample_with_bs = sample_with_batch(prompt_lens, bs, 10000)
+            bkts += [percentile_bucket(list(sample_with_bs), len(batches))]
+        buckets = sum([list(itertools.product([bs], bkt)) for bs, bkt in zip(batches, bkts)], [])
+        print(f'Buckets formed after percentile {buckets}')
+    else:
+        buckets = list(
+            itertools.product(warmup_range(bs_bucket_config),
+                            warmup_range(seq_bucket_config)))
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
