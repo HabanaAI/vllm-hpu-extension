@@ -288,6 +288,7 @@ def prompt_attention_with_context(
     past_values = past_values.transpose(1, 2)
     value = torch.concat((past_values, value), dim=-2)
 
+    '''
     if query_heads != kv_heads:
         query = query.unflatten(1, (kv_heads, -1))
         key = key.unflatten(1, (kv_heads, 1))
@@ -308,6 +309,18 @@ def prompt_attention_with_context(
 
     attn_weights = attn_weights.transpose(1, 2)
     htorch.core.mark_step()
+    '''
+
+    from habana_frameworks.torch.hpex.kernels import FusedSDPA
+    from vllm_hpu_extension.utils import ModuleFusedSDPA
+
+    fsdpa_op = ModuleFusedSDPA(FusedSDPA)
+
+    attn_weights = fsdpa_op(query, key, value, attn_bias, scale, False,
+                            scale, 'fast', True,
+                            None, 'right')
+    attn_weights = attn_weights.transpose(1, 2)
+    
     return attn_weights
 
 
