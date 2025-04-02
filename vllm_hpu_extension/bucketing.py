@@ -59,12 +59,18 @@ class HPUBucketingContext(metaclass=Singleton):
             step=self.block_size, max=max_blocks)
 
         if self.use_merged_prefill:
-            print('Merged prefill is enabled! '
-                  'Overriding prompt bucketing settings!')
-            seq_min, seq_step, seq_max = self.global_state.prompt_seq_bucket_cfg
+            prev_prompt_bs_bucket_cfg = tuple(self.global_state.prompt_bs_bucket_cfg)
+            prev_prompt_seq_bucket_cfg = tuple(self.global_state.prompt_seq_bucket_cfg)
+            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
             max_bs = self.global_state.prompt_bs_bucket_cfg[2]
             self.global_state.prompt_bs_bucket_cfg = (1, 1, 1)
             self.global_state.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
+            new_prompt_bs_bucket_cfg = self.global_state.prompt_bs_bucket_cfg
+            new_prompt_seq_bucket_cfg = self.global_state.prompt_seq_bucket_cfg
+            print('Merged prefill is enabled!\n'
+                  'Overriding prompt bucketing settings!\n'
+                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
+                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
