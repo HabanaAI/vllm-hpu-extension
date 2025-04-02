@@ -241,6 +241,16 @@ def prompt_attention(
         impl: str,
         **args,
 ) -> torch.Tensor:
+    if block_list is not None:
+        past_keys = keys_fetch_func(key_cache, block_list)
+        past_keys = past_keys.reshape(batch_size, context_len, kv_heads, -1)
+        past_keys = past_keys.transpose(1, 2)
+        key = torch.concat((past_keys, key), dim=-2)
+
+        past_values = values_fetch_func(value_cache, block_list)
+        past_values = past_values.reshape(batch_size, context_len, kv_heads, -1)
+        past_values = past_values.transpose(1, 2)
+        value = torch.concat((past_values, value), dim=-2)
     impl_mapping = {
         'naive': _naive_prompt_attention,
         'fsdpa': _fsdpa_prompt_attention,
@@ -249,7 +259,7 @@ def prompt_attention(
     assert impl in impl_mapping, f'Unsupported implementation: {impl}'
     return impl_mapping[impl](**args)
 
-
+'''
 def prompt_attention_with_context(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -288,7 +298,7 @@ def prompt_attention_with_context(
     past_values = past_values.transpose(1, 2)
     value = torch.concat((past_values, value), dim=-2)
 
-    '''
+    
     if query_heads != kv_heads:
         query = query.unflatten(1, (kv_heads, -1))
         key = key.unflatten(1, (kv_heads, 1))
@@ -309,7 +319,7 @@ def prompt_attention_with_context(
 
     attn_weights = attn_weights.transpose(1, 2)
     htorch.core.mark_step()
-    '''
+    
 
     from habana_frameworks.torch.hpex.kernels import FusedSDPA
     from vllm_hpu_extension.utils import ModuleFusedSDPA
@@ -322,6 +332,7 @@ def prompt_attention_with_context(
     attn_weights = attn_weights.transpose(1, 2)
     
     return attn_weights
+    '''
 
 
 class LoraMask:
