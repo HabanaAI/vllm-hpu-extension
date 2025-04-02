@@ -241,13 +241,14 @@ def prompt_attention(
         impl: str,
         **args,
 ) -> torch.Tensor:
-    if block_list is not None:
-        past_keys = keys_fetch_func(key_cache, block_list)
+    if 'block_list' in args.keys() and 'keys_fetch_func' in args.keys() and 'values_fetch_func' in args.keys():
+        print(args)
+        past_keys = args.keys_fetch_func(key_cache, block_list)
         past_keys = past_keys.reshape(batch_size, context_len, kv_heads, -1)
         past_keys = past_keys.transpose(1, 2)
         key = torch.concat((past_keys, key), dim=-2)
 
-        past_values = values_fetch_func(value_cache, block_list)
+        past_values = args.values_fetch_func(value_cache, block_list)
         past_values = past_values.reshape(batch_size, context_len, kv_heads, -1)
         past_values = past_values.transpose(1, 2)
         value = torch.concat((past_values, value), dim=-2)
@@ -258,6 +259,14 @@ def prompt_attention(
     }
     assert impl in impl_mapping, f'Unsupported implementation: {impl}'
     return impl_mapping[impl](**args)
+
+
+def get_context(func, cache, block_list, current, bs, ctx_len, kv_heads) -> torch.Tensor:
+    past_keys = keys_fetch_func(key_cache, block_list)
+    past_keys = past_keys.reshape(batch_size, context_len, kv_heads, -1)
+    past_keys = past_keys.transpose(1, 2)
+    key = torch.concat((past_keys, key), dim=-2)
+    
 
 '''
 def prompt_attention_with_context(
