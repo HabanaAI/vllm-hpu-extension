@@ -24,6 +24,7 @@ if __name__ == "__main__":
         dtype=torch.bfloat16,
         quantization='inc',
         kv_cache_dtype="fp8_inc",
-        max_num_prefill_seqs=1)
+        max_num_prefill_seqs=1,
+        trust_remote_code=True)
 
     llm.llm_engine.model_executor.shutdown()
