@@ -4,7 +4,7 @@
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import habana_frameworks.torch as htorch
 import torch
@@ -93,15 +93,23 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_groups, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
-            keys_fetch_func, values_fetch_func, **ignored_args):
+            keys_fetch_func, values_fetch_func, kv_lora_rank=None, **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
 
     query_shape = (-1, q_heads, 1, head_size)
     query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
-    key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
-    value = values_fetch_func(value_cache, block_list).transpose(1, 2)
+    key = keys_fetch_func(key_cache, block_list)
+    if value_cache is not None:
+        value = values_fetch_func(value_cache, block_list)
+    elif kv_lora_rank is not None:
+        value = key[..., :kv_lora_rank]
+    else:
+        assert False, "value_cache is None and kv_lora_rank is None"
+
+    key = key.transpose(1, 2)
+    value = value.transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
@@ -451,6 +459,202 @@ class DynamicFusedMOE(torch.nn.Module):
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
 
+def pad_weight(weight, block_size):
+    """Pads a matrix to make its dimensions multiples of block_size."""
+    M, N = weight.shape[-2:]
+    block_size_m, block_size_n = block_size
+    pad_M = (block_size_m - M % block_size_m) % block_size_m
+    pad_N = (block_size_n - N % block_size_n) % block_size_n
+
+    if pad_M == 0 and pad_N == 0:
+        return weight, M, N  # No padding needed
+    padded_weight = torch.nn.functional.pad(weight, (0, pad_N, 0, pad_M), mode='constant', value=0)
+    return padded_weight, M, N  # Return original dimensions for unpadding
+
+def unpad_weight(weight, original_M, original_N, keep_first_dim=False):
+    """Removes padding from the matrix to restore its original shape."""
+    if (weight.shape[-2] == original_M) and (weight.shape[-1] == original_N):
+        return weight
+    if keep_first_dim:
+        return weight[:, :original_M, :original_N]
+    else:
+        return weight[:original_M, :original_N]
+
+def pad_block_fp8_weight_naive(weight, weight_scale, block_size):
+
+    assert len(block_size) == 2
+
+    block_size_m, block_size_n = block_size
+    weight_scale_m, weight_scale_n = weight_scale.shape[-2:]
+
+    weight, orig_M, orig_N = pad_weight(weight, block_size)
+    M, N = weight.shape[-2:]
+
+    assert weight_scale_m == M // block_size_m
+    assert weight_scale_n == N // block_size_n
+
+    return weight, orig_M, orig_N
+
+def dequant_block_fp8_weight_naive(weight, weight_scale, block_size, dtype=torch.bfloat16, original_M=None, original_N=None, do_unpad=False):
+    if weight_scale is None:
+        return weight
+    assert len(block_size) == 2
+
+    weight_shape_len = len(weight.shape)
+
+    block_size_m, block_size_n = block_size
+
+    # mul scale
+    if weight_shape_len == 2:
+        weight_scale_m, weight_scale_n = weight_scale.shape
+        weight_scale = weight_scale.view(weight_scale_m, 1, weight_scale_n, 1)
+        weight = weight.view(weight_scale_m, block_size_m, weight_scale_n, block_size_n)
+        dequant_weight = weight.to(dtype) * weight_scale.to(dtype)
+        dequant_weight = dequant_weight.view(weight_scale_m*block_size_m, weight_scale_n*block_size_n)
+        keep_first_dim = False
+    elif weight_shape_len == 3:
+        fd, weight_scale_m, weight_scale_n = weight_scale.shape
+        weight_scale = weight_scale.view(fd, weight_scale_m, 1, weight_scale_n, 1)
+        weight = weight.view(fd, weight_scale_m, block_size_m, weight_scale_n, block_size_n)
+        dequant_weight = weight.to(dtype) * weight_scale.to(dtype)
+        dequant_weight = dequant_weight.view(fd, weight_scale_m*block_size_m, weight_scale_n*block_size_n)
+        keep_first_dim = True
+    else:
+        raise ValueError("Only support original weight shape is either 2 or 3")
+
+    if do_unpad:
+        dequant_weight = unpad_weight(dequant_weight, original_M, original_N, keep_first_dim=keep_first_dim)
+
+    return dequant_weight
+
+def fp8_block_linear_postprocess_weights(layer):
+    weight, orig_M, orig_N = pad_block_fp8_weight_naive(
+    layer.weight.data,
+    layer.weight_scale_inv.data,
+    layer.quant_config.weight_block_size)
+    layer.weight = torch.nn.Parameter(weight, requires_grad=False)
+    orig_M = torch.nn.Parameter(torch.tensor(orig_M, dtype=torch.int32), requires_grad=False)
+    orig_N = torch.nn.Parameter(torch.tensor(orig_N, dtype=torch.int32), requires_grad=False)
+    layer.register_parameter("orig_M", orig_M)
+    layer.register_parameter("orig_N", orig_N)
+    return layer
+
+def fp8_block_moe_create_weights(layer):
+    moe_op = layer.moe_op
+    for index in range(moe_op.num_experts):
+        moe_op.w13_list[index].set_weight(layer.w13_weight[index])
+        moe_op.w13_list[index].set_scale_inv_fp8(
+            layer.w13_weight_scale_inv[index]
+        )
+        moe_op.w13_list[index].set_weight_block_size(
+            layer.quant_config.weight_block_size
+        )
+
+        moe_op.w2_list[index].set_weight(layer.w2_weight[index])
+        moe_op.w2_list[index].set_scale_inv_fp8(
+            layer.w2_weight_scale_inv[index]
+        )
+        moe_op.w2_list[index].set_weight_block_size(
+            layer.quant_config.weight_block_size
+        )
+    import habana_frameworks.torch as htorch
+    htorch.core.mark_step()
+
+class MoeFP8Matmul(torch.nn.Module):
+    def __init__(
+        self,
+        block_size: Tuple[int, int] = (128, 128),
+        high_precision=torch.bfloat16,
+    ):
+        super().__init__()
+        self.block_size = block_size
+        self.high_precision = high_precision
+        self.is_dequantized = False
+
+    def set_weight(self, w: torch.Tensor):
+        self.weight = w
+
+    def set_scale_inv_fp8(self, scale_inv_fp8: torch.Tensor):
+        self.scale_inv_fp8 = scale_inv_fp8
+
+    def set_high_precision(self, high_precision=torch.bfloat16):
+        self.high_precision = high_precision
+
+    def set_weight_block_size(self, block_size: Tuple[int, int] = (128, 128)):
+        self.block_size = block_size
+
+    def get_dequant_weight(self):
+        return dequant_block_fp8_weight_naive(
+            self.weight,
+            self.scale_inv_fp8,
+            block_size=self.block_size,
+            dtype=self.high_precision,
+        )
+
+    def forward(self, state, expert_id, w):
+        raise NotImplementedError()
+
+    def dequant_block_fp8_weight(self, layer: "MoeFP8Matmul") -> torch.Tensor:
+        # This function is called by INC during either the measurement or quantization phase.
+        # - In the quantization phase, INC requantizes the BF16 weight to FP8 and updates the weight.
+        # - In the measurement phase, INC only measures the BF16 weight without updating it.
+        # Tracking the BF16 weight can lead to Out of Memory (OoM) issues, so we avoid storing it.
+        # If the weight has already been updated, we return it directly.
+        if hasattr(layer, "updated_fp8_weight") and layer.updated_fp8_weight:
+            return layer.weight
+
+        dequant_weight = layer.get_dequant_weight()
+        layer.is_dequantized = True
+        return dequant_weight
+
+    def get_dequant_weights_func(
+        self,
+    ) -> Optional[Callable[[torch.nn.Module], torch.Tensor]]:
+        return self.dequant_block_fp8_weight
+
+
+class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
+    def __init__(
+        self, num_experts: int, experts_min: int = 0, experts_max: int = 8
+    ):
+        super().__init__()
+        self.w13_list = torch.nn.ModuleList(
+            [MoeFP8Matmul() for _ in range(num_experts)]
+        )
+        self.w2_list = torch.nn.ModuleList(
+            [MoeFP8Matmul() for _ in range(num_experts)]
+        )
+        self.num_experts = num_experts
+        self.experts_min = experts_min
+        self.experts_max = experts_max
+
+    def forward(
+        self,
+        x,
+        topk_ids,
+        topk_weights,
+    ):
+        min_expert = self.experts_min
+        max_expert = self.experts_max
+        w13_list_slice = []
+        w2_list_slice = []
+        for j in range(self.num_experts):
+            w13_list_slice.append(self.w13_list[j].get_dequant_weight())
+            w2_list_slice.append(self.w2_list[j].get_dequant_weight())
+
+        final_hidden_states = torch.ops.hpu.mixture_of_experts(
+            hidden_states=x,
+            expert_routing_table=topk_ids.to(torch.int64),
+            router_weights=topk_weights.to(x.dtype),
+            w12=w13_list_slice,
+            w3=w2_list_slice,
+            permuted_weights=True,
+            activation="silu",
+            experts_min=min_expert,
+            experts_max=max_expert,
+        )
+        htorch.core.mark_step()
+        return final_hidden_states
 
 # fp8
 def scaled_fp8_quant(
