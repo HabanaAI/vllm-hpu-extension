@@ -232,7 +232,7 @@ def prompt_attention(
                                    current_values=args['key'],
                                    block_list=args['block_list'], 
                                    batch_size=args['query'].shape[0])
-        args['values'] = _get_context(func=args['values_fetch_func'],
+        args['value'] = _get_context(func=args['values_fetch_func'],
                                    cache=args['value_cache'],
                                    current_values=args['value'],
                                    block_list=args['block_list'],
