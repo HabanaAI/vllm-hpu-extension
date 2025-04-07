@@ -11,23 +11,10 @@ import torch
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
-import habana_frameworks.torch.utils.experimental as htexp
 from vllm_hpu_extension.flags import enabled_flags
-
 from vllm.logger import init_logger
-from vllm.platforms import current_platform
 
 logger = init_logger(__name__)
-
-
-def is_hpu_gaudi2():
-    return current_platform.is_hpu() and htexp._get_device_type(
-    ) == htexp.synDeviceType.synDeviceGaudi2
-
-
-def get_hpu_gaudi2_scale_factor():
-    return (torch.finfo(torch.float8_e4m3fn).max /
-            torch.finfo(torch.float8_e4m3fnuz).max)
 
 
 def grouped_max(block_max, batch_size, block_groups):
