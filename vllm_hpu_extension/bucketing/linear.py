@@ -22,7 +22,7 @@ class HPUBucketingContext(metaclass=Singleton):
     global_state = HPUBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, max_model_len=None,
+                 max_num_batched_tokens, use_merged_prefill, max_model_len=None,
                  max_prompt_seq=None, max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
@@ -40,6 +40,7 @@ class HPUBucketingContext(metaclass=Singleton):
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
+        self.use_merged_prefill = use_merged_prefill
         self.num_hpu_blocks = None
         self.max_model_len = max_model_len
         self.max_prompt_seq = max_prompt_seq
@@ -74,7 +75,21 @@ class HPUBucketingContext(metaclass=Singleton):
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=self.block_size,
             step=self.block_size, max=max_blocks)
-            
+
+        if self.use_merged_prefill:
+            prev_prompt_bs_bucket_cfg = tuple(self.global_state.prompt_bs_bucket_cfg)
+            prev_prompt_seq_bucket_cfg = tuple(self.global_state.prompt_seq_bucket_cfg)
+            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
+            max_bs = self.global_state.prompt_bs_bucket_cfg[2]
+            self.global_state.prompt_bs_bucket_cfg = (1, 1, 1)
+            self.global_state.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
+            new_prompt_bs_bucket_cfg = self.global_state.prompt_bs_bucket_cfg
+            new_prompt_seq_bucket_cfg = self.global_state.prompt_seq_bucket_cfg
+            print('Merged prefill is enabled!\n'
+                  'Overriding prompt bucketing settings!\n'
+                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
+                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
+
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
                f"seq:{self.global_state.prompt_seq_bucket_cfg}")
