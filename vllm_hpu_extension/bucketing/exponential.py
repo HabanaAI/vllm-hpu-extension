@@ -24,8 +24,9 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, max_model_len=None,
-                 max_prompt_seq=None, max_decode_seq=None):
+                 max_num_batched_tokens, use_merged_prefill,
+                 max_model_len=None, max_prompt_seq=None, 
+                 max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
 
@@ -47,6 +48,7 @@ class HPUExponentialBucketingContext(metaclass=Singleton):
         self.max_prompt_seq = max_prompt_seq
         self.max_decode_seq = max_decode_seq
         self._setup_buckets()
+        self.generate_prompt_buckets()
 
     def _setup_buckets(self) -> None:
         default_max_prompt_seq = 1024

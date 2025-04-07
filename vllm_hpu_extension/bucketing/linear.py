@@ -46,6 +46,7 @@ class HPUBucketingContext(metaclass=Singleton):
         self.max_prompt_seq = max_prompt_seq
         self.max_decode_seq = max_decode_seq
         self._setup_buckets()
+        self.generate_prompt_buckets()
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
