@@ -54,7 +54,7 @@ def unify_measurements(
             find_measurement_path(
                 measurement_group[0], measurements_dir_path, scales, groups_size)
             .split("/")[-1]
-            .replace("_" + measurement_group[0] + "_" + str(groups_size), "")
+            .replace("_" + measurement_group[0] + "_" + str(groups_size), "_0_1")
         )
     else:
         unified_json_name = (
