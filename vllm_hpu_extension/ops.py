@@ -225,18 +225,7 @@ def prompt_attention(
         impl: str,
         **args,
 ) -> torch.Tensor:
-    if 'block_list' in args.keys() and 'keys_fetch_func' in args.keys() and 'values_fetch_func' in args.keys():
-        # If present - get context keys and values
-        args['key'] = _get_context(func=args['keys_fetch_func'],
-                                   cache=args['key_cache'],
-                                   current_values=args['key'],
-                                   block_list=args['block_list'], 
-                                   batch_size=args['query'].shape[0])
-        args['value'] = _get_context(func=args['values_fetch_func'],
-                                   cache=args['value_cache'],
-                                   current_values=args['value'],
-                                   block_list=args['block_list'],
-                                   batch_size=args['query'].shape[0])
+    _get_context(args)
     impl_mapping = {
         'naive': _naive_prompt_attention,
         'fsdpa': _fsdpa_prompt_attention,
@@ -246,17 +235,24 @@ def prompt_attention(
     return impl_mapping[impl](**args)
 
 
-def _get_context(
-        func,
-        cache,
-        current_values,
-        block_list,
-        batch_size,
-) -> torch.Tensor:
-    past_values = func(cache, block_list)
-    past_values = past_values.reshape(batch_size, -1, past_values.shape[2], past_values.shape[3])
-    current_values = torch.concat((past_values, current_values), dim=1)
-    return current_values
+def _get_all(data, *keys):
+    return [data.get(k, None) for k in keys]
+
+
+def _include_past(tensor_str, fn_str, cache_str, args):
+    all_tensors = _get_all(args, tensor_str, fn_str, cache_str, 'block_list')
+    if all(t is not None for t in all_tensors):
+        current, fn, cache, block_list = all_tensors
+        past = fn(cache, block_list)
+        past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
+        current = torch.concat((past, current), dim=1)
+        args[tensor_str] = current
+
+
+def _get_context(args):
+    if 'block_list' in args.keys() and 'keys_fetch_func' in args.keys() and 'values_fetch_func' in args.keys():
+        _include_past('key', 'keys_fetch_func', 'key_cache', args)
+        _include_past('value', 'values_fetch_func', 'value_cache', args)
 
 
 class LoraMask:
