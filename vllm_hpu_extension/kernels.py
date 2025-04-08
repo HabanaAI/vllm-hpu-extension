@@ -8,6 +8,8 @@
 from .utils import logger
 from functools import cache
 
+import torch
+
 
 @cache
 def fsdpa():
@@ -18,6 +20,7 @@ def fsdpa():
         logger().warning("Could not import HPU FusedSDPA kernel. "
                          "vLLM will use native implementation.")
 
+
 @cache
 def rms_norm():
     try:
@@ -26,3 +29,12 @@ def rms_norm():
     except ImportError:
         logger().warning("Could not import HPU FusedRMSNorm kernel. "
                          "vLLM will use forward_native implementation of RMSNorm.")
+
+
+@cache
+def block_softmax_adjustment():
+    try:
+        return torch.ops.hpu.block_softmax_adjustment
+    except ImportError:
+        logger().warning("Could not import HPU block_softmax_adjustment kernel. "
+                         "vLLM will use native implementation.")
