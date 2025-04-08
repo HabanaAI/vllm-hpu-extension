@@ -48,24 +48,15 @@ def unify_measurements(
             js = json.load(f)
             measurements_jsons.append(js["Nodes"])
     # create a name for the unified json that will be created for this measurement group
-
-    if groups_num == 1:
-        unified_json_name = (
-            find_measurement_path(
-                measurement_group[0], measurements_dir_path, scales, groups_size)
-            .split("/")[-1]
-            .replace("_" + measurement_group[0] + "_" + str(groups_size), "_0_1")
+    unified_json_name = (
+        find_measurement_path(
+            measurement_group[0], measurements_dir_path, scales, groups_size)
+        .split("/")[-1]
+        .replace(
+            "_" + measurement_group[0] + "_" + str(groups_size),
+            "_" + str(group_index) + "_" + str(groups_num)
         )
-    else:
-        unified_json_name = (
-            find_measurement_path(
-                measurement_group[0], measurements_dir_path, scales, groups_size)
-            .split("/")[-1]
-            .replace(
-                "_" + measurement_group[0] + "_" + str(groups_size), "_" + str(
-                    group_index) + "_" + str(groups_num)
-            )
-        )
+    )
     unified_json_path = os.path.join(output_path, unified_json_name)
 
     # open a unified json file
