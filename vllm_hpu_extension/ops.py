@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
+import os
 
 from vllm.logger import init_logger
 
@@ -106,7 +107,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = matmul_qk_op(query, key)
     if 'fp32_softmax' in enabled_flags():
         attn = attn.float()
-        htcore.mark_step()
+        if not 'QUANT_CONFIG' in os.environ:    # skip mark_step for quantized models
+            htcore.mark_step()
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
