@@ -9,24 +9,37 @@ import sys
 import numpy as np
 
 
-def fix_cache_inputs(json_data):
+def fix_cache_inputs(json_data, args):
     for layer_index in range(len(json_data['Nodes'])):
         matmul_av_input = None
         v_cache_input = None
         matmul_qk_input = None
         k_cache_input = None
+        
+        attn_name = "attn"
+        k_cache_name = "k_cache"
+        v_cache_name = "v_cache"
+        if args.deepseek:
+            print(f"Handling deepseek model")
+            attn_name = "mla_attn"
+            k_cache_name = "latent_cache_k"
 
         for node_name, node_info in json_data['Nodes'].items():
-            if f'model.layers.{layer_index}.self_attn.attn.impl.matmul_av' in node_name:
+            if f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av' in node_name:
                 matmul_av_input = node_info['inputs'][1]
-            if f'model.layers.{layer_index}.self_attn.attn.impl.v_cache' in node_name:
+            if f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{v_cache_name}' in node_name:
                 v_cache_input = node_info['inputs'][0]
-            if f'model.layers.{layer_index}.self_attn.attn.impl.matmul_qk' in node_name:
+            if f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_qk' in node_name:
                 matmul_qk_input = node_info['inputs'][1]
-            if f'model.layers.{layer_index}.self_attn.attn.impl.k_cache' in node_name:
+            if f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{k_cache_name}' in node_name:
                 k_cache_input = node_info['inputs'][0]
+
         if matmul_av_input != v_cache_input:
-            json_data['Nodes'][f'model.layers.{layer_index}.self_attn.attn.impl.matmul_av']['inputs'][1] = v_cache_input
+            if args.deepseek:
+                # For deepseek, there is one tensor for k_cache and v_cache
+                json_data['Nodes'][f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av']['inputs'][1] = k_cache_input
+            else:
+                json_data['Nodes'][f'model.layers.{layer_index}.self_attn.attn.impl.matmul_av']['inputs'][1] = v_cache_input
         if matmul_qk_input != k_cache_input:
             json_data['Nodes'][f'model.layers.{layer_index}.self_attn.attn.impl.matmul_qk']['inputs'][1] = k_cache_input
 
@@ -46,6 +59,12 @@ def parse_args(args):
         type=str,
         default=os.getcwd(),
         help="path to the directory where the fixed measurements will be written",
+    )
+    parser.add_argument(
+        "-d",
+        "--deepseek",
+        action="store_true",
+        help="if handle deepseek models, please set this flag",
     )
     return parser.parse_args(args)
 
@@ -69,7 +88,7 @@ def main(args):
         with open(fixed_json_path, "w") as fixed_json_file:
             with open(os.path.join(measurements_path, measurement), "r") as json_file:
                 data_to_fix = json.load(json_file)
-                fixed_data = fix_cache_inputs(data_to_fix)
+                fixed_data = fix_cache_inputs(data_to_fix, args)
                 json.dump(fixed_data, fixed_json_file)
                 print("")
                 print("measurement=", measurement, flush=True)
