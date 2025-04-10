@@ -4,12 +4,12 @@ import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
-from .common import Singleton
+from .common import WeakSingleton
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class HPUBucketingGlobalState(metaclass=Singleton):
+class HPUBucketingGlobalState(metaclass=WeakSingleton):
     prompt_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
     decode_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
     prompt_seq_bucket_cfg: Tuple[int, int, int] = field(init=False)
@@ -18,7 +18,7 @@ class HPUBucketingGlobalState(metaclass=Singleton):
     decode_buckets: List[Tuple[int, int]] = field(init=False)
 
 
-class HPUBucketingContext(metaclass=Singleton):
+class HPUBucketingContext(metaclass=WeakSingleton):
     global_state = HPUBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,

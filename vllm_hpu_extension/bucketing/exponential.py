@@ -5,13 +5,13 @@ import os
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Set, Tuple
-from .common import Singleton
+from .common import WeakSingleton
 
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class HPUExponentialBucketingGlobalState(metaclass=Singleton):
+class HPUExponentialBucketingGlobalState(metaclass=WeakSingleton):
     prompt_bs_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
     decode_bs_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
     prompt_seq_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
@@ -20,7 +20,7 @@ class HPUExponentialBucketingGlobalState(metaclass=Singleton):
     decode_buckets: List[Tuple[int, int]] = field(init=False)
 
 
-class HPUExponentialBucketingContext(metaclass=Singleton):
+class HPUExponentialBucketingContext(metaclass=WeakSingleton):
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,

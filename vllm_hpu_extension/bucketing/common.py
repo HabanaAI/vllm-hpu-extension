@@ -4,9 +4,10 @@ from typing import Dict
 import inspect
 from weakref import WeakValueDictionary
 
-class Singleton(type):
+class WeakSingleton(type):
     """
-    A metaclass that creates a Singleton instance. This ensures that only one instance of the class exists.
+    A metaclass that creates a WeakSingleton instance. This ensures that only one instance of the class exists.
+    WeakSingleton doesn't hold a strong reference to the instance, allowing it to be garbage collected when no longer in use.
 
     Attributes:
         _instances (Dict[type, object]): A dictionary to store the single instance of each class.
@@ -18,6 +19,11 @@ class Singleton(type):
             arguments used to create the instance are the same as the ones provided. Raises an assertion error if 
             the arguments differ.
     """
+    # NOTE(kzawora): The instances are stored in a weakref dictionary, 
+    # which allows the instances to be garbage collected when they are 
+    # no longer in use. This is important for tests, where model runner 
+    # can get constructed and destroyed multiple times, and we don't 
+    # want to reuse the bucketing context from the previous instance.
     _instances: WeakValueDictionary[type, object] = WeakValueDictionary()
     _instances_argspec: Dict[type, object] = {}
 
