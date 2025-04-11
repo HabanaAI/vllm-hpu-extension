@@ -12,8 +12,6 @@ def get_hw():
     import habana_frameworks.torch.utils.experimental as htexp
     device_type = htexp._get_device_type()
     match device_type:
-        case htexp.synDeviceType.synDeviceGaudi:
-            return "gaudi"
         case htexp.synDeviceType.synDeviceGaudi2:
             return "gaudi2"
         case htexp.synDeviceType.synDeviceGaudi3:

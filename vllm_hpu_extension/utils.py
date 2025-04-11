@@ -60,7 +60,10 @@ class VLLMKVCache(torch.nn.Module):
                                                 'true').lower() == 'true'
 
     def forward(self, input, cache, block_indices, block_offset):
-        insert_or_update_cache(input, cache, block_indices, block_offset)
+        # In cross-attention kv cache forward inputs are None in decode
+        # We don't want to store them in the cache in such case
+        if input is not None:
+            insert_or_update_cache(input, cache, block_indices, block_offset)
         return cache
 
     def fetch_from_cache(self, cache, blocks):

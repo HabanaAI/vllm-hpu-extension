@@ -33,12 +33,19 @@ def load_chat_template(chat_template_path: str) -> str:
 def main(args):
 
     calibration_ds = get_ds(args)
+    try:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            args.model,
+            model_max_length=args.max_model_length,
+            padding_side="left",
+            use_fast=False,)
+    except:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(
+            args.model,
+            model_max_length=args.max_model_length,
+            padding_side="left",
+            use_fast=True,)
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.model,
-        model_max_length=args.max_model_length,
-        padding_side="left",
-        use_fast=False,)
 
     chat_template = load_chat_template(
         args.chat_template) if args.chat_template else None

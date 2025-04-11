@@ -19,6 +19,7 @@ usage() {
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1)"
+    echo "  -g    - measurement groups to unify"
     echo
 }
 
@@ -62,7 +63,7 @@ function extract_last_folder_name() {
 EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
-while getopts "m:b:l:t:d:h:o:" OPT; do
+while getopts "m:b:l:t:d:h:o:g:" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -81,6 +82,9 @@ while getopts "m:b:l:t:d:h:o:" OPT; do
             ;;
         t )
             TP_SIZE="$OPTARG"
+            ;;
+        g )
+            GROUPS="$OPTARG"
             ;;
         h )
             usage
@@ -152,3 +156,11 @@ echo "4/4 Quantize scales"
 export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json
 python step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
 echo "Calibration process done"
+
+if [[ -n $GROUPS ]]; then
+    echo ""
+    echo "5/5 Unify scales"
+    QUANT_DIR=$FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
+    python step-5-unify_measurements.py -g "$GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
+    echo "Step 5/5 done"
+fi

@@ -17,12 +17,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    hpu_lazy_mode = os.environ.get('PT_HPU_LAZY_MODE', '1')
+    enforce_eager = True if hpu_lazy_mode == '1' else False
+
     llm = vllm.LLM(
         model=args.model,
         tensor_parallel_size=args.tensor_parallel_size,
-        enforce_eager=True,
+        enforce_eager=enforce_eager,
         dtype=torch.bfloat16,
         quantization='inc',
-        kv_cache_dtype="fp8_inc")
+        kv_cache_dtype="fp8_inc",
+        max_num_prefill_seqs=1,
+        trust_remote_code=True)
 
     llm.llm_engine.model_executor.shutdown()
