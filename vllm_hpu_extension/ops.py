@@ -492,32 +492,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         return final_hidden_states
 
 
-class DynamicFusedMOE(torch.nn.Module):
-
-    def __init__(self, num_total_experts):
-        super().__init__()
-        self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
-
-    def forward(self, hidden_states, score, topk):
-        htorch.core.mark_step()
-        routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
-        routing_weights, selected_experts = torch.topk(routing_weights,
-                                                        topk,
-                                                        dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-        routing_weights = routing_weights.to(hidden_states.dtype)
-
-        final_hidden_states = self.MoeOp(
-            hidden_states=hidden_states,
-            expert_routing_table=selected_experts,
-            router_weights=routing_weights,
-            permuted_weights=True,
-            activation="silu",
-        )
-
-        return final_hidden_states.view(-1, hidden_states.shape[1])
-
-
 def pad_weight(weight, block_size):
     """Pads a matrix to make its dimensions multiples of block_size."""
     M, N = weight.shape[-2:]
