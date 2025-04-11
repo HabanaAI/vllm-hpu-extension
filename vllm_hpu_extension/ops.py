@@ -242,6 +242,7 @@ def prompt_attention(
         impl: str,
         **args,
 ) -> torch.Tensor:
+    _get_context(args)
     impl_mapping = {
         'naive': _naive_prompt_attention,
         'fsdpa': _fsdpa_prompt_attention,
@@ -251,65 +252,23 @@ def prompt_attention(
     return impl_mapping[impl](**args)
 
 
-def prompt_attention_with_context(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    key_cache: torch.Tensor,
-    value_cache: torch.Tensor,
-    block_list: torch.Tensor,
-    attn_bias: torch.Tensor,
-    scale: float,
-    matmul_qk_op,
-    matmul_av_op,
-    softmax_op,
-    keys_fetch_func,
-    values_fetch_func,
-    **ignored_args,
-) -> torch.Tensor:
-    htorch.core.mark_step()
-    query.mul_(scale)
+def _get_all(data, *keys):
+    return [data.get(k, None) for k in keys]
 
-    batch_size, _, query_heads, _ = query.shape
-    _, block_size, kv_heads, _ = key_cache.shape
-    max_num_blocks = block_list.size(-1) // batch_size
-    context_len = max_num_blocks * block_size
 
-    query = query.transpose(1, 2)
-    key = key.transpose(1, 2)
-    value = value.transpose(1, 2)
+def _include_past(tensor_str, fn_str, cache_str, args):
+    all_tensors = _get_all(args, tensor_str, fn_str, cache_str, 'block_list')
+    if all(t is not None for t in all_tensors):
+        current, fn, cache, block_list = all_tensors
+        past = fn(cache, block_list)
+        past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
+        current = torch.concat((past, current), dim=1)
+        args[tensor_str] = current
 
-    past_keys = keys_fetch_func(key_cache, block_list)
-    past_keys = past_keys.reshape(batch_size, context_len, kv_heads, -1)
-    past_keys = past_keys.transpose(1, 2)
-    key = torch.concat((past_keys, key), dim=-2)
 
-    past_values = values_fetch_func(value_cache, block_list)
-    past_values = past_values.reshape(batch_size, context_len, kv_heads, -1)
-    past_values = past_values.transpose(1, 2)
-    value = torch.concat((past_values, value), dim=-2)
-
-    if query_heads != kv_heads:
-        query = query.unflatten(1, (kv_heads, -1))
-        key = key.unflatten(1, (kv_heads, 1))
-        past_keys = past_keys.unflatten(1, (kv_heads, 1))
-        value = value.unflatten(1, (kv_heads, 1))
-        past_values = past_values.unflatten(1, (kv_heads, 1))
-        if attn_bias is not None:
-            attn_bias = attn_bias.unsqueeze(2)
-
-    attn_weights = matmul_qk_op(query, key.transpose(-1, -2))
-    if attn_bias is not None:
-        attn_weights.add_(attn_bias)
-    attn_weights = softmax_op(attn_weights, dim=-1)
-    attn_weights = matmul_av_op(attn_weights, value)
-
-    if query_heads != kv_heads:
-        attn_weights = attn_weights.flatten(1, 2)
-
-    attn_weights = attn_weights.transpose(1, 2)
-    htorch.core.mark_step()
-    return attn_weights
+def _get_context(args):
+    _include_past('key', 'keys_fetch_func', 'key_cache', args)
+    _include_past('value', 'values_fetch_func', 'value_cache', args)
 
 
 class LoraMask:
