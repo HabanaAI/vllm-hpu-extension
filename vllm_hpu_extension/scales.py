@@ -8,12 +8,17 @@ import torch
 import habana_frameworks.torch.core as htcore
 import habana_frameworks.torch.utils.experimental as htexp
 
-from vllm.platforms import current_platform
 
-
-def is_hpu_gaudi2():
-    return current_platform.is_hpu() and htexp._get_device_type(
-    ) == htexp.synDeviceType.synDeviceGaudi2
+try:
+    from vllm.platforms import current_platform
+    def is_hpu_gaudi2():
+        return current_platform.is_hpu() and htexp._get_device_type(
+        ) == htexp.synDeviceType.synDeviceGaudi2
+except ImportError:
+    def is_hpu_gaudi2():
+        import habana_frameworks.torch.utils.experimental as htexp
+        device_type = htexp._get_device_type()
+        return device_type == htexp.synDeviceType.synDeviceGaudi2
 
 
 def get_hpu_gaudi2_scale_factor():
