@@ -35,7 +35,7 @@ An inference with FP8 precision models using vLLM has been described in [README_
 # Multi-node FP8 Calibration 
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
-Note : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
+[!NOTE] : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
 
 #### Step 1: Pre-requisites
 
@@ -48,7 +48,7 @@ Note : Following steps are to be executed within a [Gaudi Pytorch container](htt
     touch quant_config_buffer.json 
     ```
   - Check if all Gaudi NIC ports are up <br>
-    Note : Following commands should be run on the host and NOT inside the container. <br>
+    [!NOTE] : Following commands should be run on the host and NOT inside the container. <br>
     ```bash
     cd /opt/habanalabs/qual/gaudi2/bin 
     ./manage_network_ifs.sh --status 
@@ -104,4 +104,4 @@ python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--
 export QUANT_CONFIG='<path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
 vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtype fp8_inc --weights-load-device cpu --tensor-parallel-size 8
 ```
-Note : For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
+[!NOTE] : For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
