@@ -14,6 +14,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
+    parser.add_argument("--distributed-executor-backend", type=str, default="mp", 
+                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
 
@@ -28,6 +30,8 @@ if __name__ == "__main__":
         quantization='inc',
         kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=1,
-        trust_remote_code=True)
+        trust_remote_code=True,
+        distributed_executor_backend=args.distributed_executor_backend,
+    )
 
     llm.llm_engine.model_executor.shutdown()
