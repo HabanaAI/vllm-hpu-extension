@@ -881,45 +881,41 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         permuted_weights=True,
         activation="silu",
     ):
-        w13_list = []
-        w2_list = []
-        for j in range(self.num_experts):
-            w13_list.append(self.w13_list[j].get_dequant_weight())
-            w2_list.append(self.w2_list[j].get_dequant_weight())
+        w13_list = [self.w13_list[j].weight for j in range(self.num_experts)]
+        w2_list = [self.w2_list[j].weight for j in range(self.num_experts)]
+        w13_scale_inv_fp8 = [
+            self.w13_list[j].scale_inv_fp8.squeeze() for j in range(self.num_experts)
+        ]
+        w2_scale_inv_fp8 = [
+            self.w2_list[j].scale_inv_fp8.squeeze for j in range(self.num_experts)
+        ]
+        # w13_scale_inv_fp8 = torch.stack(w13_scale_inv_fp8, dim=0)
+        # w2_scale_inv_fp8 = torch.stack(w2_scale_inv_fp8, dim=0)
+        # w13_scale_inv_fp8 = w13_scale_inv_fp8.split(self.num_experts)
+        # w2_scale_inv_fp8 = w2_scale_inv_fp8.split(self.num_experts)
+        print(f"==== {w13_scale_inv_fp8[0].shape=} {w13_list[0].shape=}=====")
+        print(f"==== {w2_scale_inv_fp8[0].shape=} {w2_list[0].shape=}=====")
+        block_size = self.w13_list[0].block_size[0]
+        
         htorch.core.mark_step()
 
-        if self.moe_n_slice == 1:
-            return torch.ops.hpu.mixture_of_experts(
-                hidden_states=x,
-                expert_routing_table=topk_ids,
-                router_weights=topk_weights,
-                w12=w13_list,
-                w3=w2_list,
-                permuted_weights=permuted_weights,
-                activation=activation,
-                experts_min=self.experts_min,
-                experts_max=self.experts_max)
-        for i in range(self.moe_n_slice):
-            w13_list_slice = w13_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
-            w2_list_slice = w2_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
-            min_expert = self.experts_min + i * self.num_expert_per_group
-            max_expert = min_expert + self.num_expert_per_group - 1
-            slice_final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                hidden_states=x,
-                expert_routing_table=topk_ids,
-                router_weights=topk_weights,
-                w12=w13_list_slice,
-                w3=w2_list_slice,
-                permuted_weights=permuted_weights,
-                activation=activation,
-                experts_min=min_expert,
-                experts_max=max_expert,
-            )
-            htorch.core.mark_step()
-            if i == 0:
-                final_hidden_states = slice_final_hidden_states
-            else:
-                final_hidden_states += slice_final_hidden_states
+        min_expert = self.experts_min
+        max_expert = self.experts_min + self.num_experts - 1
+        final_hidden_states = torch.ops.hpu.mixture_of_experts(
+            x,
+            topk_ids,
+            topk_weights,
+            w13_list,
+            w2_list,
+            w13_scale_inv_fp8,
+            w2_scale_inv_fp8,
+            block_size,
+            permuted_weights,
+            activation,
+            min_expert,
+            max_expert,
+        )
+        htorch.core.mark_step()
         return final_hidden_states
 
 
