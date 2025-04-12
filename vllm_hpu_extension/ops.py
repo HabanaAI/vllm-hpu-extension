@@ -329,21 +329,57 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 hidden_states,
                 expert_routing_table,
                 router_weights,
+                layer,
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
-        experts_range = range(self.num_experts)
-        w1_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
-        w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-        return torch.ops.hpu.mixture_of_experts(hidden_states=hidden_states,
-                                                expert_routing_table=expert_routing_table,
-                                                router_weights=router_weights,
-                                                w12=w1_list,
-                                                w3=w2_list,
-                                                permuted_weights=permuted_weights,
-                                                activation=activation,
-                                                experts_min=0,
-                                                experts_max=self.num_experts - 1)
+        bt, hidden_dim = hidden_states.shape
+
+        if bt > 256:
+            experts_range = range(self.num_experts)
+            w1_list = [
+                self.w13_list[i].weight.squeeze() for i in experts_range
+            ]
+            w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
+            findal_hidden_states = torch.ops.hpu.mixture_of_experts(
+                hidden_states=hidden_states,
+                expert_routing_table=expert_routing_table,
+                router_weights=router_weights,
+                w12=w1_list,
+                w3=w2_list,
+                permuted_weights=permuted_weights,
+                activation=activation,
+                experts_min=0,
+                experts_max=(self.num_experts - 1),
+            )
+        else:
+            padded_weights = torch.zeros((bt, self.num_experts),
+                                         dtype=hidden_states.dtype,
+                                         device=hidden_states.device)
+            padded_weights.scatter_(-1, expert_routing_table, router_weights)
+            padded_weights = padded_weights.transpose(0, 1).unsqueeze(-1)
+            
+            up_gate_states = torch.matmul(
+                hidden_states,
+                layer.w13_weight.view(-1, layer.w13_weight.size(-1)).transpose(0, 1))
+            up_gate_states = up_gate_states.reshape(bt, self.num_experts, 2,
+                                                    -1)
+            up_states = up_gate_states[:, :, 0, :]
+            gate_states = up_gate_states[:, :, 1, :]
+
+            if activation != "silu":
+                raise ValueError(f"Unsupported activation: {activation}. "
+                                 "Only silu is supported for  now.")
+
+            current_state_static = F.silu(up_states) * gate_states
+            current_state_static = current_state_static.transpose(0, 1)
+
+            current_hidden_state_static = torch.matmul(
+                current_state_static, layer.w2_weight.transpose(1,
+                                                          2)) * padded_weights
+            findal_hidden_states = current_hidden_state_static.sum(dim=0)
+
+        return findal_hidden_states
 
 
 class DynamicFusedMOE(torch.nn.Module):
