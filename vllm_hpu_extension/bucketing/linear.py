@@ -16,6 +16,7 @@ class HPUBucketingGlobalState(metaclass=WeakSingleton):
     decode_block_bucket_cfg: Tuple[int, int, int] = field(init=False)
     prompt_buckets: List[Tuple[int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int]] = field(init=False)
+    prefix_prefill: List[Tuple[int, int, int]] = field(init=False)
 
 
 class HPUBucketingContext(metaclass=WeakSingleton):
@@ -168,6 +169,10 @@ class HPUBucketingContext(metaclass=WeakSingleton):
     @property
     def decode_buckets(self):
         return self.global_state.decode_buckets
+
+    @property
+    def prefix_prefill_buckets(self):
+        return self.global_state.prefix_prefill_buckets
 
     @classmethod
     def get_instance(cls):
