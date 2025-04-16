@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
@@ -11,8 +11,6 @@ from functools import lru_cache
 
 import habana_frameworks.torch as htorch
 import torch
-
-from .cache_ops import insert_or_update_cache
 
 
 @lru_cache(maxsize=None)
@@ -59,18 +57,18 @@ class VLLMKVCache(torch.nn.Module):
         self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
                                                 'true').lower() == 'true'
 
-    def forward(self, input, cache, block_indices, block_offset):
+    def forward(self, input, cache, block_indices_and_offsets):
         # In cross-attention kv cache forward inputs are None in decode
         # We don't want to store them in the cache in such case
         if input is not None:
-            insert_or_update_cache(input, cache, block_indices, block_offset)
+            cache.index_copy_(0, block_indices_and_offsets, input)
         return cache
 
-    def fetch_from_cache(self, cache, blocks):
+    def fetch_from_cache(self, cache, blocks, block_size):
         if self.use_contiguous_pa:
-            return cache[:blocks.size(0)]
+            return cache.view(-1, block_size, *cache.shape[1:])[:blocks.size(0)]
         else:
-            return cache.index_select(0, blocks)
+            return cache.view(-1, block_size, *cache.shape[1:]).index_select(0, blocks)
 
 
 class ModuleFusedSDPA(torch.nn.Module):

@@ -133,17 +133,17 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
     return attn
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_groups, scale, matmul_qk_op,
+            block_bias, block_groups, block_size, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
             keys_fetch_func, values_fetch_func, **ignored_args):
     batch_size, _, hidden_size = query.shape
-    _, _, kv_heads, head_size = key_cache.shape
+    _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
 
     query_shape = (-1, q_heads, 1, head_size)
     query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
-    key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
-    value = values_fetch_func(value_cache, block_list).transpose(1, 2)
+    key = keys_fetch_func(key_cache, block_list, block_size).transpose(1, 2)
+    value = values_fetch_func(value_cache, block_list, block_size).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
