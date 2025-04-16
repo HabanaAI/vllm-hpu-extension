@@ -295,10 +295,11 @@ def _get_all(data, *keys):
 
 
 def _include_past(tensor_str, fn_str, cache_str, args):
-    all_tensors = _get_all(args, tensor_str, fn_str, cache_str, 'block_list')
+    all_tensors = _get_all(args, tensor_str, fn_str,
+                           cache_str, 'block_list', 'block_size')
     if all(t is not None for t in all_tensors):
-        current, fn, cache, block_list = all_tensors
-        past = fn(cache, block_list)
+        current, fn, cache, block_list, block_size = all_tensors
+        past = fn(cache, block_list, block_size)
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
         current = torch.concat((past, current), dim=1)
         args[tensor_str] = current
