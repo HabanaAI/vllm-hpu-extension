@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
+import os
 
 import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
@@ -157,7 +158,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = matmul_qk_op(query, key)
     if 'fp32_softmax' in enabled_flags():
         attn = attn.float()
-        htcore.mark_step()
+        if not 'QUANT_CONFIG' in os.environ:    # skip mark_step for quantized models
+            htcore.mark_step()
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
