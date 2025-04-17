@@ -57,11 +57,11 @@ class VLLMKVCache(torch.nn.Module):
         self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
                                                 'true').lower() == 'true'
 
-    def forward(self, input, cache, block_indices_and_offsets):
+    def forward(self, input, cache, block_indices_with_offsets):
         # In cross-attention kv cache forward inputs are None in decode
         # We don't want to store them in the cache in such case
         if input is not None:
-            cache.index_copy_(0, block_indices_and_offsets, input)
+            cache.index_copy_(0, block_indices_with_offsets, input)
         return cache
 
     def fetch_from_cache(self, cache, blocks, block_size):
