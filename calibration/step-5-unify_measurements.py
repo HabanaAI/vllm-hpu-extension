@@ -10,7 +10,7 @@ import numpy as np
 
 
 def find_measurement_path(measurement, measurements_dir_path, scales, group_size):
-    measurment_card = measurement + "_" + str(group_size)
+    measurment_card = "_" + measurement + "_" + str(group_size)
     for measurment_file in os.listdir(measurements_dir_path):
         filename = os.fsdecode(measurment_file)
         if not filename.endswith(".json") or "_mod_list" in filename or measurment_card not in filename:
@@ -158,10 +158,9 @@ def parse_args(args):
     parser.add_argument(
         "-g",
         "--groups",
-        type=list,
-        nargs="+",
-        help="groups of cards we want to unify, each group should be seperated by whitespace \
-                        - e.g. 01 23 45 67, card 0 measurement will be unified with card 1 measurement and so on",
+        type=str,
+        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
+                        - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
     )
     parser.add_argument(
         "-o",
@@ -173,13 +172,22 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
+def prepare_group_list(grouping_string):
+    group_seperator = '--'
+    card_seperator = ','
+    grouping_string = grouping_string.replace(" ", "").strip(group_seperator).strip(card_seperator)
+    group_list=[group.strip(card_seperator).split(card_seperator) for group in grouping_string.split(group_seperator)]  
+    print("Card grouping list >> {}".format(group_list))
+    return group_list
+
+
 def main(args):
     args = parse_args(args)
     output_path = args.out
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     measurements_path = args.measurements
-    groups = args.groups
+    groups = prepare_group_list(args.groups)
 
     num_jsons_drange = 0
     num_jsons_scales = 0
