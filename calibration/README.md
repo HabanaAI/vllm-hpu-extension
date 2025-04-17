@@ -31,14 +31,15 @@ Here are some examples of how to use the script:
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
 
-
 # Multi-node FP8 Calibration 
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
-[!NOTE] : Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
+
+> [!NOTE] 
+> Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
+
 
 #### Step 1: Pre-requisites
-
   - Install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm)
   - Ensure that all nodes in the multi-node setup are connected to an NFS mount (Network File System).
   - Create workspace directory on NFS, clone the calibration scripts repo and create an empty file 'quant_config_buffer.json'.
@@ -48,7 +49,7 @@ Following section details the procedure for calibrating models that do not fit i
     touch quant_config_buffer.json 
     ```
   - Check if all Gaudi NIC ports are up <br>
-    [!NOTE] : Following commands should be run on the host and NOT inside the container. <br>
+    Note : Following commands should be run on the host and NOT inside the container. <br>
     ```bash
     cd /opt/habanalabs/qual/gaudi2/bin 
     ./manage_network_ifs.sh --status 
@@ -62,13 +63,10 @@ Following section details the procedure for calibrating models that do not fit i
 #### Step 2: Start a Ray cluster to accommodate the required TP size.
 
 ```bash
-# Export the required env variables separately on all nodes.
-export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
-export EXPERIMENTAL_WEIGHT_SHARING="0"
-export VLLM_SKIP_WARMUP="true"
 # Check the network interface for outbound/inbound comms. Command 'ip a' or 'ifconfig' should list all the interfaces
 export GLOO_SOCKET_IFNAME=eth0
-export QUANT_CONFIG="<path-to-config>/quant_config_buffer.json"
+export HCCL_SOCKET_IFNAME=eth0
+export QUANT_CONFIG="<nfs-path-to-config>/quant_config_buffer.json"
 
 # Start Ray on head node
 ray start --head --port=6379
@@ -83,25 +81,29 @@ ray status
 #### Step 3: Run model calibration script
 
 ```bash
-./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <nfs-path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128
 ```
 Running the above command should create the calibration measurement files in the specified output directory with model specific sub-directories.<br>
 
+> [!NOTE] 
+> The current calibration procedure works correctly only when the multi-node configuration has more than 8 cards.
 
-#### Step 4: (optional) Measurement unification <p>
+#### Step 4: (optional) Measurement unification
 
-This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales.<br> E.g. You can perform FP8 calibration on the Llama 3.1 405B model on 2x Gaudi2 nodes with Tensor Parallelism = 16 and then use the unification script to reduce the TP to 8. Refer sample command below
+This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales.<br> For eg: You can perform FP8 calibration on the Llama 3.1 405B model on 2x Gaudi2 nodes with Tensor Parallelism = 16 and then use the unification script to reduce the TP to 8. Refer sample command below
 ```bash
-python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
+python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o ./unification_files_8x
 ```
 -  `-g` - card grouping to use during unification, card indices separated by commas and groups separated by double dash<br>
 -  `-m` - calibration output path which has the measurement files <br>
 -  `-o` - output directory where unification output gets written<br>
 
-#### Step 5: Serving the FP8 quantized model <p>
+#### Step 5: Serving the FP8 quantized model
 
 ```bash
-export QUANT_CONFIG='<path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
+export QUANT_CONFIG='<nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/maxabs_quant_g2.json'
 vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtype fp8_inc --weights-load-device cpu --tensor-parallel-size 8
 ```
-[!NOTE] : For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
+
+> [!NOTE] 
+> For serving the output after unification, edit the QUANT_CONFIG file to point the 'dump_stats_path' value to the unification output directory
