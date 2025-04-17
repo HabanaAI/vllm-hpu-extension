@@ -18,9 +18,13 @@ logger = init_logger(__name__)
 
 
 def grouped_max(block_max, batch_size, block_groups):
+    orig_dtype = block_max.dtype
+    if orig_dtype == torch.float16:
+        # fp16 index_reduce is not supported ATM
+        block_max = block_max.to(torch.float32)
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
                            dtype=block_max.dtype, device=block_max.device)
-    group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax')
+    group_max = group_max.index_reduce_(0, block_groups, block_max, 'amax').to(orig_dtype)
     group_max = group_max.index_select(0, block_groups)
     return group_max
 
