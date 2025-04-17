@@ -30,6 +30,7 @@ if __name__ == "__main__":
         quantization="inc",
         kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=1,
+        max_model_len=128,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
     )
