@@ -20,13 +20,13 @@ usage() {
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
-    echo "  -g    - measurement groups to unify"
+    echo "  -g    - groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--', e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on."
     echo
 }
 
 cleanup_tmp() {
 	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
-		echo " Clearing temporary directory"
+		echo "Clearing temporary directory"
 		rm -rf nc_workspace
 		rm -rf inc_tmp
 	else
@@ -98,7 +98,7 @@ while getopts "m:b:l:t:d:h:o:g:" OPT; do
             TP_SIZE="$OPTARG"
             ;;
         g )
-            GROUPS="$OPTARG"
+            CARD_GROUPS="$OPTARG"
             ;;
         h )
             usage
@@ -169,7 +169,7 @@ if [[ -n $LIMIT ]]; then
     EXTRA_FLAGS+="--max-dataset-samples $LIMIT "
 fi
 
-if $MULTI_NODE_RUN; then
+if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
     sleep 2
 else
@@ -183,7 +183,11 @@ echo "Step 1/4 done"
 
 echo ""
 echo "2/4 Measuring scales"
-python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE || (echo "Error in step 2" && exit 1)
+if $MULTI_NODE_SETUP; then
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray || (echo "Error in step 2" && exit 1)
+else
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE || (echo "Error in step 2" && exit 1)
+fi
 echo "Step 2/4 done"
 
 echo ""
@@ -193,7 +197,7 @@ cp inc_tmp/$MODEL_NAME/$DEVICE_TYPE/* $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
 echo "Step 3/4 done"
 
 
-if $MULTI_NODE_RUN; then
+if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json > $QUANT_CONFIG
     sleep 2
 else
@@ -207,12 +211,13 @@ if $MULTI_NODE_RUN; then
 else
     python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
 fi
-echo "Calibration process done"
 
-if [[ -n $GROUPS ]]; then
+if [[ -n $CARD_GROUPS ]]; then
     echo ""
     echo "5/5 Unify scales"
     QUANT_DIR=$FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
-    python3 step-5-unify_measurements.py -g "$GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
+    python3 step-5-unify_measurements.py -g "$CARD_GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
     echo "Step 5/5 done"
 fi
+cleanup_tmp
+echo "Calibration process done"
