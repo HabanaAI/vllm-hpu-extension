@@ -19,7 +19,6 @@ usage() {
     echo "  -o    - [required] path to output directory for fp8 measurements"
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
-    echo "  -c    - pass trust_remote_code to vllm (default: False)"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
     echo "  -g    - groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--', e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on."
     echo
@@ -82,7 +81,7 @@ EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
 MULTI_NODE_SETUP=false
-while getopts "m:b:l:t:d:h:o:g:c" OPT; do
+while getopts "m:b:l:t:d:h:o:g:" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -101,9 +100,6 @@ while getopts "m:b:l:t:d:h:o:g:c" OPT; do
             ;;
         t )
             TP_SIZE="$OPTARG"
-            ;;
-        c )
-            TRUST_REMOTE_CODE=true
             ;;
         g )
             CARD_GROUPS="$OPTARG"
@@ -183,10 +179,6 @@ if  [[ "$model_name_lower" == *"deepseek"* ]]; then
     EXTRA_ENVS_STEP_2="VLLM_REQUANT_FP8_INC=1 VLLM_ENABLE_RUNTIME_DEQUANT=1 VLLM_MLA_DISABLE_REQUANTIZATION=1 VLLM_MOE_N_SLICE=1 VLLM_EP_SIZE=8"
     EXTRA_FLAGS_STEP_3="--deepseek "
     EXTRA_FLAGS_STEP_4="--block-quant "
-fi
-if [[ $TRUST_REMOTE_CODE == true ]]; then
-    EXTRA_FLAGS_STEP_2+="--trust-remote-code "
-    EXTRA_FLAGS_STEP_4+="--trust-remote-code "
 fi
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG

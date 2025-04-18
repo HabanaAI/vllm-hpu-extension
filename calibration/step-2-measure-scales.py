@@ -45,7 +45,6 @@ if __name__ == "__main__":
     parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
-    parser.add_argument("--trust-remote-code", action="store_true", default=False)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
@@ -56,12 +55,12 @@ if __name__ == "__main__":
     llm = vllm.LLM(
         model=args.model,
         dtype=torch.bfloat16,
-        quantization='fp8' if args.block_quant else 'inc',
+        quantization="fp8" if args.block_quant else "inc",
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len,
         max_num_prefill_seqs=args.max_num_prefill_seqs,
-        trust_remote_code=args.trust_remote_code,
+        trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
     )
 

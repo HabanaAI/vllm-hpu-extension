@@ -14,7 +14,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
-    parser.add_argument("--trust-remote-code", action="store_true", default=False)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
@@ -29,11 +28,11 @@ if __name__ == "__main__":
         tensor_parallel_size=args.tensor_parallel_size,
         enforce_eager=enforce_eager,
         dtype=torch.bfloat16,
-        quantization='fp8' if args.block_quant else 'inc',
+        quantization="fp8" if args.block_quant else "inc",
         kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=1,
-        trust_remote_code=args.trust_remote_code)
         max_model_len=128,
+        trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
     )
 
