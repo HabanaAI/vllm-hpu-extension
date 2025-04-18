@@ -16,11 +16,13 @@ if __name__ == "__main__":
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--trust-remote-code", action="store_true", default=False)
     parser.add_argument("--block-quant", action="store_true", default=False)
+    parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
+                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
 
-    hpu_lazy_mode = os.environ.get('PT_HPU_LAZY_MODE', '1')
-    enforce_eager = True if hpu_lazy_mode == '1' else False
+    hpu_lazy_mode = os.environ.get("PT_HPU_LAZY_MODE", "1")
+    enforce_eager = True if hpu_lazy_mode == "1" else False
 
     llm = vllm.LLM(
         model=args.model,
@@ -31,5 +33,8 @@ if __name__ == "__main__":
         kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=1,
         trust_remote_code=args.trust_remote_code)
+        max_model_len=128,
+        distributed_executor_backend=args.distributed_executor_backend,
+    )
 
     llm.llm_engine.model_executor.shutdown()

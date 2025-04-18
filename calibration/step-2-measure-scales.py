@@ -47,6 +47,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("--trust-remote-code", action="store_true", default=False)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
+                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
 
@@ -60,6 +62,7 @@ if __name__ == "__main__":
         max_model_len=args.max_model_len,
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         trust_remote_code=args.trust_remote_code,
+        distributed_executor_backend=args.distributed_executor_backend,
     )
 
     sampling_params = vllm.SamplingParams(
