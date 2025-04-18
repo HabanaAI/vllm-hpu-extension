@@ -39,7 +39,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 
 def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
-                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+                 matmul_av_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
 
@@ -62,8 +62,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     sum_adjusted = block_sums.mul(block_adjustment)
 
     # Sum block's sums that belongs to the same sequences
-    group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
-    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
+    group_sum_adjusted = block2batch(sum_adjusted, block_mapping)
+    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping)
     sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
     group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
     block_adjustment = block_adjustment.view(*adjustment_target_shape)
@@ -105,8 +105,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         htcore.mark_step()
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping,
-                        batch_size=batch_size, matmul_av_op=matmul_av_op,
-                        batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
+                        batch_size=batch_size, matmul_av_op=matmul_av_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
     if kv_heads != q_heads:
