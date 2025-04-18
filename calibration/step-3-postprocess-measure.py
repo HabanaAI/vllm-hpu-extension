@@ -20,7 +20,6 @@ def fix_cache_inputs(json_data, args):
         k_cache_name = "k_cache"
         v_cache_name = "v_cache"
         if args.deepseek:
-            print(f"Handling deepseek model")
             attn_name = "mla_attn"
             k_cache_name = "latent_cache_k"
 
