@@ -101,7 +101,7 @@ This is an optional step and is used to reduce the target tensor parallelism lev
 ```
 2. If calibration has already been performed, use the following command to convert existing scales:
 ```bash
-python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
 -  `-g`, i.e. **card grouping** to use during unification. Card indices separated by commas and groups separated by double dashes.
 -  `-m`, i.e. **calibration output path** containing the measurement files.
@@ -113,11 +113,11 @@ python step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--
 Below examples in case you want to convert scales from TP=16 to TP=4 and 2:
 - conversion of scales TP=16 -> TP=4:
 ```bash
-python step-5-unify_measurements.py -g "0,8,1,9--2,10,3,11--4,12,5,13--6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -g "0,8,1,9--2,10,3,11--4,12,5,13--6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
 - conversion of scales TP=16 -> TP=2:
 ```bash
-python step-5-unify_measurements.py -g "0,8,1,9,2,10,3,11--4,12,5,13,6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -g "0,8,1,9,2,10,3,11--4,12,5,13,6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
 
 
