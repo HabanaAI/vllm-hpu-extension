@@ -59,6 +59,8 @@ def unify_measurements(
     )
     unified_json_path = os.path.join(output_path, unified_json_name)
 
+    print(f"Created unified JSON file: {unified_json_path}")
+
     # open a unified json file
     with open(measurements_paths[0], "r") as origin, open(unified_json_path, "w") as copy:
         copy.write(origin.read())
@@ -133,6 +135,9 @@ def unify_measurements(
     # create unified npz file from the unified json
     unified_npz_path = os.path.join(
         output_path, unified_json_name.replace(".json", ".npz"))
+
+    print(f"Created unified NPZ file: {unified_npz_path}")
+
     for layer, dlayer in nodes.items():
         layers[layer] = {}
         layers[layer]["inputs"] = [np.array(x) for x in dlayer["inputs"]]
