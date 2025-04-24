@@ -377,7 +377,6 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
             bucket = bmax
         else:
             bucket = math.ceil(power_unpadded / bstep) * bstep
-        #bucket = math.ceil(power_unpadded / bstep) * bstep
         if fill and bucket in buckets:
             available_buckets = linear_buckets.difference(buckets)
             if len(available_buckets) == 0:
