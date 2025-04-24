@@ -374,7 +374,7 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
         power_unpadded = bmin * np.float_power(
             bmax / bmin, (1. / float(num_buckets - 1)) * i)
         if math.ceil(power_unpadded) >= bmax and os.environ.get(
-+               'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
             bucket = bmax
         else:
             bucket = math.ceil(power_unpadded / bstep) * bstep
