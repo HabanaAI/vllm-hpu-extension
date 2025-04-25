@@ -164,7 +164,8 @@ def enabled_flags():
         "fused_block_softmax_adjustment": (Not(Hardware("cpu"))
                                            & Hardware("gaudi3")
                                            & Kernel(block_softmax_adjustment)
-                                           & EnvFlag("VLLM_USE_FUSED_BLOCK_SOFTMAX_ADJUSTMENT", "true")),
+                                           & (VersionRange(">=1.22.0.101"))
+                                           & EnvFlag("VLLM_FUSED_BLOCK_SOFTMAX_ADJUSTMENT", "true")),
     }
     environment = get_environment()
     detected = Flags(supported_flags, environment)

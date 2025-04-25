@@ -45,12 +45,16 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     adjustment_target_shape = block_max.shape
     attn = attn.sub(block_max)
     attn = attn.exp()
+    if attn.dtype == torch.float32:
+        attn = attn.to(value.dtype)
     block_sums = attn.sum(dim=-1, keepdim=True)
-    attn = attn.to(value.dtype)
     attn = matmul_av_op(attn, value)
 
     if 'fused_block_softmax_adjustment' in enabled_flags() and block_max.dtype != torch.float16:
-        rescale = torch.ops.hpu.block_softmax_adjustment(block_max, block_sums, block_groups, batch_size)
+        rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
+                                                         block_sums.to(block_max.dtype),
+                                                         block_groups,
+                                                         batch_size).to(attn.dtype)
     else:
         block_max = block_max.squeeze((-1, -2))
         block_sums = block_sums.squeeze((-1, -2))
@@ -59,7 +63,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
         # and cast adjustments to native dtype
         group_max = grouped_max(block_max, batch_size, block_groups)
         block_adjustment = (block_max - group_max).exp()
-        block_adjustment = block_adjustment.to(value.dtype)
+        if block_adjustment.dtype == torch.float32:
+            block_adjustment = block_adjustment.to(value.dtype)
         sum_adjusted = block_sums.mul(block_adjustment)
 
         # Sum block's sums that belongs to the same sequences
