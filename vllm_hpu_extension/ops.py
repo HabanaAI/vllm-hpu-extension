@@ -345,44 +345,50 @@ class MoeMatmul(torch.nn.Module):
 
 
 class VllmMixtureOfExpertsOp(torch.nn.Module):
-
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts, experts_min: int = 0, experts_max: int = 8):
         super().__init__()
         self.w13_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
+        self.experts_min = experts_min
+        self.experts_max = experts_max
 
     def forward(self,
                 hidden_states,
                 expert_routing_table,
                 router_weights,
-                layer,
+                layer=None,
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
         bt, hidden_dim = hidden_states.shape
-        num_experts = layer.w13_weight.shape[0]
-        moe_intermediate = layer.w2_weight.shape[2]
-        ep_shift = layer.ep_rank * num_experts
-        selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
+        # num_experts = layer.w13_weight.shape[0]
+        
+        # ep_shift = layer.ep_rank * num_experts
+        # selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
+        experts_range = range(self.num_experts)
+        min_expert, max_expert = self.experts_min, self.experts_max
+        num_experts = self.num_experts
         if bt > dynamic_moe_min_tokens:
             experts_range = range(num_experts)
             w1_list = [layer.w13_weight[i].squeeze() for i in experts_range]
             w2_list = [layer.w2_weight[i].squeeze() for i in experts_range]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                 hidden_states=hidden_states,
-                expert_routing_table=selected_experts,
+                expert_routing_table=expert_routing_table,
                 router_weights=router_weights,
                 w12=w1_list,
                 w3=w2_list,
                 permuted_weights=True,
                 activation="silu",
-                experts_min=0,
-                experts_max=(num_experts - 1),
+                experts_min=min_expert,
+                experts_max=max_expert,
             )
         else:
+            # FIXME: (Yi) fix it 
+            moe_intermediate = layer.w2_weight.shape[2]
             padded_weights = torch.zeros((bt, num_experts),
                                          dtype=hidden_states.dtype,
                                          device=hidden_states.device)
@@ -408,10 +414,13 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         return final_hidden_states.view(-1, hidden_states.shape[1])
 
 class DynamicFusedMOE(torch.nn.Module):
-
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts, experts_min: int = 0, experts_max: int = 8):
         super().__init__()
-        self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
+        self.MoeOp = VllmMixtureOfExpertsOp(
+            num_total_experts=num_total_experts,
+            experts_min=experts_min,
+            experts_max=experts_max,
+        )
 
     def forward(self, hidden_states, score, topk, layer):
         htorch.core.mark_step()
