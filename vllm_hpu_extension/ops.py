@@ -364,10 +364,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 activation="silu"):
         # pre-processing for custom op inputs
         bt, hidden_dim = hidden_states.shape
-        # num_experts = layer.w13_weight.shape[0]
-        
-        # ep_shift = layer.ep_rank * num_experts
-        # selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
         experts_range = range(self.num_experts)
         min_expert, max_expert = self.experts_min, self.experts_max
         num_experts = self.num_experts
@@ -387,7 +383,10 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 experts_max=max_expert,
             )
         else:
-            # FIXME: (Yi) fix it 
+            # FIXME: (Yi) enable this path for INC
+            num_experts = layer.w13_weight.shape[0]
+            ep_shift = layer.ep_rank * num_experts
+            selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
             moe_intermediate = layer.w2_weight.shape[2]
             padded_weights = torch.zeros((bt, num_experts),
                                          dtype=hidden_states.dtype,
