@@ -421,7 +421,7 @@ class DynamicFusedMOE(torch.nn.Module):
             experts_max=experts_max,
         )
 
-    def forward(self, hidden_states, score, topk, layer):
+    def forward(self, hidden_states, score, topk, layer=None):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
