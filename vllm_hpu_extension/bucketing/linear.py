@@ -51,6 +51,7 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         self.max_decode_seq = max_decode_seq
         self._setup_buckets()
         self.generate_prompt_buckets()
+        self.generate_prefix_prefill_buckets()
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
@@ -71,11 +72,17 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=32,
             max=self.max_num_prefill_seqs)
+        self.global_state.prefix_prefill_bs_bucket_cfg = read_bucket_settings(
+            'prefix_prefill', 'bs', min=1, step=32,
+            max=self.max_num_prefill_seqs)
         self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
             'decode', 'bs', min=1, step=32,
             max=self.max_num_seqs)
         self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
             'prompt', 'seq', min=self.block_size,
+            step=self.block_size, max=max_prompt_seq)
+        self.global_state.prefix_prefill_seq_bucket_cfg = read_bucket_settings(
+            'prefix_prefill', 'seq', min=self.block_size,
             step=self.block_size, max=max_prompt_seq)
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=self.block_size,
@@ -304,7 +311,7 @@ def generate_prompt_buckets(bs_bucket_config,
         sorted([x for x in buckets if x not in filtered_buckets]))
     return captured_buckets, omitted_buckets
 
-def prefix_prefill_prompt_buckets(bs_bucket_config,
+def generate_prefix_prefill_buckets(bs_bucket_config,
                             seq_bucket_config,
                             max_num_batched_tokens=None):
     buckets = list(
@@ -361,9 +368,9 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     for bs in bs_buckets:
         for blocks in block_buckets:
             if blocks >= last_bucket:
-                buckets.append((bs, last_bucket, [1]))
+                buckets.append((bs, last_bucket, 1))
                 break
-            buckets.append((bs, blocks, [1]))
+            buckets.append((bs, blocks, 1))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
