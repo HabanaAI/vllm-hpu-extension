@@ -4,6 +4,7 @@ import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
+
 from .common import WeakSingleton
 
 logger = logging.getLogger(__name__)
@@ -262,7 +263,7 @@ def generate_prompt_buckets(bs_bucket_config,
     buckets = list(
         itertools.product(warmup_range(bs_bucket_config),
                           warmup_range(seq_bucket_config),
-                          [0]]))
+                          [0]))
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
@@ -362,7 +363,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
             if blocks >= last_bucket:
                 buckets.append((bs, last_bucket, [1]))
                 break
-            buckets.append((bs, blocks))
+            buckets.append((bs, blocks, [1]))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
