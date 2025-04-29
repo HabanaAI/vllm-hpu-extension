@@ -11,12 +11,14 @@ logger = logging.getLogger(__name__)
 @dataclass
 class HPUBucketingGlobalState(metaclass=WeakSingleton):
     prompt_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
+    prefix_prefill_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
     decode_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
     prompt_seq_bucket_cfg: Tuple[int, int, int] = field(init=False)
+    prefix_prefill_seq_bucket_cfg: Tuple[int, int, int] = field(init=False)
     decode_block_bucket_cfg: Tuple[int, int, int] = field(init=False)
     prompt_buckets: List[Tuple[int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int]] = field(init=False)
-    prefix_prefill: List[Tuple[int, int, int]] = field(init=False)
+    prefix_prefill_buckets: List[Tuple[int, int, int]] = field(init=False)
 
 
 class HPUBucketingContext(metaclass=WeakSingleton):
@@ -121,6 +123,27 @@ class HPUBucketingContext(metaclass=WeakSingleton):
 
         msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
         logger.info(msg)
+
+    def generate_prefix_prefill_buckets(self):
+        self.global_state.prefix_prefill_buckets, prefix_prefill_omitted_buckets = \
+            generate_prefix_prefill_buckets(
+            self.global_state.prefix_prefill_bs_bucket_cfg,
+            self.global_state.prefix_prefill_seq_bucket_cfg,
+            self.max_num_batched_tokens)
+
+        msg = (f"Generated {len(self.global_state.prefix_prefill_buckets)} "
+               f"prefix_prefill buckets [bs, seq, ctx]: "
+               f"{list(sorted(self.global_state.prefix_prefill_buckets))}")
+        logger.info(msg)
+
+        msg = (f"Omitted {len(prefix_prefill_omitted_buckets)} "
+               "prefix_prefill buckets due to exceeded token budget "
+               f"(max_num_batched_tokens={self.max_num_batched_tokens})")
+        logger.info(msg)
+
+        msg = f"Omitted prefix_prefill buckets: {list(sorted(prefix_prefill_omitted_buckets))}"
+        logger.info(msg)
+
 
     def generate_decode_buckets(self, max_blocks):
         self.global_state.decode_buckets = generate_decode_buckets(
@@ -238,7 +261,55 @@ def generate_prompt_buckets(bs_bucket_config,
                             max_num_batched_tokens=None):
     buckets = list(
         itertools.product(warmup_range(bs_bucket_config),
-                          warmup_range(seq_bucket_config)))
+                          warmup_range(seq_bucket_config),
+                          [0]]))
+    if len(buckets) == 0:
+        msg = ("No buckets could be captured with following config "
+               f"(min, step, max_warmup): "
+               f"bs:{bs_bucket_config}, "
+               f"seq:{seq_bucket_config}")
+        raise ValueError(msg)
+
+    filtered_buckets = buckets
+    if max_num_batched_tokens is not None:
+        # Remove buckets exceeding batch token budget
+        filtered_buckets = list(
+            filter(
+                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
+                buckets))
+
+        if len(filtered_buckets) == 0:
+            # we can handle this if we ignore max_num_batched_tokens
+            min_bucket_bs, min_bucket_seq = min(buckets,
+                                                key=lambda b: (b[0] * b[1]))
+            min_reqd_budget = min_bucket_bs * min_bucket_seq
+            msg = (
+                "The current bucketing configuration "
+                f"(min, step, max_warmup): "
+                f"bs:{bs_bucket_config}, "
+                f"seq:{seq_bucket_config} cannot be used with specified "
+                f"max_num_batched_tokens ({max_num_batched_tokens}), as the "
+                f"smallest bucket ({min_reqd_budget}) would exceed token "
+                "budget. Please increase max_num_batched_tokens or decrease "
+                "bucket minimum. Ignoring max_num_batched_tokens at risk of "
+                "out-of-memory errors.")
+            logger.info(msg)
+            return list(
+                sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0]))), []
+
+    captured_buckets = list(
+        sorted(filtered_buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+    omitted_buckets = list(
+        sorted([x for x in buckets if x not in filtered_buckets]))
+    return captured_buckets, omitted_buckets
+
+def prefix_prefill_prompt_buckets(bs_bucket_config,
+                            seq_bucket_config,
+                            max_num_batched_tokens=None):
+    buckets = list(
+        itertools.product(warmup_range(bs_bucket_config),
+                          warmup_range(seq_bucket_config),
+                          [1]))
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
@@ -289,7 +360,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     for bs in bs_buckets:
         for blocks in block_buckets:
             if blocks >= last_bucket:
-                buckets.append((bs, last_bucket))
+                buckets.append((bs, last_bucket, [1]))
                 break
             buckets.append((bs, blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
