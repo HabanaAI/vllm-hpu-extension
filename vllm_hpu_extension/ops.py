@@ -428,6 +428,17 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         w1_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
 
+        if self.moe_n_slice == 1:
+            return torch.ops.hpu.mixture_of_experts(hidden_states=hidden_states,
+                                                expert_routing_table=expert_routing_table,
+                                                router_weights=router_weights,
+                                                w12=w1_list,
+                                                w3=w2_list,
+                                                permuted_weights=permuted_weights,
+                                                activation=activation,
+                                                experts_min=0,
+                                                experts_max=self.num_experts - 1)
+
         for i in range(self.moe_n_slice):
             w1_list_slice = w1_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
             w2_list_slice = w2_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
