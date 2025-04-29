@@ -16,10 +16,7 @@ import uuid
 from habana_frameworks.torch import torch
 
 from vllm_hpu_extension.utils import is_fake_hpu
-from vllm.logger import init_logger
-
-logger = init_logger(__name__)
-
+from .utils import logger
 
 class FileWriter(threading.Thread):
 
@@ -66,7 +63,7 @@ class HabanaHighLevelProfiler:
             self.vllm_instance_id = vllm_instance_id if vllm_instance_id is not None \
                 else f"vllm-instance-{self.pid}-{str(uuid.uuid4().hex)}"
             msg = f'Profiler enabled for: {self.vllm_instance_id}'
-            logger.info(msg)
+            logger().info(msg)
             self.filename = f'server_events_{self.vllm_instance_id}.json'
             # initialize the trace file (JSON Array Format)
             with open(self.filename, 'w') as outfile:
@@ -116,7 +113,7 @@ class HabanaHighLevelProfiler:
         if self.enabled:
             ts = self.get_timestamp_us()
             if not self.event_cache:
-                logger.warning(
+                logger().warning(
                     'Profiler: end() call does not have matching start() call. '
                     'Disabling profiler.')
                 self.enabled = False

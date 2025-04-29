@@ -12,9 +12,6 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
-from vllm.logger import init_logger
-
-logger = init_logger(__name__)
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -51,8 +48,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     attn = attn.to(value.dtype)
     block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
-    block_max = block_max.squeeze()
-    block_sums = block_sums.squeeze()
+    block_max = block_max.squeeze((-1, -2))
+    block_sums = block_sums.squeeze((-1, -2))
 
     # Calculate maximum of blocks that belong to the same sequences
     # and cast adjustments to native dtype
