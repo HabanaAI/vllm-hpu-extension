@@ -317,7 +317,7 @@ def generate_prefix_prefill_buckets(bs_bucket_config,
     buckets = list(
         itertools.product(warmup_range(bs_bucket_config),
                           warmup_range(seq_bucket_config),
-                          [1]))
+                          [1, 2, 4, 5]))
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
