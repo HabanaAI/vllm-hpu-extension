@@ -110,5 +110,9 @@ class ModuleFusedSDPA(torch.nn.Module):
 
 @cache
 def logger():
-    from vllm.logger import init_logger
-    return init_logger("vllm-hpu-extension")
+    try:
+        from vllm.logger import init_logger
+        return init_logger("vllm-hpu-extension")
+    except ImportError:
+        import logging
+        return logging.getLogger("vllm-hpu-extension")

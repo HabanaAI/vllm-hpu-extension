@@ -54,8 +54,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     attn = attn.to(value.dtype)
     block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
-    block_max = block_max.squeeze()
-    block_sums = block_sums.squeeze()
+    block_max = block_max.squeeze((-1, -2))
+    block_sums = block_sums.squeeze((-1, -2))
 
     # Calculate maximum of blocks that belong to the same sequences
     # and cast adjustments to native dtype
@@ -353,24 +353,31 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
+    
+    def set_weights(self, w13,w2):
+        self.w13_weight = w13
+        self.w2_weight = w2
+
+    def set_ep_rank(self, ep_rank):
+        self.ep_rank = ep_rank   
+    
 
     def forward(self,
                 hidden_states,
                 expert_routing_table,
-                router_weights,
-                layer,
+                router_weights,                
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
         bt, hidden_dim = hidden_states.shape
-        num_experts = layer.w13_weight.shape[0]
-        moe_intermediate = layer.w2_weight.shape[2]
-        ep_shift = layer.ep_rank * num_experts
+        num_experts = self.w13_weight.shape[0]
+        moe_intermediate = self.w2_weight.shape[2]
+        ep_shift = self.ep_rank * num_experts
         selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
         if bt > dynamic_moe_min_tokens:
             experts_range = range(num_experts)
-            w1_list = [layer.w13_weight[i].squeeze() for i in experts_range]
-            w2_list = [layer.w2_weight[i].squeeze() for i in experts_range]
+            w1_list = [self.w13_weight[i].squeeze() for i in experts_range]
+            w2_list = [self.w2_weight[i].squeeze() for i in experts_range]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                 hidden_states=hidden_states,
                 expert_routing_table=selected_experts,
@@ -391,7 +398,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
 
             up_gate_states = torch.matmul(
                 hidden_states,
-                layer.w13_weight.view(-1, layer.w13_weight.size(-1)).transpose(
+                self.w13_weight.view(-1, self.w13_weight.size(-1)).transpose(
                     0, 1))
             up_gate_states = up_gate_states.reshape(bt, num_experts, 2,
                                                     moe_intermediate)
@@ -401,7 +408,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             current_state_static = current_state_static.transpose(0, 1)
 
             current_hidden_states_static = torch.matmul(
-                current_state_static, layer.w2_weight.transpose(
+                current_state_static, self.w2_weight.transpose(
                     1, 2)) * padded_weights
             final_hidden_states = current_hidden_states_static.sum(dim=0)
 
@@ -413,7 +420,13 @@ class DynamicFusedMOE(torch.nn.Module):
         super().__init__()
         self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
 
-    def forward(self, hidden_states, score, topk, layer):
+    def set_MoeOp_weights(self, w13, w2):
+        self.MoeOp.set_weights(w13, w2)
+
+    def set_MoeOp_ep_rank(self, ep_rank):
+        self.MoeOp.set_ep_rank(ep_rank)
+        
+    def forward(self, hidden_states, score, topk):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
@@ -425,8 +438,7 @@ class DynamicFusedMOE(torch.nn.Module):
         final_hidden_states = self.MoeOp(
             hidden_states=hidden_states,
             expert_routing_table=selected_experts,
-            router_weights=routing_weights,
-            layer=layer,
+            router_weights=routing_weights,            
             permuted_weights=True,
             activation="silu",
         )
