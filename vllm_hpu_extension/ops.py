@@ -16,7 +16,7 @@ from vllm.logger import init_logger
 import os
 
 dynamic_moe_min_tokens = int(
-os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 0))
 logger = init_logger(__name__)
 
 
