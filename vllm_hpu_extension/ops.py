@@ -17,6 +17,8 @@ import os
 from vllm.logger import init_logger
 dynamic_moe_min_tokens = int(
 os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+dynamic_moe_max_num_expert_singleHpu = int(
+os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
 
 logger = init_logger(__name__)
 
@@ -340,7 +342,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 hidden_states,
                 expert_routing_table,
                 router_weights,
-                # layer,
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
@@ -349,8 +350,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         moe_intermediate = self.w2_weight.shape[2]
         ep_shift = self.ep_rank * num_experts
         selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
-
-        if num_tokens > dynamic_moe_min_tokens:
+        if num_tokens > dynamic_moe_min_tokens or \
+            (num_experts <= dynamic_moe_max_num_expert_singleHpu):
             experts_range = range(num_experts)
             w1_list = [
                 self.w13_weight[i].squeeze() for i in experts_range
