@@ -17,6 +17,10 @@ import os
 
 dynamic_moe_min_tokens = int(
 os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 0))
+
+dmoe_force_loop = bool(
+os.environ.get("VLLM_DMOE_FORCE_LOOP", 1))
+
 logger = init_logger(__name__)
 
 
@@ -354,6 +358,9 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.num_experts = num_total_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        self.num_expert_per_group = 64 if dmoe_force_loop else self.num_experts
+        self.moe_n_slice = self.num_experts // self.num_expert_per_group
+        self.moe_n_slice = self.moe_n_slice if self.moe_n_slice > 0 else 1
 
     def forward(self,
                 hidden_states,
@@ -368,20 +375,45 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         min_expert, max_expert = self.experts_min, self.experts_max
         num_experts = self.num_experts
         if bt > dynamic_moe_min_tokens:
-            experts_range = range(num_experts)
-            w1_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
-            w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-            final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                hidden_states=hidden_states,
-                expert_routing_table=expert_routing_table,
-                router_weights=router_weights,
-                w12=w1_list,
-                w3=w2_list,
-                permuted_weights=True,
-                activation="silu",
-                experts_min=min_expert,
-                experts_max=max_expert,
-            )
+            if self.moe_n_slice == 1:
+                experts_range = range(num_experts)
+                w1_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
+                w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
+                final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                    hidden_states=hidden_states,
+                    expert_routing_table=expert_routing_table,
+                    router_weights=router_weights,
+                    w12=w1_list,
+                    w3=w2_list,
+                    permuted_weights=True,
+                    activation="silu",
+                    experts_min=min_expert,
+                    experts_max=max_expert,
+                )
+            else:
+                for i in range(self.moe_n_slice):
+                    w1_list = self.w13_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
+                    w2_list = self.w2_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
+                    w1_list = [w.weight.squeeze() for w in w1_list]
+                    w2_list = [w.weight.squeeze() for w in w2_list]
+                    min_expert = self.experts_min + i * self.num_expert_per_group
+                    max_expert = min_expert + self.num_expert_per_group - 1
+                    slice_final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                        hidden_states=hidden_states,
+                        expert_routing_table=expert_routing_table,
+                        router_weights=router_weights,
+                        w12=w1_list,
+                        w3=w2_list,
+                        permuted_weights=True,
+                        activation="silu",
+                        experts_min=min_expert,
+                        experts_max=max_expert,
+                    )
+                    htorch.core.mark_step()
+                    if i == 0:
+                        final_hidden_states = slice_final_hidden_states
+                    else:
+                        final_hidden_states += slice_final_hidden_states
         else:
             # FIXME: (Yi) enable this path for INC
             num_experts = layer.w13_weight.shape[0]
