@@ -62,6 +62,7 @@ if __name__ == "__main__":
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
+        use_padding_aware_scheduling=True,
     )
 
     sampling_params = vllm.SamplingParams(

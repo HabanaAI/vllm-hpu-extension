@@ -33,6 +33,7 @@ if __name__ == "__main__":
         max_model_len=128,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
+        use_padding_aware_scheduling=True,
     )
 
     llm.llm_engine.model_executor.shutdown()
