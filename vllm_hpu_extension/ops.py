@@ -331,7 +331,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         # static MoE in this case.
         self.dynamic_moe_min_tokens = int(
         os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
-        # if the number of expert on a single card exceeds
+        # if the number of expert on a single card is smaller than
         # VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU, dynamic MoE
         # is used since its performance is better than
         # static MoE in this case.
@@ -359,7 +359,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
         # When the number of input tokens (batch_size*seqence_length) exceeds
         # dynamic_moe_min_tokens (default 256) or the number of the experts
-        # on the single card surpasses dynamic_moe_max_num_expert_singleHpu
+        # on the single card is smaller than dynamic_moe_max_num_expert_singleHpu
         # (default 32), dynamic MoE is used since it delivers better performance
         # than static MoE. Otherwise static MoE is used.
         if num_tokens > self.dynamic_moe_min_tokens or \
