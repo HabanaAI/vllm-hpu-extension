@@ -326,9 +326,15 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
-        
+        # if num_tokens exceed the VLLM_DYNAMIC_MOE_MIN_TOKENS,
+        # dynamic MoE is used since its performance is better than
+        # static MoE in this case.
         self.dynamic_moe_min_tokens = int(
         os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+        # if the number of expert on a single card exceeds
+        # VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU, dynamic MoE
+        # is used since its performance is better than
+        # static MoE in this case.
         self.dynamic_moe_max_num_expert_singleHpu = int(
         os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
 
