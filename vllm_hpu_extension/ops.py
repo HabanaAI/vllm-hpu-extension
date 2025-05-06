@@ -703,6 +703,7 @@ def scaled_fp8_quant(
         Tuple[torch.Tensor, torch.Tensor]: The output tensor in FP8 and
             scaling factor.
     """
+    htorch.core.mark_step()
     if batch_dim_padding:
         shape = (max(batch_dim_padding, input.shape[0]), *input.shape[1:])
         output = torch.empty(shape,
