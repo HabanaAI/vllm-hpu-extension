@@ -326,6 +326,11 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
+        
+        self.dynamic_moe_min_tokens = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+        self.dynamic_moe_max_num_expert_singleHpu = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
 
     def set_weights(self, w13,w2):
         self.w13_weight = w13
@@ -340,11 +345,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 router_weights,
                 permuted_weights=True,
                 activation="silu"):
-        dynamic_moe_min_tokens = int(
-        os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
-        dynamic_moe_max_num_expert_singleHpu = int(
-        os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
-
         # pre-processing for custom op inputs
         num_tokens, hidden_dim = hidden_states.shape
         num_experts = self.w13_weight.shape[0]
@@ -356,8 +356,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         # on the single card surpasses dynamic_moe_max_num_expert_singleHpu
         # (default 32), dynamic MoE is used since it delivers better performance
         # than static MoE. Otherwise static MoE is used.
-        if num_tokens > dynamic_moe_min_tokens or \
-            (num_experts <= dynamic_moe_max_num_expert_singleHpu):
+        if num_tokens > self.dynamic_moe_min_tokens or \
+            (num_experts <= self.dynamic_moe_max_num_expert_singleHpu):
             experts_range = range(num_experts)
             w1_list = [
                 self.w13_weight[i].squeeze() for i in experts_range
