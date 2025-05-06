@@ -15,10 +15,6 @@ from vllm_hpu_extension.flags import enabled_flags
 import os
 
 from vllm.logger import init_logger
-dynamic_moe_min_tokens = int(
-os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
-dynamic_moe_max_num_expert_singleHpu = int(
-os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
 
 logger = init_logger(__name__)
 
@@ -344,12 +340,22 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 router_weights,
                 permuted_weights=True,
                 activation="silu"):
+        dynamic_moe_min_tokens = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+        dynamic_moe_max_num_expert_singleHpu = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
+
         # pre-processing for custom op inputs
         num_tokens, hidden_dim = hidden_states.shape
         num_experts = self.w13_weight.shape[0]
         moe_intermediate = self.w2_weight.shape[2]
         ep_shift = self.ep_rank * num_experts
         selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
+        # When the number of input tokens (batch_size*seqence_length) exceeds
+        # dynamic_moe_min_tokens (default 256) or the number of the experts
+        # on the single card surpasses dynamic_moe_max_num_expert_singleHpu
+        # (default 32), dynamic MoE is used since it delivers better performance
+        # than static MoE. Otherwise static MoE is used.
         if num_tokens > dynamic_moe_min_tokens or \
             (num_experts <= dynamic_moe_max_num_expert_singleHpu):
             experts_range = range(num_experts)
