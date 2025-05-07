@@ -137,7 +137,8 @@ class HPUBucketingContext(metaclass=WeakSingleton):
             generate_prefix_prefill_buckets(
             self.global_state.prefix_prefill_bs_bucket_cfg,
             self.global_state.prefix_prefill_seq_bucket_cfg,
-            self.max_num_batched_tokens)
+            self.max_num_batched_tokens,
+            self.block_size)
 
         msg = (f"Generated {len(self.global_state.prefix_prefill_buckets)} "
                f"prefix_prefill buckets [bs, seq, ctx]: "
@@ -271,6 +272,63 @@ def warmup_range(config: Tuple[int, int, int]):
     buckets = list(ramp_up_tw) + list(stable)
     return list(filter(lambda bucket: bucket >= bmin, buckets))
 
+def warmup_range_prefix_prefill(config: Tuple[int, int, int], block_size):
+    """Generate a warmup range.
+
+    Start from bmin and multiply by 2 until you reach bstep.
+    Then, increase the values in the range by the value of bstep until you 
+    reach bmax.
+
+    Example:
+    bmin = 2, bstep = 32, bmax = 64
+    => ramp_up = (2, 4, 8, 16)
+    => stable = (32, 64)
+    => return ramp_up + stable => (2, 4, 8, 16, 32, 64)
+    """
+    bmin, bstep, bmax = config
+    assert bmin <= bmax-block_size, ("Min. batch size cannot be greater than max. "
+                          "batch size. If you want to skip warmup, "
+                          "set VLLM_SKIP_WARMUP=true")
+    base = itertools.repeat(2)
+    ramp_up_acc = itertools.accumulate(base, func=operator.mul, initial=bmin)
+    ramp_up_tw = itertools.takewhile(lambda x: x < bstep and x <= bmax-block_size, \
+        ramp_up_acc)
+    #print("ramp_up_tw", ramp_up_tw)
+    stable = range(bstep, bmax - block_size + 1, bstep)
+    #print("stable", stable)
+    buckets = list(ramp_up_tw) + list(stable)
+    print(buckets)
+    #exit()
+    return list(filter(lambda bucket: bucket >= bmin, buckets))
+
+def warmup_range_prefix_prefill_ctx(config: Tuple[int, int, int], block_size, prefix_prefill_query_buckets, batch_size_buckets):
+    bmin, bstep, bmax = config
+
+    buckets = []
+    #bs_buckets = warmup_range(bs_bucket_config)
+    #block_buckets = warmup_range(blocks_bucket_config)
+    #last_bucket = max_blocks
+    print("here777")
+    for bs in batch_size_buckets:
+        for b in prefix_prefill_query_buckets:
+            #print("b", b)
+            #b=384
+            
+            max_blocks_range = (bmax - b) // block_size
+            #print("max_blocks_range", max_blocks_range)
+            blocks_range = range(1, max_blocks_range)
+            for i in range(1, max_blocks_range + 1):
+            #for blocks in block_buckets:
+            #    if blocks >= last_bucket:
+            #        buckets.append((bs, last_bucket, 1))
+            #        break
+                buckets.append((bs, b, i))
+    print("final buckets", buckets)
+    #exit()
+    return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+
+
+
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
@@ -321,11 +379,15 @@ def generate_prompt_buckets(bs_bucket_config,
 
 def generate_prefix_prefill_buckets(bs_bucket_config,
                             seq_bucket_config,
-                            max_num_batched_tokens=None):
-    buckets = list(
-        itertools.product(warmup_range(bs_bucket_config),
-                          warmup_range(seq_bucket_config),
-                          [1, 2, 4, 5]))
+                            max_num_batched_tokens=None,
+                            block_size=128):
+    a = warmup_range_prefix_prefill(seq_bucket_config, block_size)
+    bs = warmup_range(bs_bucket_config)
+    '''buckets = list(
+        itertools.product(bs,
+                          a,
+                          [1, 2, 4]))'''
+    buckets = warmup_range_prefix_prefill_ctx(seq_bucket_config, block_size, a, bs)
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
