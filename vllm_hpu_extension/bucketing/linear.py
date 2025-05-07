@@ -168,6 +168,10 @@ class HPUBucketingContext(metaclass=WeakSingleton):
     def get_padded_prompt_batch_size(self, batch_size):
         return find_bucket(batch_size,
                            self.global_state.prompt_bs_bucket_cfg)
+    
+    def get_padded_prefix_prefill_batch_size(self, batch_size):
+        return find_bucket(batch_size,
+                           self.global_state.prefix_prefill_bs_bucket_cfg)
 
     def get_padded_decode_batch_size(self, batch_size):
         return find_bucket(batch_size,
@@ -176,6 +180,10 @@ class HPUBucketingContext(metaclass=WeakSingleton):
     def get_padded_prompt_seq_len(self, seq_len):
         return find_bucket(seq_len,
                            self.global_state.prompt_seq_bucket_cfg)
+
+    def get_padded_prefix_prefill_seq_len(self, seq_len):
+        return find_bucket(seq_len,
+                           self.global_state.prefix_prefill_seq_bucket_cfg)
 
     def get_padded_decode_num_blocks(self, num_blocks):
         assert self.num_hpu_blocks is not None, "num_hpu_blocks is not set"
