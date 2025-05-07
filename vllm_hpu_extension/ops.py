@@ -438,7 +438,7 @@ class DynamicFusedMOE(torch.nn.Module):
         final_hidden_states = self.MoeOp(
             hidden_states=hidden_states,
             expert_routing_table=selected_experts,
-            router_weights=routing_weights,            
+            router_weights=routing_weights,
             permuted_weights=True,
             activation="silu",
         )
