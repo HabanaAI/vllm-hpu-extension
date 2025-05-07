@@ -45,31 +45,39 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     adjustment_target_shape = block_max.shape
     attn = attn.sub(block_max)
     attn = attn.exp()
-    attn = attn.to(value.dtype)
+    if attn.dtype == torch.float32:
+        attn = attn.to(value.dtype)
     block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
-    block_max = block_max.squeeze((-1, -2))
-    block_sums = block_sums.squeeze((-1, -2))
 
-    # Calculate maximum of blocks that belong to the same sequences
-    # and cast adjustments to native dtype
-    group_max = grouped_max(block_max, batch_size, block_groups)
-    block_adjustment = (block_max - group_max).exp()
-    block_adjustment = block_adjustment.to(value.dtype)
-    sum_adjusted = block_sums.mul(block_adjustment)
+    if 'fused_block_softmax_adjustment' in enabled_flags() and block_max.dtype != torch.float16:
+        rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
+                                                         block_sums.to(block_max.dtype),
+                                                         block_groups,
+                                                         batch_size).to(attn.dtype)
+    else:
+        block_max = block_max.squeeze((-1, -2))
+        block_sums = block_sums.squeeze((-1, -2))
 
-    # Sum block's sums that belongs to the same sequences
-    group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
-    group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
-    sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
-    group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
-    block_adjustment = block_adjustment.view(*adjustment_target_shape)
+        # Calculate maximum of blocks that belong to the same sequences
+        # and cast adjustments to native dtype
+        group_max = grouped_max(block_max, batch_size, block_groups)
+        block_adjustment = (block_max - group_max).exp()
+        if block_adjustment.dtype == torch.float32:
+            block_adjustment = block_adjustment.to(value.dtype)
+        sum_adjusted = block_sums.mul(block_adjustment)
 
-    # For stability in case some of the sums have been zeroed out during block aggretation
-    group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
+        # Sum block's sums that belongs to the same sequences
+        group_sum_adjusted = block2batch(sum_adjusted, block_mapping, block2batch_matmul_op)
+        group_sum_adjusted = batch2block(group_sum_adjusted, block_mapping, batch2block_matmul_op)
+        sum_adjusted = sum_adjusted.view(*adjustment_target_shape)
+        group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
+        block_adjustment = block_adjustment.view(*adjustment_target_shape)
 
-    # Post processing for the attention scores
-    rescale = block_adjustment.div(group_sum_adjusted)
+        # For stability in case some of the sums have been zeroed out during block aggretation
+        group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
+        # Post processing for the attention scores
+        rescale = block_adjustment.div(group_sum_adjusted)
     attn = attn.mul(rescale)
     return attn
 
@@ -379,8 +387,8 @@ class DynamicFusedMOE(torch.nn.Module):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
-                                                        topk,
-                                                        dim=-1)
+                                                       topk,
+                                                       dim=-1)
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         routing_weights = routing_weights.to(hidden_states.dtype)
 
