@@ -13,7 +13,6 @@ def _kernel(name):
         @cache
         def loader_impl():
             try:
-                print("Load", name, fn)
                 return fn()
             except (ImportError, AttributeError):
                 from .utils import logger
