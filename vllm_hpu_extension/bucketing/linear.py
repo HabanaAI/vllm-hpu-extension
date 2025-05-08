@@ -4,7 +4,6 @@ import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
-
 from .common import WeakSingleton
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,6 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         self.max_decode_seq = max_decode_seq
         self._setup_buckets()
         self.generate_prompt_buckets()
-        self.generate_prefix_prefill_buckets()
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
@@ -305,30 +303,14 @@ def warmup_range_prefix_prefill_ctx(config: Tuple[int, int, int], block_size, pr
     bmin, bstep, bmax = config
 
     buckets = []
-    #bs_buckets = warmup_range(bs_bucket_config)
-    #block_buckets = warmup_range(blocks_bucket_config)
-    #last_bucket = max_blocks
-    print("here777")
     for bs in batch_size_buckets:
         for b in prefix_prefill_query_buckets:
-            #print("b", b)
-            #b=384
-            
             max_blocks_range = (bmax - b) // block_size
-            #print("max_blocks_range", max_blocks_range)
             blocks_range = range(1, max_blocks_range)
             for i in range(1, max_blocks_range + 1):
-            #for blocks in block_buckets:
-            #    if blocks >= last_bucket:
-            #        buckets.append((bs, last_bucket, 1))
-            #        break
                 buckets.append((bs, b, i))
-    print("final buckets", buckets)
-    #exit()
+    print("final buckets", buckets) # TODO develop only, remove
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
-
-
-
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
@@ -381,13 +363,14 @@ def generate_prefix_prefill_buckets(bs_bucket_config,
                             seq_bucket_config,
                             max_num_batched_tokens=None,
                             block_size=128):
-    a = warmup_range_prefix_prefill(seq_bucket_config, block_size)
+    seq = warmup_range_prefix_prefill(seq_bucket_config, block_size)
     bs = warmup_range(bs_bucket_config)
+    buckets = warmup_range_prefix_prefill_ctx(seq_bucket_config, block_size, seq, bs)
+    # TODO - remove after develop
     '''buckets = list(
         itertools.product(bs,
                           a,
                           [1, 2, 4]))'''
-    buckets = warmup_range_prefix_prefill_ctx(seq_bucket_config, block_size, a, bs)
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
