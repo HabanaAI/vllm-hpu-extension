@@ -14,7 +14,7 @@ from lm_eval import tasks, evaluator
 from lm_eval.models.vllm_vlms import VLLM_VLM
 
 
-IMAGE_LIMIT = 4
+IMAGE_LIMIT = 1
 
 def run_generate():
     config_template_bf16 = {
@@ -65,6 +65,8 @@ def run_generate():
         "vllm_kwargs": {
             **config_template_vision_fp8["vllm_kwargs"],
             "pretrained": args.model_path,
+            "enforce_eager": args.enforce_eager,
+            "max_model_len": args.max_model_len,
         },
     }
     lm = VLLM_VLM(**lm_instance_cfg["vllm_kwargs"],

@@ -133,6 +133,7 @@ export PT_HPU_LAZY_MODE=1
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
+max_model_len=8192
 
 
 echo ""
@@ -146,6 +147,8 @@ weights_load_device='cpu'
 kv_cache_dtype='auto'
 
 python3 vision_lm_eval.py \
+    --enforce-eager \
+    --max-model-len $max_model_len \
     --model-path $MODEL_PATH \
     --quantization $quantization \
     --weights-load-device $weights_load_device \
@@ -162,6 +165,8 @@ weights_load_device='cpu'
 kv_cache_dtype='fp8_inc'
 
 python3 vision_lm_eval.py \
+    --enforce-eager \
+    --max-model-len $max_model_len \
     --model-path $MODEL_PATH \
     --quantization $quantization \
     --weights-load-device $weights_load_device \
