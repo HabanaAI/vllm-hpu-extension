@@ -21,6 +21,7 @@ usage() {
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
     echo "  -g    - groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--', e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on."
+    echo "  -e    - Turn on or off eager mode, default: off"
     echo
 }
 
@@ -70,7 +71,8 @@ cleanup_tmp
 EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
-while getopts "m:b:l:t:d:h:o:g:" OPT; do
+eager_mode="off"
+while getopts "m:b:l:t:d:h:o:g:e:" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -96,6 +98,9 @@ while getopts "m:b:l:t:d:h:o:g:" OPT; do
         h )
             usage
             ;;
+        e )
+            eager_mode="$OPTARG"
+            ;;
         \? )
             usage
             exit 1
@@ -107,6 +112,10 @@ if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" ]]; then
     echo "Model stub, output path for fp8 measurements must be provided."
     usage
     exit 1
+fi
+
+if [[ $eager_mode == "on" ]]; then
+    EXTRA_FLAGS+="--enforce-eager "
 fi
 
 # Store the provided MODEL_PATH name in a variable
@@ -129,7 +138,6 @@ fi
 create_measure_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 
-export PT_HPU_LAZY_MODE=1
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
@@ -147,13 +155,13 @@ weights_load_device='cpu'
 kv_cache_dtype='auto'
 
 python3 vision_lm_eval.py \
-    --enforce-eager \
     --max-model-len $max_model_len \
     --model-path $MODEL_PATH \
     --quantization $quantization \
     --weights-load-device $weights_load_device \
     --kv-cache-dtype $kv_cache_dtype \
-    --tensor-parallel-size $TP_SIZE
+    --tensor-parallel-size $TP_SIZE \
+    $EXTRA_FLAGS
 echo "Step 2/3 done"
 
 
@@ -165,13 +173,13 @@ weights_load_device='cpu'
 kv_cache_dtype='fp8_inc'
 
 python3 vision_lm_eval.py \
-    --enforce-eager \
     --max-model-len $max_model_len \
     --model-path $MODEL_PATH \
     --quantization $quantization \
     --weights-load-device $weights_load_device \
     --kv-cache-dtype $kv_cache_dtype \
-    --tensor-parallel-size $TP_SIZE
+    --tensor-parallel-size $TP_SIZE \
+    $EXTRA_FLAGS
 
 echo "Step 3/3 done"
 
