@@ -5,24 +5,36 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from .utils import logger
 from functools import cache
 
 
-@cache
-def fsdpa():
-    try:
-        from habana_frameworks.torch.hpex.kernels import FusedSDPA
-        return FusedSDPA
-    except ImportError:
-        logger().warning("Could not import HPU FusedSDPA kernel. "
-                         "vLLM will use native implementation.")
+def _kernel(name):
+    def loader(fn):
+        @cache
+        def loader_impl():
+            try:
+                return fn()
+            except (ImportError, AttributeError):
+                from .utils import logger
+                logger().warning(f"Could not import HPU {name} kernel. "
+                                 "vLLM will use native implementation")
+        return loader_impl
+    return loader
 
-@cache
+
+@_kernel("FusedSDPA")
+def fsdpa():
+    from habana_frameworks.torch.hpex.kernels import FusedSDPA
+    return FusedSDPA
+
+
+@_kernel("FusedRMSNorm")
 def rms_norm():
-    try:
-        from habana_frameworks.torch.hpex.normalization import FusedRMSNorm
-        return FusedRMSNorm
-    except ImportError:
-        logger().warning("Could not import HPU FusedRMSNorm kernel. "
-                         "vLLM will use forward_native implementation of RMSNorm.")
+    from habana_frameworks.torch.hpex.normalization import FusedRMSNorm
+    return FusedRMSNorm
+
+
+@_kernel("block_softmax_adjustment")
+def block_softmax_adjustment():
+    import torch
+    return torch.ops.hpu.block_softmax_adjustment
