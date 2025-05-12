@@ -86,18 +86,18 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     return attn
 
 def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
-                block_bias, block_groups, scale, matmul_qk_op,
+                block_bias, block_groups, block_size, scale, matmul_qk_op,
                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
                 keys_fetch_func, values_fetch_func, kv_lora_rank):
     batch_size = query.size(0)
     q_heads = query.size(1)
-    kv_heads = key_cache.size(2)
+    kv_heads = key_cache.size(1)
 
     query = batch2block(scale * query, block_mapping,
                             batch2block_matmul_op).unsqueeze(-2)
-    key = keys_fetch_func(key_cache, block_list)
+    key = keys_fetch_func(key_cache, block_list, block_size)
     if value_cache is not None:
-        value = values_fetch_func(value_cache, block_list)
+        value = values_fetch_func(value_cache, block_list, block_size)
         key = torch.concat((value, key), dim=-1)
     elif kv_lora_rank is not None:
         value = key[..., :kv_lora_rank]
