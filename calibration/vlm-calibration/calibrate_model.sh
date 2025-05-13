@@ -108,11 +108,14 @@ while getopts "m:b:l:t:d:h:o:g:e:" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" ]]; then
-    echo "Model stub, output path for fp8 measurements must be provided."
+if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
+    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
     exit 1
 fi
+
+# export HF_DATASETS_CACHE=$DATASET_PATH
+export HF_HOME=$DATASET_PATH
 
 if [[ $eager_mode == "on" ]]; then
     EXTRA_FLAGS+="--enforce-eager "
