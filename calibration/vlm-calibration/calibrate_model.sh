@@ -68,6 +68,9 @@ extract_last_folder_name() {
 
 cleanup_tmp
 
+# jump to the script directory
+cd "$(dirname "$0")"
+
 EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
@@ -126,7 +129,7 @@ MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
 
 echo ""
 echo "Step 1/3 - detecting used device type [g2, g3]"
-DEVICE_TYPE=$(python3 detect-device.py) || (echo "Detecting device process failed" && exit 1)
+DEVICE_TYPE=$(python3 ../step-0-detect-device.py) || (echo "Detecting device process failed" && exit 1)
 DEVICE_TYPE="g$DEVICE_TYPE"
 echo "Detected device type: $DEVICE_TYPE"
 echo "Step 1 done"
@@ -192,7 +195,7 @@ if [[ -n $CARD_GROUPS ]]; then
     echo ""
     echo "Unify scales"
     QUANT_DIR=$FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
-    python3 unify_measurements.py -g "$CARD_GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
+    python3 ../step-5-unify_measurements.py -g "$CARD_GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
     echo "Unify scales done"
 fi
 cleanup_tmp
