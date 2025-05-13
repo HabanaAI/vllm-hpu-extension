@@ -95,9 +95,9 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
 
     query = batch2block(scale * query, block_mapping,
                             batch2block_matmul_op).unsqueeze(-2)
-    key = keys_fetch_func(key_cache, block_list, block_size)
+    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list)
     if value_cache is not None:
-        value = values_fetch_func(value_cache, block_list, block_size)
+        value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list)
         key = torch.concat((value, key), dim=-1)
     elif kv_lora_rank is not None:
         value = key[..., :kv_lora_rank]
@@ -142,8 +142,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
 
     query_shape = (-1, q_heads, 1, head_size)
     query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
-    key = keys_fetch_func(key_cache, block_list, block_size).transpose(1, 2)
-    value = values_fetch_func(value_cache, block_list, block_size).transpose(1, 2)
+    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
+    value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
@@ -299,7 +299,7 @@ def _include_past(tensor_str, fn_str, cache_str, args):
                            cache_str, 'block_list', 'block_size')
     if all(t is not None for t in all_tensors):
         current, fn, cache, block_list, block_size = all_tensors
-        past = fn(cache, block_list, block_size)
+        past = fn(cache.unflatten(0, (-1, block_size)), block_list)
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
         current = torch.concat((past, current), dim=1)
         args[tensor_str] = current
