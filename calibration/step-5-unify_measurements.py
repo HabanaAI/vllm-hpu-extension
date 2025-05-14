@@ -39,7 +39,7 @@ def analyze_expert_name(node_name):
     return prefix, expert_id
 
 def unify_measurements(
-    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False
+    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False, use_ep=True
 ):
     measurements_paths = []
     group_name = ""
@@ -98,7 +98,7 @@ def unify_measurements(
         if scales:
             for idx, measurement_json in enumerate(measurements_jsons):
                 # for experts of moe, append results in all measurements
-                if is_moe_experts(node_name):
+                if use_ep and is_moe_experts(node_name):
                     if node_name not in moe_experts_data:
                         moe_experts_data[node_name] = node_values
                     else:
@@ -113,7 +113,7 @@ def unify_measurements(
                         measurement_json[node_name]["inputs"][i], max_inputs[i])
                 if max_outputs is not None:
                     # for moe op, keep max of the first, retain rest from other measurements
-                    if is_moe(node_name) and idx > 0:
+                    if use_ep and is_moe(node_name) and idx > 0:
                         max_outputs[0] = max(
                             measurement_json[node_name]["outputs"][0], max_outputs[0])
                         max_outputs.extend(measurement_json[node_name]["outputs"][1:])
@@ -126,7 +126,7 @@ def unify_measurements(
         else:
             for idx, measurement_json in enumerate(measurements_jsons):
                 # for experts of moe, append results in all measurements
-                if is_moe_experts(node_name):
+                if use_ep and is_moe_experts(node_name):
                     if node_name not in moe_experts_data:
                         moe_experts_data[node_name] = node_values
                     else:
@@ -141,7 +141,7 @@ def unify_measurements(
                         max_inputs[i][j][0] = max(
                             measurement_json[node_name]["inputs"][i][j][0], max_inputs[i][j][0])
                 if max_outputs is not None:
-                    if is_moe(node_name) and idx > 0:
+                    if use_ep and is_moe(node_name) and idx > 0:
                         max_outputs[0][0] = max(
                             measurement_json[node_name]["outputs"][0][0], max_outputs[0][0])
                         max_outputs.extend(measurement_json[node_name]["outputs"][1:])
@@ -172,7 +172,8 @@ def unify_measurements(
             if max_weight is not None:
                 for i in range(0, len(max_weight)):
                     unified_json["Nodes"][node_name]["params"]["weight"][i][0] = max_weight[i][0]
-    unified_json["Nodes"].update(moe_experts_data)
+    if use_ep:
+        unified_json["Nodes"].update(moe_experts_data)
     global_rank = None
     local_rank = group_index if groups_num != 1 else -1
     mode = ""
@@ -221,6 +222,12 @@ def parse_args(args):
         default=os.getcwd(),
         help="path to the directory where the unified measurements will be written",
     )
+    parser.add_argument(
+        "--use_ep",
+        type=bool,
+        default=True,
+        help="whether the original measurement results use expert parallelism, it will affects the unified result of FusedMoe's experts",
+    )
     return parser.parse_args(args)
 
 
@@ -257,10 +264,10 @@ def main(args):
 
     for group_index, group in enumerate(groups):
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False
+            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_ep
         )
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True
+            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_ep
         )
 
     print("finished measurement unifier script")
