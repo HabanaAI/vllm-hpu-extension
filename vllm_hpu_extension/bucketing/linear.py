@@ -421,9 +421,9 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     for bs in bs_buckets:
         for blocks in block_buckets:
             if blocks >= last_bucket:
-                buckets.append((bs, last_bucket, 1))
+                buckets.append((bs, 1, last_bucket))
                 break
-            buckets.append((bs, blocks, 1))
+            buckets.append((bs, 1, blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
