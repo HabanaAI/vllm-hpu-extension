@@ -56,7 +56,7 @@ create_quant_config() {
     fp8_config="E4M3"
     if [[ $model_name_lower == *"qwen2-7b-instruct"* ]]; then
         scale_method="MAXABS_ARBITRARY"
-        block_types="[\"VLLMKVCache\", \"Matmul\"， \"Softmax\"]"
+        block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
         if [[ $3 == "g2" ]]; then
             fp8_config="E5M2"
         else
