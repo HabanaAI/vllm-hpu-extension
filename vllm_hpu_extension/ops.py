@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
+import os
 
 from vllm.logger import init_logger
 
@@ -106,7 +107,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = matmul_qk_op(query, key)
     if 'fp32_softmax' in enabled_flags():
         attn = attn.float()
-        htcore.mark_step()
+        if not 'QUANT_CONFIG' in os.environ:    # skip mark_step for quantized models
+            htcore.mark_step()
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping, block_scales=block_scales,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
@@ -155,9 +157,13 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        softmax_mode = 'fast'
+        softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'fast'
         recompute_mode = True
-        attn_weights = fsdpa_op(query, key, value, None, 0.0, True,
+        if attn_bias is not None or 'fp32_softmax' in enabled_flags():
+            # WA for sdpa kernel accurary and memory leak error
+            valid_seq_lengths = None
+        is_causal = attn_bias is None
+        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
@@ -320,6 +326,24 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
+        # if num_tokens exceed the VLLM_DYNAMIC_MOE_MIN_TOKENS,
+        # dynamic MoE is used since its performance is better than
+        # static MoE in this case.
+        self.dynamic_moe_min_tokens = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_TOKENS", 256))
+        # if the number of expert on a single card is smaller than
+        # VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU, dynamic MoE
+        # is used since its performance is better than
+        # static MoE in this case.
+        self.dynamic_moe_max_num_expert_singleHpu = int(
+        os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
+
+    def set_weights(self, w13,w2):
+        self.w13_weight = w13
+        self.w2_weight = w2
+
+    def set_ep_rank(self, ep_rank):
+        self.ep_rank = ep_rank
 
     def forward(self,
                 hidden_states,
@@ -328,18 +352,62 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
-        experts_range = range(self.num_experts)
-        w1_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
-        w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-        return torch.ops.hpu.mixture_of_experts(hidden_states=hidden_states,
-                                                expert_routing_table=expert_routing_table,
-                                                router_weights=router_weights,
-                                                w12=w1_list,
-                                                w3=w2_list,
-                                                permuted_weights=permuted_weights,
-                                                activation=activation,
-                                                experts_min=0,
-                                                experts_max=7)
+        num_tokens, hidden_dim = hidden_states.shape
+        num_experts = self.w13_weight.shape[0]
+        moe_intermediate = self.w2_weight.shape[2]
+        ep_shift = self.ep_rank * num_experts
+        selected_experts = (expert_routing_table - ep_shift).to(torch.int64)
+        # When the number of input tokens (batch_size*seqence_length) exceeds
+        # dynamic_moe_min_tokens (default 256) or the number of the experts
+        # on the single card is smaller than dynamic_moe_max_num_expert_singleHpu
+        # (default 32), dynamic MoE is used since it delivers better performance
+        # than static MoE. Otherwise static MoE is used.
+        if num_tokens > self.dynamic_moe_min_tokens or \
+            (num_experts <= self.dynamic_moe_max_num_expert_singleHpu):
+            experts_range = range(num_experts)
+            w1_list = [
+                self.w13_weight[i].squeeze() for i in experts_range
+            ]
+            w2_list = [self.w2_weight[i].squeeze() for i in experts_range]
+            findal_hidden_states = torch.ops.hpu.mixture_of_experts(
+                hidden_states=hidden_states,
+                expert_routing_table=selected_experts,
+                router_weights=router_weights,
+                w12=w1_list,
+                w3=w2_list,
+                permuted_weights=permuted_weights,
+                activation=activation,
+                experts_min=0,
+                experts_max=(num_experts - 1),
+            )
+        else:
+            padded_weights = torch.zeros((num_tokens, num_experts),
+                                         dtype=hidden_states.dtype,
+                                         device=hidden_states.device)
+            padded_weights.scatter_(-1, selected_experts, router_weights)
+            padded_weights = padded_weights.transpose(0, 1).unsqueeze(-1)
+       
+            up_gate_states = torch.matmul(
+                hidden_states,
+                self.w13_weight.view(-1, self.w13_weight.size(-1)).transpose(0, 1))
+            up_gate_states = up_gate_states.reshape(num_tokens, num_experts, 2,
+                                                    -1)
+            up_states = up_gate_states[:, :, 0, :]
+            gate_states = up_gate_states[:, :, 1, :]
+
+            if activation != "silu":
+                raise ValueError(f"Unsupported activation: {activation}. "
+                                 "Only silu is supported for  now.")
+
+            current_state_static = F.silu(up_states) * gate_states
+            current_state_static = current_state_static.transpose(0, 1)
+
+            current_hidden_state_static = torch.matmul(
+                current_state_static, self.w2_weight.transpose(1,
+                                                          2)) * padded_weights
+            findal_hidden_states = current_hidden_state_static.sum(dim=0)
+
+        return findal_hidden_states.view(-1, hidden_states.shape[1])
 
 
 class DynamicFusedMOE(torch.nn.Module):
@@ -347,14 +415,21 @@ class DynamicFusedMOE(torch.nn.Module):
     def __init__(self, num_total_experts):
         super().__init__()
         self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
+ 
+    def set_MoeOp_weights(self, w13, w2):
+        self.MoeOp.set_weights(w13, w2)
 
-    def forward(self, hidden_states, score, topk):
+    def set_MoeOp_ep_rank(self, ep_rank):
+        self.MoeOp.set_ep_rank(ep_rank)
+
+    def forward(self, hidden_states, score, topk, renormalize=True):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
                                                         topk,
                                                         dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        if renormalize:
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         routing_weights = routing_weights.to(hidden_states.dtype)
 
         final_hidden_states = self.MoeOp(

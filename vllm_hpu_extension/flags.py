@@ -28,6 +28,8 @@ class FeatureTest:
 
     def __and__(self, rhs):
         return And(self, rhs)
+    def __or__(self, rhs):
+        return Or(self, rhs)
 
     def check(self, *_, **__):
         raise NotImplementedError("check needs to be implemented in subclasses")
@@ -50,6 +52,15 @@ class And(FeatureTest):
 
     def check(self, **kwargs):
         return self.lhs(**kwargs) and self.rhs(**kwargs)
+
+class Or(FeatureTest):
+    def __init__(self, lhs, rhs):
+        super().__init__(*lhs.required_params, *rhs.required_params)
+        self.lhs = lhs
+        self.rhs = rhs
+
+    def check(self, **kwargs):
+        return self.lhs(**kwargs) or self.rhs(**kwargs)
 
 
 class Value(FeatureTest):
@@ -143,7 +154,7 @@ def enabled_flags():
         "gaudi2": Hardware("gaudi2"),
         "gaudi3": Hardware("gaudi3"),
         "cpu": Hardware("cpu"),
-        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2')),
+        "fp32_softmax": EnvFlag("VLLM_FP32_SOFTMAX", ModelType('qwen2') | ModelType('qwen2_moe')),
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", Not(ModelType('qwen2')))),
