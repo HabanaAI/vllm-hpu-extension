@@ -40,7 +40,21 @@ create_measure_config() {
 
 create_quant_config() {
     mkdir -p $1/$2/$3
-    tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+
+    if [[ "${2,,}" == *"qwen2-7b-instruct"* ]]; then
+        scale_method="MAXABS_ARBITRARY"
+        block_types="[\"VLLMKVCache\", \"Matmul\"]"
+        if [[ "${3}" == "g2" ]]; then
+            fp8_config="E5M2"
+        else
+            fp8_config="E4M3"
+        fi
+    else
+        scale_method="maxabs_hw"
+        block_types="[]"
+        fp8_config="E4M3"
+    fi
+    tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"${scale_method}\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": ${block_types},\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\", \"fp8_config\": \"${fp8_config}\"}"
     echo "$tmp_config" > $1/$2/maxabs_quant_$3.json
 }
 
