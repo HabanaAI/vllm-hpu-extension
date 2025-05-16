@@ -33,7 +33,7 @@ def dump(prefix, values):
             print(f'  {key}: {value}')
 
 
-def config():
+def get_config():
 
     global DETECTED
 
@@ -72,6 +72,8 @@ def config():
     dump('Environment', environment)
     dump('Features', features)
     dump('User flags', user_flags)
-    dump('Experimenta flags', experimental_flags)
+    dump('Experimental flags', experimental_flags)
+
+    DETECTED = detected
 
     return detected

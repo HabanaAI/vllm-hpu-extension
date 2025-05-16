@@ -36,7 +36,7 @@ def get_experimental_flags():
 
 
 def get_features():
-    supported_attn_impls = ['flex_attn', 'fsdpa_attn', 'naive_attn']
+    supported_attn_impls = ['flex_impl', 'fsdpa_impl', 'naive_impl']
     return [
         Parameter('fp32_softmax', ModelType('qwen2')),
         Parameter('compile_one_hot', All(VersionRange(">=1.20.0.370"),
@@ -45,11 +45,11 @@ def get_features():
                                                         Hardware('gaudi3'),
                                                         Kernel(block_softmax_adjustment),
                                                         Not(ModelType('qwen2')))),
-        Parameter('flex_attn', False, env_var='VLLM_PROMPT_USE_FLEX_ATTENTION'),
-        Parameter('fsdpa_attn', All(Kernel(fsdpa),
+        Parameter('flex_impl', False, env_var='VLLM_PROMPT_USE_FLEX_ATTENTION'),
+        Parameter('fsdpa_impl', All(Kernel(fsdpa),
                                     Not(ModelType('qwen2')),
                                     Not(ModelType('mllama'))), env_var='VLLM_PROMPT_USE_FUSEDSDPA'),
-        Parameter('naive_attn', True),
+        Parameter('naive_impl', True),
         Parameter('prompt_attn_impl', FirstActive(*supported_attn_impls), env_var_type=choice(*supported_attn_impls)),
         Parameter('skip_warmup', False, env_var='VLLM_SKIP_WARMUP'),
         Parameter('contiguous_pa', True),
