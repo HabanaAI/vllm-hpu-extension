@@ -1,14 +1,18 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Intel Corporation
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
 from .utils import logger
+from .config import Parameter, choice
 
 
-def get_hw():
+_RUNTIME_PARAMS = {}
+
+
+def _get_hw(_):
     import habana_frameworks.torch.utils.experimental as htexp
     device_type = htexp._get_device_type()
     match device_type:
@@ -23,7 +27,7 @@ def get_hw():
     return None
 
 
-def get_build():
+def _get_build(_):
     import re
     import subprocess
     output = subprocess.run("pip show habana-torch-plugin",
@@ -42,25 +46,33 @@ def get_build():
     return result
 
 
-runtime_params = {}
-
-
-def get_model_type():
-    return runtime_params.get('model_type', None)
+def _get_model_type(_):
+    return _RUNTIME_PARAMS.get('model_type', None)
 
 
 def set_model_config(cfg):
-    global runtime_params
+    global _RUNTIME_PARAMS
     if hasattr(cfg, 'hf_config'):
-        runtime_params['model_type'] = cfg.hf_config.model_type
+        _RUNTIME_PARAMS['model_type'] = cfg.hf_config.model_type
     else:
-        runtime_params['model_type'] = cfg.model_type
+        _RUNTIME_PARAMS['model_type'] = cfg.model_type
 
-def get_environment(**overrides):
-    overrides = {k: lambda: v for k, v in overrides.items()}
-    getters = {
-        "build": get_build,
-        "hw": get_hw,
-        "model_type": get_model_type,
-    }
-    return {k: g() for k, g, in (getters | overrides).items()}
+
+def _get_vllm_engine(_):
+    import vllm.envs as envs
+    return 'v1' if envs.VLLM_USE_V1 else 'v0'
+
+
+def _get_pt_bridge_mode(_):
+    import habana_frameworks.torch as htorch
+    return 'lazy' if htorch.utils.internal.is_lazy() else 'eager'
+
+
+def get_environment():
+    return [
+        Parameter('hw', _get_hw, env_var_type=choice('cpu', 'gaudi', 'gaudi2', 'gaudi3')),
+        Parameter('model_type', _get_model_type, env_var_type=str),
+        Parameter('build', _get_build, env_var_type=str),
+        Parameter('engine', _get_vllm_engine, env_var_type=str),
+        Parameter('mode', _get_pt_bridge_mode, env_var_type=choice('eager', 'lazy')),
+    ]
