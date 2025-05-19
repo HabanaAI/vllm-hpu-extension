@@ -583,6 +583,16 @@ def apply_block_fp8_linear_hpu_dequant(
     return output.to(dtype=input.dtype).view(*input.shape[:-1], -1)
 
 
+def dynamic_quant(data, single_scale = False):
+    if single_scale:
+        scale = ((torch.abs(data)).max() + 1e-8) / 240.0
+    else:
+        scale = ((torch.abs(data)).max(dim=-1).values + 1e-8) / 240.0 #torch.finfo(torch.float8_e4m3fn).max
+        scale = scale.unsqueeze(-1)
+    data_fp8 = torch.ops.hpu.cast_to_fp8_v2(data, 1.0 / scale, False, False, torch.float8_e4m3fn)[0]
+    return data_fp8, scale.float()
+
+
 def fp8_block_linear_postprocess_weights(layer):
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
@@ -614,6 +624,41 @@ def fp8_block_moe_prepare_weights(layer):
         layer.moe_op.w2_list[index].set_weight_block_size(
             layer.quant_config.weight_block_size
         )
+    htorch.core.mark_step()
+    return layer
+
+
+def fp8_channel_moe_prepare_weights(layer):
+    for index in range(layer.moe_op.num_experts):
+        layer.moe_op.w13_list[index].set_weight(layer.w13_weight[index])
+        if hasattr(layer, "w13_weight_scale_inv"):
+            layer.moe_op.w13_list[index].set_scale_inv_fp8(
+                layer.w13_weight_scale_inv[index]
+            )
+        elif hasattr(layer, "w13_weight_scale"):
+            weight_scale_inv = layer.w13_weight_scale[index]
+            layer.moe_op.w13_list[index].set_scale_inv_fp8(weight_scale_inv)
+        else:
+            weight_scale_inv = torch.ones(layer.w13_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w13_weight[index].device)
+            layer.moe_op.w13_list[index].set_scale_inv_fp8(weight_scale_inv)
+
+        layer.moe_op.w2_list[index].set_weight(layer.w2_weight[index])
+        if hasattr(layer, "w2_weight_scale_inv"):
+            layer.moe_op.w2_list[index].set_scale_inv_fp8(
+                layer.w2_weight_scale_inv[index]
+            )
+        elif hasattr(layer, "w2_weight_scale"):
+            weight_scale_inv = layer.w2_weight_scale[index]
+            layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
+        else:
+            weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w2_weight[index].device)
+            layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
+            
+    if hasattr(layer, "w13_input_scale"):
+        layer.moe_op.w13_input_scale = layer.w13_input_scale
+    if hasattr(layer, "w2_input_scale"):
+        layer.moe_op.w2_input_scale = layer.w2_input_scale
+
     htorch.core.mark_step()
     return layer
 
@@ -669,7 +714,6 @@ class MoeFP8Matmul(torch.nn.Module):
         self,
     ) -> Optional[Callable[[torch.nn.Module], torch.Tensor]]:
         return self.dequant_block_fp8_weight
-
 
 class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
     def __init__(
@@ -742,6 +786,76 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
             else:
                 final_hidden_states += slice_final_hidden_states
         return final_hidden_states
+
+class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
+    def __init__(
+        self, num_experts: int, experts_min: int = 0, experts_max: int = 8
+    ):
+        super().__init__()
+        self.w13_list = torch.nn.ModuleList(
+            [MoeFP8Matmul() for _ in range(num_experts)]
+        )
+        self.w2_list = torch.nn.ModuleList(
+            [MoeFP8Matmul() for _ in range(num_experts)]
+        )
+        self.w13_input_scale = None
+        self.w2_input_scale = None
+
+        self.num_experts = num_experts
+        self.experts_min = experts_min
+        self.experts_max = experts_max
+
+    def forward(
+        self,
+        x,
+        topk_ids,
+        topk_weights,
+        permuted_weights=True,
+        activation="silu",
+    ):
+        experts_range = range(self.num_experts)
+        w13_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
+        w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
+        w13_weight_scale = [self.w13_list[i].scale_inv_fp8.squeeze() for i in experts_range]
+        w2_weight_scale = [self.w2_list[i].scale_inv_fp8.squeeze() for i in experts_range]
+       
+        if self.w13_input_scale is None:
+            x_fp8, x_scale = dynamic_quant(x, single_scale=True)
+            final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                                    hidden_states=x_fp8,
+                                    expert_routing_table=topk_ids.to(torch.int64),
+                                    router_weights=topk_weights.to(x.dtype),
+                                    w12=w13_list,
+                                    w3=w2_list,
+                                    d_scale_hidden_states=x_scale,
+                                    d_scale_w12=w13_weight_scale,
+                                    d_scale_w3=w2_weight_scale,
+                                    permuted_weights=permuted_weights,
+                                    activation=activation,
+                                    experts_min=self.experts_min,
+                                    experts_max=self.experts_max)
+        else:
+            x_scale = self.w13_input_scale.data
+            w2_input_scale =  self.w2_input_scale.data
+            x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
+            final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                                    hidden_states=x_fp8,
+                                    expert_routing_table=topk_ids.to(torch.int64),
+                                    router_weights=topk_weights.to(x.dtype),
+                                    w12=w13_list,
+                                    w3=w2_list,
+                                    d_scale_hidden_states=x_scale,
+                                    d_scale_intermediate_hidden_states=w2_input_scale,
+                                    d_scale_w12=w13_weight_scale,
+                                    d_scale_w3=w2_weight_scale,
+                                    permuted_weights=permuted_weights,
+                                    activation=activation,
+                                    experts_min=self.experts_min,
+                                    experts_max=self.experts_max)
+
+        
+        return final_hidden_states
+
 
 # fp8
 def scaled_fp8_quant(
