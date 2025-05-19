@@ -269,6 +269,9 @@ def _fsdpa_prompt_attention(
         # TODO: causal + attn_bias is not yet supported
         is_causal = False
         valid_seq_lengths = None
+    if attn_bias is not None or 'fp32_softmax' in enabled_flags():
+        # WA for sdpa kernel accurary and memory leak error
+        valid_seq_lengths = None
     attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                             scale, softmax_mode, recompute_mode,
                             valid_seq_lengths, 'right')
