@@ -265,7 +265,7 @@ def _fsdpa_prompt_attention(
     recompute_mode = True
     assert attn_bias is not None or valid_seq_lengths is not None, \
         'Either attn_bias or valid_seq_lengths must be != None'
-    # TODO: causal + valid_seq_lengths supported yet
+    # TODO: causal + valid_seq_lengths not supported yet
     if is_causal and valid_seq_lengths is not None:
         if attn_bias is None:
             is_causal = False
