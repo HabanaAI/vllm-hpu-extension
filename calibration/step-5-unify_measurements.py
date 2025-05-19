@@ -82,7 +82,8 @@ def unify_measurements(
         unified_json["LocalRank"] = group_index if groups_num != 1 else -1
 
     moe_experts_data = {}
-    expert_num = max([analyze_expert_name(i)[1] for i in unified_json["Nodes"] if is_moe_experts(i)]) + 1
+    # expert_num is used only when use_ep is True
+    expert_num = max([analyze_expert_name(i)[1] for i in unified_json["Nodes"] if is_moe_experts(i)]) + 1 if use_ep else -1
 
     # iterate all unified json nodes
     for node_name, node_values in unified_json["Nodes"].items():
