@@ -350,7 +350,9 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 expert_routing_table,
                 router_weights,
                 permuted_weights=True,
-                activation="silu"):        
+                activation="silu"):
+        assert self.w13_weight is not None
+        assert self.w2_weight is not None
         # pre-processing for custom op inputs
         num_tokens, hidden_dim = hidden_states.shape
         num_experts = self.w13_weight.shape[0]
@@ -381,8 +383,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 experts_max=(num_experts - 1),
             )
         else:
-            assert w13_weight is not None
-            assert w2_weight is not None
             padded_weights = torch.zeros((num_tokens, num_experts),
                                          dtype=hidden_states.dtype,
                                          device=hidden_states.device)
