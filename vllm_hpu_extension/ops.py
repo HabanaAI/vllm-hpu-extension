@@ -472,13 +472,14 @@ class DynamicFusedMOE(torch.nn.Module):
         super().__init__()
         self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
 
-    def forward(self, hidden_states, score, topk):
+    def forward(self, hidden_states, score, topk, renormalize=True):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
                                                        topk,
                                                        dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        if renormalize:
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         routing_weights = routing_weights.to(hidden_states.dtype)
 
         final_hidden_states = self.MoeOp(
