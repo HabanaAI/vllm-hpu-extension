@@ -12,10 +12,18 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
+import habana_frameworks.torch.utils.experimental as htexp
+
+is_hpu_gaudi2 = htexp._get_device_type(
+    ) == htexp.synDeviceType.synDeviceGaudi2
+
+FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
+if is_hpu_gaudi2:
+    FP8_MAX = torch.finfo(torch.float8_e4m3fnuz).max
 
 import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
-MAX_EXPERTS_PER_SLICE = os.environ.get("MAX_EXPERTS_PER_SLICE", -1)
+MAX_EXPERTS_PER_SLICE = int(os.environ.get("MAX_EXPERTS_PER_SLICE", -1))
 
 
 def grouped_max(block_max, batch_size, block_groups):
@@ -560,6 +568,37 @@ def dequant_block_fp8_weight_naive(weight, weight_scale, block_size, dtype=torch
     return dequant_weight
 
 
+def apply_block_fp8_linear_hpu(
+    input: torch.Tensor,
+    layer: torch.nn.Module,
+    block_size: List[int],
+    bias: Optional[torch.Tensor] = None,
+    do_unpad: bool = False,
+    force_channel_fp8: bool = False,
+) -> torch.Tensor:
+    if force_channel_fp8:
+        input_2d = input.view(-1, input.shape[-1])
+        output = apply_fp8_linear_hpu(
+            input_2d,
+            layer.weight,
+            layer.weight_scale_inv,
+            layer.input_scale,
+            bias,
+        )
+        return output.to(dtype=input.dtype).view(*input.shape[:-1], -1)
+    return apply_block_fp8_linear_hpu_dequant(
+        input,
+        layer.weight,
+        block_size,
+        layer.weight_scale_inv,
+        input_scale=layer.input_scale,
+        bias=bias,
+        original_M=layer.orig_M,
+        original_N=layer.orig_N,
+        do_unpad=do_unpad,
+    )
+
+
 def apply_block_fp8_linear_hpu_dequant(
     input: torch.Tensor,
     weight: torch.Tensor,
@@ -583,21 +622,65 @@ def apply_block_fp8_linear_hpu_dequant(
     return output.to(dtype=input.dtype).view(*input.shape[:-1], -1)
 
 
+def apply_fp8_linear_hpu(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    weight_scale: torch.Tensor,
+    input_scale: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    trans_B: bool = True,
+):
+    if input_scale is None:
+        x_fp8, x_scale = dynamic_quant(input)
+    else:
+        x_fp8 = torch.ops.hpu.cast_to_fp8_v2(input, 1.0/input_scale, False, False, torch.float8_e4m3fn)[0]
+        x_scale = input_scale
+    output = torch.ops.hpu.fp8_gemm_v2(
+        A=x_fp8,
+        trans_A=False,
+        B=weight,
+        trans_B=trans_B,
+        D=None,
+        out_dtype=input.dtype,
+        A_scale_inv=x_scale,
+        B_scale_inv=weight_scale,
+        bias=bias,
+        accumulate=False)
+    return output
+
+ 
 def dynamic_quant(data, single_scale = False):
     if single_scale:
-        scale = ((torch.abs(data)).max() + 1e-8) / 240.0
+        scale = ((torch.abs(data)).max() + 1e-8) / FP8_MAX
     else:
-        scale = ((torch.abs(data)).max(dim=-1).values + 1e-8) / 240.0 #torch.finfo(torch.float8_e4m3fn).max
+        scale = ((torch.abs(data)).max(dim=-1).values + 1e-8) / FP8_MAX
         scale = scale.unsqueeze(-1)
-    data_fp8 = torch.ops.hpu.cast_to_fp8_v2(data, 1.0 / scale, False, False, torch.float8_e4m3fn)[0]
+    data_fp8 = torch.ops.hpu.cast_to_fp8_v2(
+        data, 1.0 / scale, False, False, torch.float8_e4m3fn)[0]
     return data_fp8, scale.float()
 
 
-def fp8_block_linear_postprocess_weights(layer):
+def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
         layer.weight_scale_inv.data,
         layer.quant_config.weight_block_size)
+    if force_channel_fp8:
+        # convert to channel-wise fp8
+        weight, weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
+            weight,
+            layer.weight_scale_inv.data,
+            layer.quant_config.weight_block_size,
+            original_M=orig_M,
+            original_N=orig_N,
+            do_unpad=True))
+        weight_scale_inv = weight_scale_inv.squeeze(-1)
+        layer.weight.data.copy_(weight)
+        layer.weight_scale_inv = torch.nn.Parameter(weight_scale_inv,
+                                        requires_grad=False)
+        htorch.core.mark_step()
+        return layer
+
     layer.weight = torch.nn.Parameter(weight, requires_grad=False)
     orig_M = torch.nn.Parameter(torch.tensor(orig_M, dtype=torch.int32), requires_grad=False)
     orig_N = torch.nn.Parameter(torch.tensor(orig_N, dtype=torch.int32), requires_grad=False)
@@ -607,7 +690,27 @@ def fp8_block_linear_postprocess_weights(layer):
     return layer
 
 
-def fp8_block_moe_prepare_weights(layer):
+def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
+    if force_channel_fp8:
+        # convert to channel-wise fp8
+        w13_weight, w13_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
+            layer.w13_weight.data,
+            layer.w13_weight_scale_inv.data,
+            layer.quant_config.weight_block_size))
+        w2_weight, w2_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
+            layer.w2_weight.data,
+            layer.w2_weight_scale_inv.data,
+            layer.quant_config.weight_block_size))
+        w13_weight_scale_inv, w2_weight_scale_inv \
+            = w13_weight_scale_inv.squeeze(-1), w2_weight_scale_inv.squeeze(-1)
+        layer.w13_weight.data.copy_(w13_weight)
+        layer.w2_weight.data.copy_(w2_weight)
+        layer.w13_weight_scale_inv = torch.nn.Parameter(w13_weight_scale_inv,
+                                                requires_grad=False)
+        layer.w2_weight_scale_inv = torch.nn.Parameter(w2_weight_scale_inv,
+                                                requires_grad=False)
+        return fp8_channel_moe_prepare_weights(layer)
+
     for index in range(layer.moe_op.num_experts):
         layer.moe_op.w13_list[index].set_weight(layer.w13_weight[index])
         layer.moe_op.w13_list[index].set_scale_inv_fp8(
@@ -715,6 +818,7 @@ class MoeFP8Matmul(torch.nn.Module):
     ) -> Optional[Callable[[torch.nn.Module], torch.Tensor]]:
         return self.dequant_block_fp8_weight
 
+
 class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
     def __init__(
         self, num_experts: int, experts_min: int = 0, experts_max: int = 8
@@ -787,6 +891,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
                 final_hidden_states += slice_final_hidden_states
         return final_hidden_states
 
+
 class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
     def __init__(
         self, num_experts: int, experts_min: int = 0, experts_max: int = 8
@@ -820,7 +925,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         w2_weight_scale = [self.w2_list[i].scale_inv_fp8.squeeze() for i in experts_range]
        
         if self.w13_input_scale is None:
-            x_fp8, x_scale = dynamic_quant(x, single_scale=True)
+            x_fp8, x_scale = dynamic_quant(x)
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
                                     expert_routing_table=topk_ids.to(torch.int64),
