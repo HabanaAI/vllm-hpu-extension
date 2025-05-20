@@ -746,7 +746,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
 def scaled_fp8_quant(
     input: torch.Tensor,
     scale: Optional[torch.Tensor] = None,
-    batch_dim_padding: Optional[int] = None,
+    num_token_padding: Optional[int] = None,
     scale_ub: Optional[torch.Tensor] = None,
     use_per_token_if_dynamic: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -762,7 +762,7 @@ def scaled_fp8_quant(
         scale: Optional scaling factor for the FP8 quantization
         scale_ub: Optional upper bound for scaling factor in dynamic
             per token case
-        batch_dim_padding: If specified, pad the first dimension
+        num_token_padding: If specified, pad the first dimension
             of the output to at least this value.
         use_per_token_if_dynamic: Whether to do per_tensor or per_token
             in the dynamic quantization case.
@@ -770,8 +770,8 @@ def scaled_fp8_quant(
         Tuple[torch.Tensor, torch.Tensor]: The output tensor in FP8 and
             scaling factor.
     """
-    if batch_dim_padding:
-        shape = (max(batch_dim_padding, input.shape[0]), *input.shape[1:])
+    if num_token_padding:
+        shape = (max(num_token_padding, input.shape[0]), *input.shape[1:])
         output = torch.empty(shape,
                              device=input.device,
                              dtype=torch.float8_e4m3fn)
