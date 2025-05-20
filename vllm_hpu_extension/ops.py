@@ -86,18 +86,18 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     return attn
 
 def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
-                block_bias, block_groups, scale, matmul_qk_op,
+                block_bias, block_groups, block_size, scale, matmul_qk_op,
                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
                 keys_fetch_func, values_fetch_func, kv_lora_rank):
     batch_size = query.size(0)
     q_heads = query.size(1)
-    kv_heads = key_cache.size(2)
+    kv_heads = key_cache.size(1)
 
     query = batch2block(scale * query, block_mapping,
                             batch2block_matmul_op).unsqueeze(-2)
-    key = keys_fetch_func(key_cache, block_list)
+    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list)
     if value_cache is not None:
-        value = values_fetch_func(value_cache, block_list)
+        value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list)
         key = torch.concat((value, key), dim=-1)
     elif kv_lora_rank is not None:
         value = key[..., :kv_lora_rank]
@@ -133,17 +133,17 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
     return attn
 
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
-            block_bias, block_groups, scale, matmul_qk_op,
+            block_bias, block_groups, block_size, scale, matmul_qk_op,
             matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
             keys_fetch_func, values_fetch_func, **ignored_args):
     batch_size, _, hidden_size = query.shape
-    _, _, kv_heads, head_size = key_cache.shape
+    _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
 
     query_shape = (-1, q_heads, 1, head_size)
     query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
-    key = keys_fetch_func(key_cache, block_list).transpose(1, 2)
-    value = values_fetch_func(value_cache, block_list).transpose(1, 2)
+    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
+    value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
     if kv_heads != q_heads:
         block_bias = block_bias.unsqueeze(1)
@@ -295,10 +295,11 @@ def _get_all(data, *keys):
 
 
 def _include_past(tensor_str, fn_str, cache_str, args):
-    all_tensors = _get_all(args, tensor_str, fn_str, cache_str, 'block_list')
+    all_tensors = _get_all(args, tensor_str, fn_str,
+                           cache_str, 'block_list', 'block_size')
     if all(t is not None for t in all_tensors):
-        current, fn, cache, block_list = all_tensors
-        past = fn(cache, block_list)
+        current, fn, cache, block_list, block_size = all_tensors
+        past = fn(cache.unflatten(0, (-1, block_size)), block_list)
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
         current = torch.concat((past, current), dim=1)
         args[tensor_str] = current
