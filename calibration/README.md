@@ -106,6 +106,7 @@ python3 step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14-
 -  `-g`, i.e. **card grouping** to use during unification. Card indices separated by commas and groups separated by double dashes.
 -  `-m`, i.e. **calibration output path** containing the measurement files.
 -  `-o`, i.e. **unification output directory** where unification output will be written.
+-  `-u`, i.e. unify original measurement results based on **expert parallelism** rules.
 
 > [!TIP]
 > It is a good practice to store unification results in the source directory. This allows you to run the vLLM server with FP8 precision and different TP values without modifying the directory specified in the `QUANT_CONFIG` environment variable.
@@ -118,6 +119,11 @@ python3 step-5-unify_measurements.py -g "0,8,1,9--2,10,3,11--4,12,5,13--6,14,7,1
 - conversion of scales TP=16 -> TP=2:
 ```bash
 python3 step-5-unify_measurements.py -g "0,8,1,9,2,10,3,11--4,12,5,13,6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+```
+
+In case the model contains MoE layers and is calibrated with expert parallelism, `-u` is required for unification:
+```bash
+python3 step-5-unify_measurements.py -g "0,1--2,3--4,5--6,7" -m <nfs-path-to-calibration-output>/fp8_output/model_name/g2 -o <nfs-path-to-calibration-output>/fp8_output/model_name/g2 -u
 ```
 
 

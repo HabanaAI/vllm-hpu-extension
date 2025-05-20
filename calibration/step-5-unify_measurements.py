@@ -224,10 +224,10 @@ def parse_args(args):
         help="path to the directory where the unified measurements will be written",
     )
     parser.add_argument(
+        "-u",
         "--use_ep",
-        type=bool,
-        default=True,
-        help="whether the original measurement results use expert parallelism, it will affects the unified result of FusedMoe's experts",
+        action="store_true",
+        help="unify original measurement results based on expert parallelism rules",
     )
     return parser.parse_args(args)
 
