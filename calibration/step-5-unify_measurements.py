@@ -2,8 +2,10 @@
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
 ###############################################################################
 import argparse
+import glob
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -210,11 +212,10 @@ def parse_args(args):
         "-m", "--measurements", type=str, help="path to the directory of the measurements that will be unified"
     )
     parser.add_argument(
-        "-g",
-        "--groups",
-        type=str,
-        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
-                        - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
+        "-r",
+        "--rank",
+        type=int,
+        help="rank of unified measurements"
     )
     parser.add_argument(
         "-o",
@@ -232,11 +233,19 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def prepare_group_list(grouping_string):
-    group_seperator = '--'
-    card_seperator = ','
-    grouping_string = grouping_string.replace(" ", "").strip(group_seperator).strip(card_seperator)
-    group_list=[group.strip(card_seperator).split(card_seperator) for group in grouping_string.split(group_seperator)]  
+def prepare_group_list(measurements_path, rank):
+    measure_files = glob.glob(os.path.join(measurements_path, "*_mod_list.json"))
+    matched = re.match(r"^(\w+)_(\d+)_(\d+)_(\w+)_(\w+)\.json$", os.path.basename(measure_files[0]))
+    if matched:
+        total_rank = int(matched.group(3))
+    else:
+        print("File name doesn't match the pattern")
+        exit(0)
+
+    file_name_pattern = matched.group(1)
+    assert total_rank % rank == 0
+    group_size = total_rank // rank
+    group_list = [[str(i * group_size + j) for j in range(group_size)] for i in range(rank)]
     print("Card grouping list >> {}".format(group_list))
     return group_list
 
@@ -247,7 +256,7 @@ def main(args):
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     measurements_path = args.measurements
-    groups = prepare_group_list(args.groups)
+    groups = prepare_group_list(measurements_path, args.rank)
 
     num_jsons_drange = 0
     num_jsons_scales = 0
