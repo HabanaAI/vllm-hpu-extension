@@ -42,7 +42,7 @@ create_measure_config() {
     if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     elif [[ $model_name_lower =~ ^deepseek ]]; then
-        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\", \"mlp\\\.gate\\\b\", \"block2batch_matmul\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     fi
@@ -58,7 +58,7 @@ create_quant_config() {
     if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     elif [[ $model_name_lower =~ ^deepseek ]]; then
-        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"scalar\", \"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"lm_head\", \"mlp\\\.gate\\\b\", \"block2batch_matmul\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"scalar\", \"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     fi
@@ -175,10 +175,9 @@ if [[ -n $LIMIT ]]; then
 fi
 
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
-    EXTRA_FLAGS_STEP_2="--block-quant "
-    EXTRA_ENVS_STEP_2="VLLM_REQUANT_FP8_INC=1 VLLM_ENABLE_RUNTIME_DEQUANT=1 VLLM_MLA_DISABLE_REQUANTIZATION=1 VLLM_MOE_N_SLICE=1 VLLM_EP_SIZE=8"
+    EXTRA_FLAGS_STEP_2="--block-quant --expert-parallel"
     EXTRA_FLAGS_STEP_3="--deepseek "
-    EXTRA_FLAGS_STEP_4="--block-quant "
+    EXTRA_FLAGS_STEP_4="--block-quant --expert-parallel"
 fi
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
@@ -195,9 +194,9 @@ echo "Step 1/4 done"
 echo ""
 echo "2/4 Measuring scales"
 if $MULTI_NODE_SETUP; then
-    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray  $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray  $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
 else
-    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
+    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
 fi
 echo "Step 2/4 done"
 

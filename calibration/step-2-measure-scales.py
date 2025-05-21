@@ -7,7 +7,7 @@ import pandas as pd
 import time
 import argparse
 import os
-os.environ["EXPERIMENTAL_WEIGHT_SHARING"] = "0"
+os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
 
 
@@ -44,6 +44,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
+    parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
@@ -62,6 +63,7 @@ if __name__ == "__main__":
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
+        enable_expert_parallel=args.expert_parallel,
     )
 
     sampling_params = vllm.SamplingParams(
