@@ -235,20 +235,19 @@ def parse_args(args):
 
 def prepare_group_list(measurements_path, rank):
     measure_files = glob.glob(os.path.join(measurements_path, "*_mod_list.json"))
-    matched = re.match(r"^(\w+)_(\d+)_(\d+)_(\w+)_(\w+)\.json$", os.path.basename(measure_files[0]))
-    if matched:
-        total_rank = int(matched.group(3))
+    if len(measure_files) > 0:
+        matched = re.match(r"^(\w+)_(\d+)_(\d+)_(\w+)_(\w+)\.json$", os.path.basename(measure_files[0]))
+        if matched:
+            total_rank = int(matched.group(3))
+            assert total_rank % rank == 0
+            group_size = total_rank // rank
+            group_list = [[str(i * group_size + j) for j in range(group_size)] for i in range(rank)]
+            print("Card grouping list >> {}".format(group_list))
+            return group_list
+        else:
+            raise ValueError("Unrecognized file name!")
     else:
-        print("File name doesn't match the pattern")
-        exit(0)
-
-    file_name_pattern = matched.group(1)
-    assert total_rank % rank == 0
-    group_size = total_rank // rank
-    group_list = [[str(i * group_size + j) for j in range(group_size)] for i in range(rank)]
-    print("Card grouping list >> {}".format(group_list))
-    return group_list
-
+        raise ValueError("*_mod_list.json doesn't exist in {}".format(measurements_path))
 
 def main(args):
     args = parse_args(args)
