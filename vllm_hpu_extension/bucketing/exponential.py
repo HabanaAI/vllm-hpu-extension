@@ -204,7 +204,7 @@ def find_bucket(buckets, value, dim=None):
     try:
         return next(p for p in sorted(buckets) if p >= value)
     except StopIteration:
-        import pdb; pdb.set_trace()
+        return None
         
 
 def get_buckets_single_dim(buckets, dim):
