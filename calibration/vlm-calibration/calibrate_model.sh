@@ -124,16 +124,16 @@ if [[ -z "$DATASET_PATH" ]]; then
 else
     echo "Using local calibration dataset path: $DATASET_PATH"
     if [[ -d "$DATASET_PATH/hub/datasets--MMMU--MMMU" && -d "$DATASET_PATH/datasets/MMMU___mmmu" ]]; then
-        # export HF_HOME=$DATASET_PATH
+        export HF_HOME="/root/.cache/huggingface"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_HOME"
         mkdir -p $HF_HOME "$HF_HOME/hub" "$HF_HOME/datasets"
         cp -rf "$DATASET_PATH/hub/datasets--MMMU--MMMU" "$HF_HOME/hub"
         cp -rf "$DATASET_PATH/datasets/MMMU___mmmu" "$HF_HOME/datasets"
-        echo "copying local calibration dataset $DATASET_PATH to $HF_HOME"
     elif [[ -d "$DATASET_PATH/MMMU___mmmu" ]]; then
-        # export HF_DATASETS_CACHE=$DATASET_PATH
+        export HF_DATASETS_CACHE="/root/.cache/huggingface/datasets"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_DATASETS_CACHE"
         mkdir -p $HF_DATASETS_CACHE
         cp -rf "$DATASET_PATH/MMMU___mmmu" $HF_DATASETS_CACHE
-        echo "copying local calibration dataset $DATASET_PATH to $HF_DATASETS_CACHE"
     else
         echo "Your provided dataset path doesn't contain MMMU dataset. Please refer to README for details."
     fi
