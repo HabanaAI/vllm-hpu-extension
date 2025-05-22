@@ -765,7 +765,6 @@ def fp8_channel_moe_prepare_weights(layer):
     htorch.core.mark_step()
     return layer
 
-
 class MoeFP8Matmul(torch.nn.Module):
     def __init__(
         self,
