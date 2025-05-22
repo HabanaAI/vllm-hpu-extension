@@ -70,6 +70,8 @@ cleanup_tmp
 
 # jump to the script directory
 cd "$(dirname "$0")"
+echo "downloading requirements"
+pip install -r requirements.txt 
 
 EXTRA_FLAGS=""
 BATCH_SIZE=32
