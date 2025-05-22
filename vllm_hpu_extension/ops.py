@@ -319,13 +319,15 @@ class MoeMatmul(torch.nn.Module):
 
 class VllmMixtureOfExpertsOp(torch.nn.Module):
 
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts, experts_min: int = 0, experts_max: int = 7):
         super().__init__()
         self.w13_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
         self.num_experts = num_total_experts
+        self.experts_min = experts_min
+        self.experts_max = experts_max
         # if num_tokens exceed the VLLM_DYNAMIC_MOE_MIN_TOKENS,
         # dynamic MoE is used since its performance is better than
         # static MoE in this case.
@@ -337,13 +339,11 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         # static MoE in this case.
         self.dynamic_moe_max_num_expert_singleHpu = int(
         os.environ.get("VLLM_DYNAMIC_MOE_MIN_EXPERTS_SINGLEHPU", 32))
-
-    def set_weights(self, w13,w2):
-        self.w13_weight = w13
-        self.w2_weight = w2
-
-    def set_ep_rank(self, ep_rank):
-        self.ep_rank = ep_rank
+        #self.w13_weight is a tensor of combined w13_list
+        self.w13_weight = None
+        #self.w2_weight is a tensor of combined w2_list
+        self.w2_weight = None
+        self.ep_rank = 0
 
     def forward(self,
                 hidden_states,
@@ -351,6 +351,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 router_weights,
                 permuted_weights=True,
                 activation="silu"):
+        assert self.w13_weight is not None
+        assert self.w2_weight is not None
         # pre-processing for custom op inputs
         num_tokens, hidden_dim = hidden_states.shape
         num_experts = self.w13_weight.shape[0]
@@ -412,15 +414,9 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
 
 class DynamicFusedMOE(torch.nn.Module):
 
-    def __init__(self, num_total_experts):
+    def __init__(self, num_total_experts,experts_min: int = 0, experts_max: int = 7 ):
         super().__init__()
-        self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
- 
-    def set_MoeOp_weights(self, w13, w2):
-        self.MoeOp.set_weights(w13, w2)
-
-    def set_MoeOp_ep_rank(self, ep_rank):
-        self.MoeOp.set_ep_rank(ep_rank)
+        self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts, experts_min, experts_max)
 
     def forward(self, hidden_states, score, topk, renormalize=True):
         htorch.core.mark_step()
