@@ -136,6 +136,7 @@ else
         cp -rf "$DATASET_PATH/MMMU___mmmu" $HF_DATASETS_CACHE
     else
         echo "Your provided dataset path doesn't contain MMMU dataset. Please refer to README for details."
+        exit 1
     fi
 fi
 
