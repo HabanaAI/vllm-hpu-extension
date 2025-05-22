@@ -155,7 +155,7 @@ def enabled_flags():
         "fsdpa": (Not(Hardware("cpu"))
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
-                            Not(ModelType('qwen2')) & Not(ModelType('mllama')))),
+                            Not(ModelType('mllama')))),
         "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))),
         "flex_attention": (Not(Hardware("cpu")) & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))
                            & ModelType("llama")
