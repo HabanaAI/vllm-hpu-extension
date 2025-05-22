@@ -95,17 +95,18 @@ Running the above command will create calibration measurement files in the speci
 #### Step 4: (Optional) Measurement unification
 
 This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales. For example, you can perform FP8 calibration on the Llama 3.1 405B model using 2x Gaudi2 nodes with Tensor Parallelism (TP) set to 16, and then use the unification script to reduce the TP to 8. This can be achieved in two ways: 
-1. Add `-g` optional parameter to `calibration_model.sh` script, e.g.
+1. Add `-r` optional parameter to `calibration_model.sh` script, e.g.
 ```bash
-./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <nfs-path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128 -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"
+./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <nfs-path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128 -r 8
 ```
 2. If calibration has already been performed, use the following command to convert existing scales:
 ```bash
-python3 step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -r 8  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
--  `-g`, i.e. **card grouping** to use during unification. Card indices separated by commas and groups separated by double dashes.
+-  `-r`, i.e. **rank number** of unified measurements.
 -  `-m`, i.e. **calibration output path** containing the measurement files.
 -  `-o`, i.e. **unification output directory** where unification output will be written.
+-  `-u`, i.e. unify original measurement results based on **expert parallelism** rules.
 
 > [!TIP]
 > It is a good practice to store unification results in the source directory. This allows you to run the vLLM server with FP8 precision and different TP values without modifying the directory specified in the `QUANT_CONFIG` environment variable.
@@ -113,11 +114,16 @@ python3 step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14-
 Below examples in case you want to convert scales from TP=16 to TP=4 and 2:
 - conversion of scales TP=16 -> TP=4:
 ```bash
-python3 step-5-unify_measurements.py -g "0,8,1,9--2,10,3,11--4,12,5,13--6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -r 4  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
 - conversion of scales TP=16 -> TP=2:
 ```bash
-python3 step-5-unify_measurements.py -g "0,8,1,9,2,10,3,11--4,12,5,13,6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+python3 step-5-unify_measurements.py -r 2  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
+```
+
+In case the model contains MoE layers and is calibrated with expert parallelism, `-u` is required for unification:
+```bash
+python3 step-5-unify_measurements.py -r 4 -m <nfs-path-to-calibration-output>/fp8_output/model_name/g2 -o <nfs-path-to-calibration-output>/fp8_output/model_name/g2 -u
 ```
 
 
