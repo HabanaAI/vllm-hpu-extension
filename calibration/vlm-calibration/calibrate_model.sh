@@ -15,7 +15,7 @@ usage() {
     echo "usage: ${0} <options>"
     echo
     echo "  -m    - [required] huggingface stub or local directory of the MODEL_PATH"
-    echo "  -d    - [required] path to source dataset (details in README)"
+    echo "  -d    - [optional] path to source dataset (details in README)"
     echo "  -o    - [required] path to output directory for fp8 measurements"
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
@@ -111,14 +111,20 @@ while getopts "m:b:l:t:d:h:o:g:e:" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
-    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
+if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" ]]; then
+    echo "Model stub and output path for fp8 measurements must be provided."
     usage
     exit 1
 fi
 
-# export HF_DATASETS_CACHE=$DATASET_PATH
-export HF_HOME=$DATASET_PATH
+if [[ -z "$DATASET_PATH" ]]; then
+    echo "Local calibration dataset path not provided. Will download it from HuggingFace."
+else
+    # export HF_DATASETS_CACHE=$DATASET_PATH
+    export HF_HOME=$DATASET_PATH
+    echo "Using local calibration dataset path: $DATASET_PATH"
+fi
+
 
 if [[ $eager_mode == "on" ]]; then
     EXTRA_FLAGS+="--enforce-eager "
