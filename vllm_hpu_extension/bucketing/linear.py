@@ -278,6 +278,9 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     last_bucket = max_blocks
     for bs in bs_buckets:
         for blocks in block_buckets:
+            if bs > blocks:
+                # Skip a dummy case when bs > blocks, which cannot occur in real execution
+                continue
             if blocks >= last_bucket:
                 buckets.append((bs, last_bucket))
                 break
