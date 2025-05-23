@@ -373,7 +373,11 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
     for i in range(num_buckets):
         power_unpadded = bmin * np.float_power(
             bmax / bmin, (1. / float(num_buckets - 1)) * i)
-        bucket = math.ceil(power_unpadded / bstep) * bstep
+        if i == num_buckets - 1 and os.environ.get(
+                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+            bucket = bmax
+        else:
+            bucket = math.ceil(power_unpadded / bstep) * bstep
         if fill and bucket in buckets:
             available_buckets = linear_buckets.difference(buckets)
             if len(available_buckets) == 0:
