@@ -168,6 +168,7 @@ create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
+export VLLM_SKIP_WARMUP=true
 max_model_len=8192
 
 
