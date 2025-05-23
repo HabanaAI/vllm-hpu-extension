@@ -274,8 +274,7 @@ def _fsdpa_prompt_attention(
     assert attn_bias is not None or valid_seq_lengths is not None, \
         'Either attn_bias or valid_seq_lengths must be != None'
     if is_causal and attn_bias is not None:
-        # TODO: causal + attn_bias is not yet supported
-        is_causal = False
+        # TODO: valid_seq_lenghts is not yet supported for causal with attn_bias
         valid_seq_lengths = None
     attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                             scale, softmax_mode, recompute_mode,
