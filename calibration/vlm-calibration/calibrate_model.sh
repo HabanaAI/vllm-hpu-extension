@@ -15,7 +15,7 @@ usage() {
     echo "usage: ${0} <options>"
     echo
     echo "  -m    - [required] huggingface stub or local directory of the MODEL_PATH"
-    echo "  -d    - [required] path to source dataset (details in README)"
+    echo "  -d    - [optional] path to source dataset (details in README). If not provided, the dataset will be downloaded from HuggingFace."
     echo "  -o    - [required] path to output directory for fp8 measurements"
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
@@ -70,6 +70,8 @@ cleanup_tmp
 
 # jump to the script directory
 cd "$(dirname "$0")"
+echo "downloading requirements..."
+pip install -r requirements.txt 
 
 EXTRA_FLAGS=""
 BATCH_SIZE=32
@@ -111,14 +113,33 @@ while getopts "m:b:l:t:d:h:o:g:e:" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
-    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
+if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" ]]; then
+    echo "Model stub and output path for fp8 measurements must be provided."
     usage
     exit 1
 fi
 
-# export HF_DATASETS_CACHE=$DATASET_PATH
-export HF_HOME=$DATASET_PATH
+if [[ -z "$DATASET_PATH" ]]; then
+    echo "Local calibration dataset path not provided. Will download it from HuggingFace."
+else
+    echo "Using local calibration dataset path: $DATASET_PATH"
+    if [[ -d "$DATASET_PATH/hub/datasets--MMMU--MMMU" && -d "$DATASET_PATH/datasets/MMMU___mmmu" ]]; then
+        export HF_HOME="/root/.cache/huggingface"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_HOME"
+        mkdir -p $HF_HOME "$HF_HOME/hub" "$HF_HOME/datasets"
+        cp -rf "$DATASET_PATH/hub/datasets--MMMU--MMMU" "$HF_HOME/hub"
+        cp -rf "$DATASET_PATH/datasets/MMMU___mmmu" "$HF_HOME/datasets"
+    elif [[ -d "$DATASET_PATH/MMMU___mmmu" ]]; then
+        export HF_DATASETS_CACHE="/root/.cache/huggingface/datasets"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_DATASETS_CACHE"
+        mkdir -p $HF_DATASETS_CACHE
+        cp -rf "$DATASET_PATH/MMMU___mmmu" $HF_DATASETS_CACHE
+    else
+        echo "Your provided dataset path doesn't contain MMMU dataset. Please refer to README for details."
+        exit 1
+    fi
+fi
+
 
 if [[ $eager_mode == "on" ]]; then
     EXTRA_FLAGS+="--enforce-eager "
@@ -147,6 +168,7 @@ create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
+export VLLM_SKIP_WARMUP=true
 max_model_len=8192
 
 
