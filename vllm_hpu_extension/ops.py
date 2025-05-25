@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.flags import enabled_flags
+import os
 
 import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
@@ -157,7 +158,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     attn = matmul_qk_op(query, key)
     if 'fp32_softmax' in enabled_flags():
         attn = attn.float()
-        htcore.mark_step()
+        if not 'QUANT_CONFIG' in os.environ:    # skip mark_step for quantized models
+            htcore.mark_step()
     attn = attn + block_bias
     attn = pipelined_pa(attn, value, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
@@ -268,6 +270,9 @@ def _fsdpa_prompt_attention(
     if is_causal and attn_bias is not None:
         # TODO: causal + attn_bias is not yet supported
         is_causal = False
+        valid_seq_lengths = None
+    if attn_bias is not None or 'fp32_softmax' in enabled_flags():
+        # WA for sdpa kernel accurary and memory leak error
         valid_seq_lengths = None
     attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
                             scale, softmax_mode, recompute_mode,
@@ -467,13 +472,14 @@ class DynamicFusedMOE(torch.nn.Module):
         super().__init__()
         self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
 
-    def forward(self, hidden_states, score, topk):
+    def forward(self, hidden_states, score, topk, renormalize=True):
         htorch.core.mark_step()
         routing_weights = F.softmax(score, dim=1, dtype=torch.float32)
         routing_weights, selected_experts = torch.topk(routing_weights,
                                                        topk,
                                                        dim=-1)
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        if renormalize:
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         routing_weights = routing_weights.to(hidden_states.dtype)
 
         final_hidden_states = self.MoeOp(
