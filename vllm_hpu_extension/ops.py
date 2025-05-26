@@ -459,7 +459,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
 
         # When the number of input tokens (batch_size*seqence_length) exceeds
-        # dynamic_moe_min_tokens (default 256) or the number of the experts
+        # dynamic_moe_min_tokens (default -1) or the number of the experts
         # on the single card is smaller than dynamic_moe_max_num_expert_singleHpu
         # (default 32), dynamic MoE is used since it delivers better performance
         # than static MoE. Otherwise static MoE is used.
