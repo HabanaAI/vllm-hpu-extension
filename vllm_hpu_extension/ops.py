@@ -418,10 +418,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 else self.num_experts // max_expert_per_slice
         self.num_expert_per_group = self.num_experts // self.moe_n_slice
     
-    def set_weights(self, w13,w2):
-        self.w13_weight = w13
-        self.w2_weight = w2
-
         # if num_tokens exceed the VLLM_DYNAMIC_MOE_MIN_TOKENS,
         # dynamic MoE is used since its performance is better than
         # static MoE in this case.
@@ -442,7 +438,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
     def forward(self,
                 hidden_states,
                 expert_routing_table,
-                router_weights,                
+                router_weights,
                 permuted_weights=True,
                 activation="silu"):
         # pre-processing for custom op inputs
@@ -526,9 +522,6 @@ class DynamicFusedMOE(torch.nn.Module):
     def __init__(self, num_total_experts):
         super().__init__()
         self.MoeOp = VllmMixtureOfExpertsOp(num_total_experts)
-
-    def set_MoeOp_weights(self, w13, w2):
-        self.MoeOp.set_weights(w13, w2)
 
     def forward(self, hidden_states, score, topk):
         htorch.core.mark_step()
