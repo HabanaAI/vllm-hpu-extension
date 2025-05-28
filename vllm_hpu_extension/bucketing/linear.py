@@ -241,10 +241,10 @@ def generate_prompt_buckets(bs_bucket_config,
                f"seq:{seq_bucket_config}")
         raise ValueError(msg)
 
-    filtered_buckets = buckets
+    filtered_buckets = set(buckets)
     if max_num_batched_tokens is not None:
         # Remove buckets exceeding batch token budget
-        filtered_buckets = list(
+        filtered_buckets = set(
             filter(
                 lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
                 buckets))
