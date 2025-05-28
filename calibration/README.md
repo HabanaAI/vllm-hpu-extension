@@ -10,7 +10,21 @@ There are also optional arguments, and you can read about them by executing the 
 
 The calibration procedure works with any dataset that contains following fields: `system_prompt` and `question`. These fields are used to prepare a calibration dataset with prompts formatted specifically for your model. We recommend to use a public dataset used by MLCommons in Llama2-70b inference submission: https://github.com/mlcommons/inference/tree/master/language/llama2-70b#preprocessed.
 
-Here are some examples of how to use the script:
+## Options and Usage
+
+To run the ```calibrate_model.sh``` script, follow the steps below:
+
+1. Build and install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm).
+2. Clone the vllm-hpu-extension repository and move to the ```calibration``` subdirectory: 
+
+```bash
+cd /root
+git clone https://github.com/HabanaAI/vllm-hpu-extension.git
+cd vllm-hpu-extension/calibration
+```
+3. Download and process the dataset .pkl file by using the ```download_dataset.sh``` script.
+
+4. Run the ```calibrate_model.sh``` script. Refer to the script options and run examples below. The script generates the ```maxabs_quant_g3.json``` file, which is used for FP8 inference.
 
 ```bash
 ./calibrate_model.sh -m /path/to/local/llama3.1/Meta-Llama-3.1-405B-Instruct/ -d dataset-processed.pkl -o /path/to/measurements/vllm-benchmarks/inc -b 128 -t 8 -l 4096
