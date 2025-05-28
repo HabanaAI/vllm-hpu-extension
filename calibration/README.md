@@ -22,7 +22,7 @@ cd /root
 git clone https://github.com/HabanaAI/vllm-hpu-extension.git
 cd vllm-hpu-extension/calibration
 ```
-3. Download and process the dataset .pkl file by using the ```download_dataset.sh``` script.
+3. Download the dataset.
 
 4. Run the ```calibrate_model.sh``` script. Refer to the script options and run examples below. The script generates the ```maxabs_quant_g3.json``` file, which is used for FP8 inference.
 
