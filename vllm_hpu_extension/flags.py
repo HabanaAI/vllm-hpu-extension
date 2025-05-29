@@ -156,6 +156,11 @@ def enabled_flags():
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
                             Not(ModelType('mllama')))),
+        "merged_prefill_traingular_mask": (Not(Hardware("cpu"))
+                                            & Kernel(fsdpa)
+                                            & VersionRange(">=1.22.0.294")
+                                            & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
+                                            Not(ModelType('mllama')))),
         "compile_one_hot": (VersionRange(">=1.20.0.370") & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))),
         "flex_attention": (Not(Hardware("cpu")) & Not(EnvFlag("PT_HPU_LAZY_MODE", "1"))
                            & ModelType("llama")
