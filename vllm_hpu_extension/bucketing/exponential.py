@@ -366,6 +366,8 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
 
     bmin, bstep, bmax, num_buckets = config
     linear_buckets = set(np.arange(bmin, bmax + 1, step=bstep))
+    if bmax not in linear_buckets:
+        linear_buckets.add(bmax)
     assert num_buckets > 0, "num_buckets must be a positive integer"
     if num_buckets == 1:
         return [bmax]
@@ -378,6 +380,8 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
             bucket = bmax
         else:
             bucket = math.ceil(power_unpadded / bstep) * bstep
+        if bucket > bmax:
+            bucket = bmax
         if fill and bucket in buckets:
             available_buckets = linear_buckets.difference(buckets)
             if len(available_buckets) == 0:
