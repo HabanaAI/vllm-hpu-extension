@@ -38,9 +38,9 @@ def fix_cache_inputs(json_data, args):
                 # For deepseek, there is one tensor for k_cache and v_cache
                 json_data['Nodes'][f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av']['inputs'][1] = k_cache_input
             else:
-                json_data['Nodes'][f'model.layers.{layer_index}.self_attn.attn.impl.matmul_av']['inputs'][1] = v_cache_input
+                json_data['Nodes'][f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av']['inputs'][1] = v_cache_input
         if matmul_qk_input != k_cache_input:
-            json_data['Nodes'][f'model.layers.{layer_index}.self_attn.attn.impl.matmul_qk']['inputs'][1] = k_cache_input
+            json_data['Nodes'][f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_qk']['inputs'][1] = k_cache_input
 
     return json_data
 
