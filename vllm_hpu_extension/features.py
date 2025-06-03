@@ -11,19 +11,28 @@ from vllm_hpu_extension.kernels import fsdpa, block_softmax_adjustment
 
 def get_user_flags():
     return [
+        Flag('VLLM_USE_V1', boolean),
         Flag('VLLM_ENABLE_EXPERIMENTAL_FLAGS', boolean),
+        Flag('VLLM_EXPONENTIAL_BUCKETING', boolean),
         Flag('VLLM_PROMPT_BS_BUCKET_MIN', int),
         Flag('VLLM_PROMPT_BS_BUCKET_STEP', int),
         Flag('VLLM_PROMPT_BS_BUCKET_MAX', int),
+        Flag('VLLM_PROMPT_BS_BUCKET_LIMIT', int),
         Flag('VLLM_PROMPT_SEQ_BUCKET_MIN', int),
         Flag('VLLM_PROMPT_SEQ_BUCKET_STEP', int),
         Flag('VLLM_PROMPT_SEQ_BUCKET_MAX', int),
+        Flag('VLLM_PROMPT_SEQ_BUCKET_LIMIT', int),
         Flag('VLLM_DECODE_BS_BUCKET_MIN', int),
         Flag('VLLM_DECODE_BS_BUCKET_STEP', int),
         Flag('VLLM_DECODE_BS_BUCKET_MAX', int),
+        Flag('VLLM_DECODE_BS_BUCKET_LIMIT', int),
         Flag('VLLM_DECODE_BLOCK_BUCKET_MIN', int),
         Flag('VLLM_DECODE_BLOCK_BUCKET_STEP', int),
         Flag('VLLM_DECODE_BLOCK_BUCKET_MAX', int),
+        Flag('VLLM_DECODE_BLOCK_BUCKET_LIMIT', int),
+
+        # Non-vllm flags that are also important
+        Flag('EXPERIMENTAL_WEIGHT_SHARING', int),
     ]
 
 
