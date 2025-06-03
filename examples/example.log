@@ -1,21 +1,3 @@
-# deploy
-
-```
-git clone https://github.com/vllm-project/vllm.git
-git clone https://github.com/vllm-project/vllm-hpu.git
-
-cd vllm; VLLM_TARGET_DEVICE=empty pip install -e .  --no-build-isolation; cd ..
-cd vllm-hpu; pip install -e .; cd..
-```
-
-# test
-
-```
-cd vllm-hpu/examples; PT_HPU_LAZY_MODE=1 python test_plugin.py
-```
-
-expected output
-```
 INFO 06-04 01:18:14 [importing.py:17] Triton not installed or not compatible; certain GPU-related functions will not be available.
 WARNING 06-04 01:18:14 [importing.py:29] Triton is not installed. Using dummy decorators. Install it via `pip install triton` to enable kernel compilation.
 INFO 06-04 01:18:15 [__init__.py:39] Available plugins for group vllm.platform_plugins:
@@ -45,30 +27,24 @@ CPU RAM       : 1007 GB
 ------------------------------------------------------------------------------
 INFO 06-04 01:18:28 [parallel_state.py:1065] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0, EP rank 0
 Detected flags: [-compile_one_hot -cpu -flex_attention -fp32_softmax +fsdpa -fused_block_softmax_adjustment -gaudi -gaudi2 +gaudi3]
-
-Loading safetensors checkpoint shards:   0% Completed | 0/7 [00:00<?, ?it/s]
-Loading safetensors checkpoint shards:  14% Completed | 1/7 [00:00<00:04,  1.30it/s]
-Loading safetensors checkpoint shards:  29% Completed | 2/7 [00:01<00:02,  1.70it/s]
-Loading safetensors checkpoint shards:  43% Completed | 3/7 [00:01<00:02,  1.70it/s]
-Loading safetensors checkpoint shards:  57% Completed | 4/7 [00:02<00:01,  1.65it/s]
-Loading safetensors checkpoint shards:  71% Completed | 5/7 [00:02<00:01,  1.73it/s]
-Loading safetensors checkpoint shards:  86% Completed | 6/7 [00:03<00:00,  1.74it/s]
-Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:04<00:00,  1.81it/s]
-Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:04<00:00,  1.73it/s]
+Loading safetensors checkpoint shards:   0% Completed | 0/7 [00:00<?, ?it/s]
+Loading safetensors checkpoint shards:  14% Completed | 1/7 [00:00<00:04,  1.30it/s]
+Loading safetensors checkpoint shards:  29% Completed | 2/7 [00:01<00:02,  1.70it/s]
+Loading safetensors checkpoint shards:  43% Completed | 3/7 [00:01<00:02,  1.70it/s]
+Loading safetensors checkpoint shards:  57% Completed | 4/7 [00:02<00:01,  1.65it/s]
+Loading safetensors checkpoint shards:  71% Completed | 5/7 [00:02<00:01,  1.73it/s]
+Loading safetensors checkpoint shards:  86% Completed | 6/7 [00:03<00:00,  1.74it/s]
+Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:04<00:00,  1.81it/s]
+Loading safetensors checkpoint shards: 100% Completed | 7/7 [00:04<00:00,  1.73it/s]
 
 INFO 06-04 01:18:34 [default_loader.py:272] Loading weights took 4.12 seconds
 INFO 06-04 01:18:37 [executor_base.py:113] # hpu blocks: 6399, # CPU blocks: 256
 INFO 06-04 01:18:37 [executor_base.py:118] Maximum concurrency for 4096 tokens per request: 199.97x
 INFO 06-04 01:18:37 [llm_engine.py:429] init engine (profile, create kv cache, warmup model) took 2.73 seconds
-
-Adding requests:   0%|          | 0/4 [00:00<?, ?it/s]
-Adding requests: 100%|██████████| 4/4 [00:00<00:00, 1949.93it/s]
-
-Processed prompts:   0%|          | 0/4 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Configuration: ('prompt', 4, 128) was not warmed-up!
+Adding requests:   0%|          | 0/4 [00:00<?, ?it/s]Adding requests: 100%|██████████| 4/4 [00:00<00:00, 1949.93it/s]
+Processed prompts:   0%|          | 0/4 [00:00<?, ?it/s, est. speed input: 0.00 toks/s, output: 0.00 toks/s]Configuration: ('prompt', 4, 128) was not warmed-up!
 Configuration: ('decode', 4, 128) was not warmed-up!
-
-Processed prompts:  25%|██▌       | 1/4 [00:04<00:12,  4.22s/it, est. speed input: 1.42 toks/s, output: 11.85 toks/s]
-Processed prompts: 100%|██████████| 4/4 [00:04<00:00,  1.06s/it, est. speed input: 7.11 toks/s, output: 47.39 toks/s]
+Processed prompts:  25%|██▌       | 1/4 [00:04<00:12,  4.22s/it, est. speed input: 1.42 toks/s, output: 11.85 toks/s]Processed prompts: 100%|██████████| 4/4 [00:04<00:00,  1.06s/it, est. speed input: 7.11 toks/s, output: 47.39 toks/s]
 Prompt: 'Hello, my name is', Generated text: ' K. The 1. The 1. The 1. The 1. The 1. The 1. The 1. The 1. The 1. The 1. The 1. The 1.'
 Prompt: '0.999 compares to 0.9 is ', Generated text: '1 compares to 0.9\n0.999 compares to 0.9 is 1 compares to 0.9\nPost by mathnasty » Mon Mar 11, 2013 10:00 pm\nI have a'
 Prompt: 'The capital of France is', Generated text: ' a city of many faces. It is a city of history, culture, and art. It is a city of fashion, food, and wine. It is a city of romance, passion, and adventure. It is a city that has something to'
@@ -78,5 +54,3 @@ Traceback (most recent call last):
   File "/software/users/chendixue/dev/vllm-hpu/vllm_hpu/worker/hpu_model_runner.py", line 3130, in __del__
   File "/software/users/chendixue/dev/vllm-hpu/vllm_hpu/worker/hpu_model_runner.py", line 3117, in shutdown_inc
 ImportError: sys.meta_path is None, Python is likely shutting down
-
-```
