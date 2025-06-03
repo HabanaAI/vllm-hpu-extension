@@ -274,7 +274,7 @@ def _fsdpa_prompt_attention(
     assert attn_bias is not None or valid_seq_lengths is not None, \
         'Either attn_bias or valid_seq_lengths must be != None'
     if is_causal and attn_bias is not None:
-        if 'merged_prefill_triangular_mask' not in enabled_flags():
+        if 'triangular_mask' not in enabled_flags():
             is_causal = False
         # TODO: valid_seq_lenghts is not yet supported for causal with attn_bias
         valid_seq_lengths = None
