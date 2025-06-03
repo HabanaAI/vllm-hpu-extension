@@ -32,7 +32,7 @@ def get_user_flags():
         Flag('VLLM_DECODE_BLOCK_BUCKET_LIMIT', int),
 
         # Non-vllm flags that are also important
-        Flag('EXPERIMENTAL_WEIGHT_SHARING', int),
+        Flag('EXPERIMENTAL_WEIGHT_SHARING', boolean),
     ]
 
 

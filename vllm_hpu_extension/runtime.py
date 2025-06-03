@@ -10,6 +10,7 @@ from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.features import get_features, get_user_flags, get_experimental_flags
 from vllm_hpu_extension.config import Config
 
+import torch
 
 DETECTED = None
 
@@ -33,6 +34,7 @@ def dump(prefix, values):
             print(f'  {key}: {value}')
 
 
+@torch._dynamo.allow_in_graph
 def get_config():
 
     global DETECTED

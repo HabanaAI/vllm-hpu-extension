@@ -91,7 +91,11 @@ class Flag:
     def __call__(self, config):
         value = os.environ.get(self.name)
         if value is not None:
-            return self.constructor(value)
+            try:
+                return self.constructor(value)
+            except Exception as e:
+                msg = f'{self.name}: exception during construction: {e}'
+                raise RuntimeError(msg)
         return None
 
 
