@@ -47,7 +47,6 @@ def get_features():
                                                         Not(ModelType('qwen2')))),
         Parameter('flex_impl', False, env_var='VLLM_PROMPT_USE_FLEX_ATTENTION'),
         Parameter('fsdpa_impl', All(Kernel(fsdpa),
-                                    Not(ModelType('qwen2')),
                                     Not(ModelType('mllama'))), env_var='VLLM_PROMPT_USE_FUSEDSDPA'),
         Parameter('naive_impl', True),
         Parameter('prompt_attn_impl', FirstActive(*supported_attn_impls), env_var_type=choice(*supported_attn_impls)),

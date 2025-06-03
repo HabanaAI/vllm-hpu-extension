@@ -279,10 +279,22 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                             max_blocks):
     buckets = []
     bs_buckets = warmup_range(bs_bucket_config)
+    if os.environ.get(
+            'VLLM_DECODE_BLOCK_BUCKET_MAX') is None and os.environ.get(
+                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+        blocks_bucket_config[2] = max_blocks
     block_buckets = warmup_range(blocks_bucket_config)
+    if os.environ.get('VLLM_CONTIGUOUS_PA',
+                          'true').lower() == 'true' and os.environ.get(
+                              'VLLM_DECODE_BLOCK_BUCKET_MAX'
+                          ) is None and max_blocks not in block_buckets:
+        block_buckets.append(max_blocks)
     last_bucket = max_blocks
     for bs in bs_buckets:
         for blocks in block_buckets:
+            if bs > blocks:
+                # Skip a dummy case when bs > blocks, which cannot occur in real execution
+                continue
             if blocks >= last_bucket:
                 buckets.append((bs, last_bucket))
                 break
