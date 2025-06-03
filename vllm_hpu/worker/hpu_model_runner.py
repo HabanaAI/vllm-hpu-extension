@@ -450,9 +450,10 @@ class HpuModelAdapter(torch.nn.Module):
         if 'lora_mask' in kwargs:
             LoraMask.setLoraMask(kwargs.pop('lora_mask'))
         model_config = getattr(self.model, "config", None)
-        model_is_mrope = uses_mrope(model_config)
-        if self.layer_names is not None and not model_is_mrope:
-            self._prepare_cos_sin(kwargs['positions'])
+        # FIXME: Chendi - upstream codes doesn't support prepare_cos_sin
+        # model_is_mrope = uses_mrope(model_config)
+        # if self.layer_names is not None and not model_is_mrope:
+        #     self._prepare_cos_sin(kwargs['positions'])
         attn_meta = kwargs.pop('attn_metadata')
         if 'kv_caches' in kwargs:
             kwargs.pop('kv_caches')
