@@ -156,7 +156,7 @@ def enabled_flags():
                   & Kernel(fsdpa)
                   & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
                             Not(ModelType('mllama')))),
-        "merged_prefill_traingular_mask": (Not(Hardware("cpu"))
+        "triangular_mask": (Not(Hardware("cpu"))
                                             & Kernel(fsdpa)
                                             & VersionRange(">=1.22.0.294")
                                             & EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA",
