@@ -2,9 +2,11 @@
 
 ```
 git clone https://github.com/vllm-project/vllm.git
-git clone https://github.com/vllm-project/vllm-hpu.git
+#git clone https://github.com/vllm-project/vllm-hpu.git
+git clone -b plugin/vllm-hpu https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm-hpu;
 
-cd vllm; VLLM_TARGET_DEVICE=empty pip install -e .  --no-build-isolation; cd ..
+cd vllm; pip install -r requirements/hpu.txt; VLLM_TARGET_DEVICE=empty pip install -e .  --no-build-isolation; cd ..
+pip uninstall triton
 cd vllm-hpu; pip install -e .; cd..
 ```
 
