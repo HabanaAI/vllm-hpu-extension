@@ -9,12 +9,15 @@ prompts = [
     "The future of AI is",
 ]
 sampling_params = SamplingParams(temperature=0, max_tokens=50)
-#model = "/mnt/weka/llm/Qwen3/Qwen3-30B-A3B/"
-model = "/mnt/weka/llm/Qwen3/Qwen3-32B/"
+model = "/mnt/weka/llm/Qwen3/Qwen3-30B-A3B/"
+#model = "/mnt/weka/llm/Qwen3/Qwen3-32B/"
 #model = "/mnt/weka/llm/DeepSeek-V2-Lite-Chat/"
 #model = "/mnt/weka/data/mlperf_models/Mixtral-8x7B-Instruct-v0.1"
 #model = "/mnt/weka/data/pytorch/llama3.1/Meta-Llama-3.1-8B/"
-llm = LLM(model=model, max_model_len=4096, trust_remote_code=True)
+kwargs = {}
+if os.path.basename(model) in ['Qwen3-30B-A3B', 'DeepSeek-V2-Lite-Chat']:
+    kwargs = {"enable_expert_parallel": True}
+llm = LLM(model=model, max_model_len=4096, trust_remote_code=True, **kwargs)
 
 outputs = llm.generate(prompts, sampling_params)
 

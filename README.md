@@ -1,12 +1,13 @@
 # deploy
 
 ```
-git clone https://github.com/vllm-project/vllm.git
+#git clone https://github.com/vllm-project/vllm.git
 #git clone https://github.com/vllm-project/vllm-hpu.git
+
+git clone -b vllm-upstream-plugin-enhancement https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm;
 git clone -b plugin/vllm-hpu https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm-hpu;
 
-cd vllm; pip install -r requirements/hpu.txt; VLLM_TARGET_DEVICE=empty pip install -e .  --no-build-isolation; cd ..
-pip uninstall triton
+cd vllm; pip install -r requirements/common.txt; pip install triton==3.1.0 setuptools-scm>=8; VLLM_TARGET_DEVICE=empty pip install -e .  --no-build-isolation; cd ..
 cd vllm-hpu; pip install -e .; cd..
 ```
 
