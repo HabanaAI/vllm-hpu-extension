@@ -40,7 +40,7 @@ class WeakSingleton(type):
 
 def get_bucketing_context():
     use_exponential_bucketing = os.environ.get(
-        'VLLM_EXPONENTIAL_BUCKETING', 'false').lower() == 'true'
+        'VLLM_EXPONENTIAL_BUCKETING', 'true').lower() == 'true'
     if use_exponential_bucketing:
         from vllm_hpu_extension.bucketing.exponential import (
             HPUExponentialBucketingContext as HPUBucketingContext)
