@@ -23,7 +23,7 @@ from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
                                         KVCacheSpec)
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.utils import bind_kv_cache
-from vllm.v1.worker.hpu_model_runner import HPUModelRunner, bool_helper
+from vllm_hpu.v1.worker.hpu_model_runner import HPUModelRunner, bool_helper
 
 logger = init_logger(__name__)
 

@@ -37,6 +37,7 @@ from vllm_hpu.worker.hpu_model_runner import HPUModelRunner, HPUModelRunnerBase
 from vllm_hpu.worker.hpu_pooling_model_runner import HPUPoolingModelRunner
 from vllm.worker.worker_base import (LocalOrDistributedWorkerBase, WorkerBase,
                                      WorkerInput)
+from vllm_hpu import ops 
 
 logger = init_logger(__name__)
 

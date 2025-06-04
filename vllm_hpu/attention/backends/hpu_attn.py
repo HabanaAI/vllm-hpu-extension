@@ -157,13 +157,14 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
             blocksparse_params: Optional[Dict[str, Any]],
             logits_soft_cap: Optional[float],
             attn_type: str,
+            kv_sharing_target_layer_name: Optional[str],
             # MLA Specific Arguments
             **kwargs) -> None:
         torch.nn.Module.__init__(self)
         MLACommonImpl.__init__(self, num_heads, head_size, scale, num_kv_heads,
                                alibi_slopes, sliding_window, kv_cache_dtype,
                                blocksparse_params, logits_soft_cap, attn_type,
-                               **kwargs)
+                               kv_sharing_target_layer_name, **kwargs)
         self.enable_fp8_attn = kv_cache_dtype == 'fp8_inc' and os.environ.get(
             'QUANT_CONFIG', None) is None
         self.matmul_qk = Matmul() if not self.enable_fp8_attn \
@@ -224,7 +225,6 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
         assert hasattr(attn_metadata,
                        "input_positions"), f"attn meta: {attn_metadata}"
 
-        input_positions = attn_metadata.input_positions.view(-1)
         if not is_prefill:
             # decode
             q_nope, q_pe = q.split(
@@ -235,13 +235,6 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
             decode_ql_nope = torch.bmm(q_nope, self.W_UK_T)
             # Convert from (N, B, L) to (B, N, L)
             decode_ql_nope = decode_ql_nope.transpose(0, 1)
-            q_pe, k_pe = \
-                self.rotary_emb(input_positions, q_pe, k_pe)
-        else:
-            # prefill
-            q_pe = q[..., self.qk_nope_head_dim:]
-            q[..., self.qk_nope_head_dim:], k_pe = \
-                self.rotary_emb(input_positions, q_pe, k_pe)
 
         slot_mapping = attn_metadata.slot_mapping.flatten(
         ) if attn_metadata.slot_mapping is not None else None
