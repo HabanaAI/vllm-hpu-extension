@@ -12,7 +12,7 @@ from functools import cache
 def logger():
     try:
         from vllm.logger import init_logger
-        return init_logger("vllm-hpu-extension")
+        return init_logger("vllm")
     except ImportError:
         import logging
-        return logging.getLogger("vllm-hpu-extension")
+        return logging.getLogger("vllm")
