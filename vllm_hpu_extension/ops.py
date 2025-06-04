@@ -386,6 +386,40 @@ def dispatch_bgmv_embedding(
     out = x @ wb
     y += out
 
+def static_MoE(
+    hidden_states,
+    expert_routing_table,
+    router_weights,
+    experts_min,
+    w13_weight,
+    w2_weight,
+    tokens_num,
+    num_experts,
+):
+    selected_experts = (expert_routing_table - experts_min).to(torch.int64)
+    moe_intermediate = w2_weight.shape[2]
+    padded_weights = torch.zeros((tokens_num, num_experts),
+                                    dtype=hidden_states.dtype,
+                                    device=hidden_states.device)
+    padded_weights.scatter_(-1, selected_experts, router_weights)
+    padded_weights = padded_weights.transpose(0, 1).unsqueeze(-1)
+
+    up_gate_states = torch.matmul(
+        hidden_states,
+        w13_weight.view(-1, w13_weight.size(-1)).transpose(
+            0, 1))
+    up_gate_states = up_gate_states.reshape(tokens_num, num_experts, 2,
+                                            moe_intermediate)
+    up_states = up_gate_states[:, :, 0, :]
+    gate_states = up_gate_states[:, :, 1, :]
+    current_state_static = F.silu(up_states) * gate_states
+    current_state_static = current_state_static.transpose(0, 1)
+
+    current_hidden_states_static = torch.matmul(
+        current_state_static, w2_weight.transpose(
+            1, 2)) * padded_weights
+    final_hidden_states = current_hidden_states_static.sum(dim=0)
+    return final_hidden_states
 
 class MoeMatmul(torch.nn.Module):
 
@@ -492,30 +526,16 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             if self.w2_weight is None:
                 self.w2_weight = torch.stack(w2_list)
 
-            selected_experts = (expert_routing_table - self.experts_min).to(torch.int64)
-            moe_intermediate = self.w2_weight.shape[2]
-            padded_weights = torch.zeros((bt, self.num_experts),
-                                         dtype=hidden_states.dtype,
-                                         device=hidden_states.device)
-            padded_weights.scatter_(-1, selected_experts, router_weights)
-            padded_weights = padded_weights.transpose(0, 1).unsqueeze(-1)
-
-            up_gate_states = torch.matmul(
-                hidden_states,
-                self.w13_weight.view(-1, self.w13_weight.size(-1)).transpose(
-                    0, 1))
-            up_gate_states = up_gate_states.reshape(bt, self.num_experts, 2,
-                                                    moe_intermediate)
-            up_states = up_gate_states[:, :, 0, :]
-            gate_states = up_gate_states[:, :, 1, :]
-            current_state_static = F.silu(up_states) * gate_states
-            current_state_static = current_state_static.transpose(0, 1)
-
-            current_hidden_states_static = torch.matmul(
-                current_state_static, self.w2_weight.transpose(
-                    1, 2)) * padded_weights
-            final_hidden_states = current_hidden_states_static.sum(dim=0)
-
+            final_hidden_states = static_MoE(
+                                        hidden_states,
+                                        expert_routing_table,
+                                        router_weights,
+                                        self.experts_min,
+                                        self.w13_weight,
+                                        self.w2_weight,
+                                        bt,
+                                        self.num_experts
+                                    )
         return final_hidden_states.view(-1, hidden_states.shape[1])
 
 
