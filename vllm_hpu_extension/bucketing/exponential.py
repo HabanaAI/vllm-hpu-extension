@@ -129,7 +129,11 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         return find_bucket(self.prompt_buckets, batch_size, 0)
 
     def get_padded_decode_batch_size(self, batch_size):
-        return find_bucket(self.decode_buckets, batch_size, 0)
+        # decode_buckets should be generated during warmup,
+        # but in case of unit_tests warmup method is not called at all
+        if self.decode_buckets:
+            return find_bucket(self.decode_buckets, batch_size, 0)
+        return batch_size
 
     def get_padded_prompt_seq_len(self, seq_len):
         return find_bucket(self.prompt_buckets, seq_len, 1)
