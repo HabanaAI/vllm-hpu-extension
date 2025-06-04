@@ -26,7 +26,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
                  max_num_batched_tokens, use_merged_prefill,
-                 max_model_len=None, max_prompt_seq=None, 
+                 max_model_len, max_prompt_seq=None,
                  max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
@@ -235,7 +235,7 @@ def generate_prompt_buckets(bs_bucket_config,
         raise ValueError(msg)
 
     filtered_buckets = buckets
-    if max_num_batched_tokens is not None:
+    if max_num_batched_tokens is not None and max_model_len is not None:
         # Remove buckets exceeding batch token budget
         filtered_buckets = list(
             filter(

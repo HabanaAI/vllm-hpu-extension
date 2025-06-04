@@ -24,7 +24,7 @@ class HPUBucketingContext(metaclass=WeakSingleton):
     global_state = HPUBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, use_merged_prefill, max_model_len=None,
+                 max_num_batched_tokens, use_merged_prefill, max_model_len,
                  max_prompt_seq=None, max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
