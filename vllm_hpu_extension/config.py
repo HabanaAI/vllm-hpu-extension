@@ -70,11 +70,6 @@ def FirstEnabled(*keys: List[str]) -> ValueFn:
     return lambda cfg: next((k for k in keys if cfg.get(k)), None)
 
 
-def Kernel(loader_fn: Callable) -> ValueFn:
-    """Return True if loader_fn result is not None"""
-    return lambda _: loader_fn() is not None
-
-
 def Lazy() -> ValueFn:
     """Return True if pt bridge is running in lazy mode"""
     return Eq('bridge_mode', 'lazy')
@@ -83,6 +78,13 @@ def Lazy() -> ValueFn:
 def Hardware(target_hw: str) -> ValueFn:
     """Return True if current hardware == target_hw"""
     return Eq('hw', target_hw)
+
+
+def Kernel(loader_fn: Callable) -> ValueFn:
+    """Return True if loader_fn result is not None and hardware != 'cpu'"""
+    def kernel_exists(_):
+        return loader_fn() is not None
+    return All(kernel_exists, Not(Hardware('cpu')))
 
 
 def ModelType(target_model_type: str) -> ValueFn:
