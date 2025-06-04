@@ -155,8 +155,8 @@ def test_generate_prompt_buckets():
 
 
 def test_generate_decode_buckets():
-    bs_bucket_config = (1, 32, 128)
-    blocks_bucket_config = (128, 128, 2048)
+    bs_bucket_config = [1, 32, 128]
+    blocks_bucket_config = [128, 128, 2048]
     max_blocks = 1024
     buckets = linear.generate_decode_buckets(
         bs_bucket_config, blocks_bucket_config, max_blocks

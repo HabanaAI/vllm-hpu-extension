@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import List, Set, Tuple
 from .common import WeakSingleton
 
+from vllm_hpu_extension.runtime import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -373,8 +374,7 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
     for i in range(num_buckets):
         power_unpadded = bmin * np.float_power(
             bmax / bmin, (1. / float(num_buckets - 1)) * i)
-        if i == num_buckets - 1 and os.environ.get(
-                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+        if i == num_buckets - 1 and get_config().use_contiguous_pa:
             bucket = bmax
         else:
             bucket = math.ceil(power_unpadded / bstep) * bstep

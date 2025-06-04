@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import List, Tuple
 from .common import WeakSingleton
 
+from vllm_hpu_extension.runtime import get_config
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -279,15 +281,13 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                             max_blocks):
     buckets = []
     bs_buckets = warmup_range(bs_bucket_config)
-    if os.environ.get(
-            'VLLM_DECODE_BLOCK_BUCKET_MAX') is None and os.environ.get(
-                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+    use_contiguous_pa = get_config().use_contiguous_pa
+    if os.environ.get('VLLM_DECODE_BLOCK_BUCKET_MAX') is None\
+       and use_contiguous_pa:
         blocks_bucket_config[2] = max_blocks
     block_buckets = warmup_range(blocks_bucket_config)
-    if os.environ.get('VLLM_CONTIGUOUS_PA',
-                          'true').lower() == 'true' and os.environ.get(
-                              'VLLM_DECODE_BLOCK_BUCKET_MAX'
-                          ) is None and max_blocks not in block_buckets:
+    if os.environ.get('VLLM_DECODE_BLOCK_BUCKET_MAX') is None\
+       and max_blocks not in block_buckets and use_contiguous_pa:
         block_buckets.append(max_blocks)
     last_bucket = max_blocks
     for bs in bs_buckets:

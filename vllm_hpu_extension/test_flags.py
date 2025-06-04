@@ -7,7 +7,7 @@
 
 import os
 import pytest
-from vllm_hpu_extension.config import VersionRange, Config, Kernel, Flag, boolean, All, Not, Eq, Active, FirstActive, choice
+from vllm_hpu_extension.config import VersionRange, Config, Kernel, Env, boolean, All, Not, Eq, Enabled, FirstEnabled, choice
 
 
 def with_cfg(fn):
@@ -91,21 +91,21 @@ def test_env_flag():
     os.environ['G'] = 'f'
     os.environ['H'] = '0'
 
-    assert Flag('A', boolean)(None) is True
-    assert Flag('B', boolean)(None) is True
-    assert Flag('C', boolean)(None) is True
-    assert Flag('D', boolean)(None) is True
+    assert Env('A', boolean)(None) is True
+    assert Env('B', boolean)(None) is True
+    assert Env('C', boolean)(None) is True
+    assert Env('D', boolean)(None) is True
 
-    assert Flag('E', boolean)(None) is False
-    assert Flag('F', boolean)(None) is False
-    assert Flag('G', boolean)(None) is False
-    assert Flag('H', boolean)(None) is False
+    assert Env('E', boolean)(None) is False
+    assert Env('F', boolean)(None) is False
+    assert Env('G', boolean)(None) is False
+    assert Env('H', boolean)(None) is False
 
-    assert Flag('I', boolean)(None) is None
+    assert Env('I', boolean)(None) is None
 
-    assert Flag('A', str)(None) == 'True'
-    assert Flag('D', str)(None) == '1'
-    assert Flag('D', int)(None) == 1
+    assert Env('A', str)(None) == 'True'
+    assert Env('D', str)(None) == '1'
+    assert Env('D', int)(None) == 1
 
 
 def test_kernel():
@@ -153,17 +153,17 @@ def test_combinators__eq():
 
 
 def test_combinators__active():
-    assert Active('foo')({}) is False
-    assert Active('foo')({'foo': False}) is False
-    assert Active('foo')({'foo': True}) is True
+    assert Enabled('foo')({}) is False
+    assert Enabled('foo')({'foo': False}) is False
+    assert Enabled('foo')({'foo': True}) is True
 
 
 def test_combinators__first_active():
-    assert FirstActive('foo', 'bar')({}) is None
-    assert FirstActive('foo', 'bar')({'foo': False, 'bar': False}) is None
-    assert FirstActive('foo', 'bar')({'foo': False, 'bar': True}) == 'bar'
-    assert FirstActive('foo', 'bar')({'foo': True, 'bar': False}) == 'foo'
-    assert FirstActive('foo', 'bar')({'foo': True, 'bar': True}) == 'foo'
+    assert FirstEnabled('foo', 'bar')({}) is None
+    assert FirstEnabled('foo', 'bar')({'foo': False, 'bar': False}) is None
+    assert FirstEnabled('foo', 'bar')({'foo': False, 'bar': True}) == 'bar'
+    assert FirstEnabled('foo', 'bar')({'foo': True, 'bar': False}) == 'foo'
+    assert FirstEnabled('foo', 'bar')({'foo': True, 'bar': True}) == 'foo'
 
 
 def test_choice():

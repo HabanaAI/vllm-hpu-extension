@@ -9,17 +9,10 @@
 from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.features import get_features, get_user_flags, get_experimental_flags
 from vllm_hpu_extension.config import Config
+from vllm_hpu_extension.logger import logger
 
 
 DETECTED = None
-
-
-def to_map(collection):
-    return {p.name: p for p in collection}
-
-
-def flags(params):
-    return [p.to_flag() for p in params]
 
 
 def filter_defined(config, keys):
@@ -28,9 +21,10 @@ def filter_defined(config, keys):
 
 def dump(prefix, values):
     if values:
-        print(f'{prefix}:')
+        padding = ' ' * 4
+        logger().info(f'{prefix}:')
         for key, value in values.items():
-            print(f'  {key}: {value}')
+            logger().info(f'{padding}{key}: {value}')
 
 
 def get_config():
@@ -42,25 +36,21 @@ def get_config():
 
     user_flags = get_user_flags()
     experimental_flags = get_experimental_flags()
-    environment = get_environment()
-    features = get_features()
+    environment_values, environment_flags = get_environment()
+    feature_values, feature_flags = get_features()
 
-    user_flags = to_map(user_flags)
-    experimental_flags = to_map(experimental_flags) | to_map(flags(environment)) | to_map(flags(features))
-    environment = to_map(environment)
-    features = to_map(features)
+    experimental_flags = experimental_flags | environment_flags | feature_flags
 
-    detected = Config(user_flags | experimental_flags | environment | features)
+    detected = Config(user_flags | experimental_flags | environment_values | feature_values)
     detected.get_all()
 
     user_flags = filter_defined(detected, user_flags.keys())
     experimental_flags = filter_defined(detected, experimental_flags.keys())
-    environment = filter_defined(detected, environment.keys())
-    features = filter_defined(detected, features.keys())
+    environment_values = filter_defined(detected, environment_values.keys())
+    feature_values = filter_defined(detected, feature_values.keys())
 
     experimental_flag_names = experimental_flags.keys()
     if len(experimental_flag_names) > 0 and not detected.VLLM_ENABLE_EXPERIMENTAL_FLAGS:
-        from .utils import logger
         asterisks = 48 * '*'
         header = f"{asterisks} Warning! {asterisks}"
         footer = '*' * len(header)
@@ -69,8 +59,8 @@ def get_config():
         logger().warning("In future releases using those flags without VLLM_ENABLE_EXPERIMENTAL_FLAGS will trigger a fatal error.")
         logger().warning(footer)
 
-    dump('Environment', environment)
-    dump('Features', features)
+    dump('Environment', environment_values)
+    dump('Features', feature_values)
     dump('User flags', user_flags)
     dump('Experimental flags', experimental_flags)
 
