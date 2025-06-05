@@ -129,11 +129,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         return find_bucket(self.prompt_buckets, batch_size, 0)
 
     def get_padded_decode_batch_size(self, batch_size):
-        # decode_buckets should be generated during warmup,
-        # but in case of unit_tests warmup method is not called at all
-        if self.decode_buckets:
-            return find_bucket(self.decode_buckets, batch_size, 0)
-        return batch_size
+        return find_bucket(self.decode_buckets, batch_size, 0)
 
     def get_padded_prompt_seq_len(self, seq_len):
         return find_bucket(self.prompt_buckets, seq_len, 1)
@@ -152,7 +148,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         if is_prompt:
             return self.get_padded_prompt_seq_len(seq_or_block)
         return self.get_padded_decode_num_blocks(seq_or_block)
-    
+
     def get_closest_prompt_bucket(self, target):
         return get_closest_bucket(self.prompt_buckets, target)
 
@@ -165,7 +161,11 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
 
     @property
     def decode_buckets(self):
-        return self.global_state.decode_buckets
+        # decode_buckets should've been generated during warmup,
+        # but in case of unit_tests warmup method is not called at all
+        if hasattr(self.global_state, 'decode_buckets'):
+            return self.global_state.decode_buckets
+        return []
 
     @classmethod
     def get_instance(cls):
@@ -203,14 +203,16 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
 
+
 def find_bucket(buckets, value, dim=None):
     if dim is not None:
         buckets = get_buckets_single_dim(buckets, dim)
     try:
         return next(p for p in sorted(buckets) if p >= value)
     except StopIteration:
-        return None
-        
+        logger.warning(f"Couldn't find a bucket for value: {value} in {buckets} dim:{dim}")
+        return value
+
 
 def get_buckets_single_dim(buckets, dim):
     return [b[dim] for b in buckets]
