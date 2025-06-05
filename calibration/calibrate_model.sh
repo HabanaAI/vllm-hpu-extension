@@ -218,7 +218,7 @@ fi
 
 echo ""
 echo "4/4 Quantize scales"
-if $MULTI_NODE_RUN; then
+if $MULTI_NODE_SETUP; then
     env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
 else
     env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
