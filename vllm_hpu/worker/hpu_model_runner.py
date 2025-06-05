@@ -21,18 +21,11 @@ from typing import (TYPE_CHECKING, Any, Callable, Dict, List, NamedTuple,
 import habana_frameworks.torch as htorch
 import habana_frameworks.torch.internal.bridge_config as bc
 import torch
+import vllm.envs as envs
 import vllm_hpu_extension.environment as environment
 from attr import dataclass
-from vllm_hpu_extension.bucketing.common import get_bucketing_context
-from vllm_hpu_extension.runtime import get_config
-from vllm_hpu_extension.ops import LoraMask as LoraMask
-from vllm_hpu_extension.profiler import (HabanaHighLevelProfiler,
-                                         HabanaMemoryProfiler, format_bytes)
-
-import vllm.envs as envs
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.attention.backends.abstract import AttentionType
-from vllm_hpu.attention.backends.hpu_attn import HPUAttentionImpl
 from vllm.config import DeviceConfig, VllmConfig
 from vllm.distributed import broadcast_tensor_dict, get_pp_group
 from vllm.distributed.parallel_state import get_world_group
@@ -49,8 +42,8 @@ from vllm.model_executor.layers.sampler import (SampleResultArgsType,
                                                 SamplerOutput, get_logprobs,
                                                 get_pythonized_sample_results,
                                                 get_sampler)
-from vllm.model_executor.layers.vocab_parallel_embedding import (
-    VocabParallelEmbedding)
+from vllm.model_executor.layers.vocab_parallel_embedding import \
+    VocabParallelEmbedding
 from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.models import supports_multimodal
 from vllm.model_executor.sampling_metadata import SequenceGroupToSample
@@ -62,16 +55,22 @@ from vllm.sequence import (CompletionSequenceGroupOutput, IntermediateTensors,
                            Logprob, SequenceData, SequenceGroupMetadata,
                            SequenceOutput)
 from vllm.transformers_utils.config import uses_mrope
-from vllm.utils import (bind_kv_cache, is_pin_memory_available)
-from vllm_hpu.utils import (make_mrope_positions_tensor_with_pad,
-                        make_tensor_with_pad)
-from vllm_hpu.utils import is_fake_hpu
+from vllm.utils import bind_kv_cache, is_pin_memory_available
 from vllm.worker.model_runner_base import (
     ModelRunnerBase, ModelRunnerInputBase,
     _add_attn_metadata_broadcastable_dict,
     _add_sampling_metadata_broadcastable_dict,
     _init_attn_metadata_from_tensor_dict,
     _init_sampling_metadata_from_tensor_dict)
+from vllm_hpu_extension.bucketing.common import get_bucketing_context
+from vllm_hpu_extension.ops import LoraMask as LoraMask
+from vllm_hpu_extension.profiler import (HabanaHighLevelProfiler,
+                                         HabanaMemoryProfiler, format_bytes)
+from vllm_hpu_extension.runtime import get_config
+
+from vllm_hpu.attention.backends.hpu_attn import HPUAttentionImpl
+from vllm_hpu.utils import (is_fake_hpu, make_mrope_positions_tensor_with_pad,
+                            make_tensor_with_pad)
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
@@ -451,10 +450,9 @@ class HpuModelAdapter(torch.nn.Module):
         if 'lora_mask' in kwargs:
             LoraMask.setLoraMask(kwargs.pop('lora_mask'))
         model_config = getattr(self.model, "config", None)
-        # FIXME: Chendi - upstream codes doesn't support prepare_cos_sin
-        # model_is_mrope = uses_mrope(model_config)
-        # if self.layer_names is not None and not model_is_mrope:
-        #     self._prepare_cos_sin(kwargs['positions'])
+        model_is_mrope = uses_mrope(model_config)
+        if self.layer_names is not None and not model_is_mrope:
+            self._prepare_cos_sin(kwargs['positions'])
         attn_meta = kwargs.pop('attn_metadata')
         if 'kv_caches' in kwargs:
             kwargs.pop('kv_caches')
@@ -1594,12 +1592,12 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
             indices = [None] * block_bucket_size
             for i, bid in enumerate(block_list):
                 indices[bid] = i
-            padding_fn = lambda tensor, pad_value: gather_list(
+            padding_fn = lambda tensor, pad_value: gather_list(  # noqa: E731
                 tensor, indices, pad_value)
         else:
             block_bucket_size = self.bucketing_ctx.get_padded_decode_num_blocks(
                 len(block_list))
-            padding_fn = lambda tensor, pad_value: pad_list(
+            padding_fn = lambda tensor, pad_value: pad_list(  # noqa: E731
                 tensor, block_bucket_size, pad_value)
 
         block_list = padding_fn(block_list, _PAD_BLOCK_ID)
@@ -1617,13 +1615,13 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
                 indices = [None] * cross_block_bucket_size
                 for i, bid in enumerate(cross_block_list):
                     indices[bid] = i
-                padding_fn = lambda tensor, pad_value: gather_list(
+                padding_fn = lambda tensor, pad_value: gather_list(  # noqa: E731
                     tensor, indices, pad_value)
             else:
                 cross_block_bucket_size = \
                     self.bucketing_ctx.get_padded_decode_num_blocks(
                     len(cross_block_list))
-                padding_fn = lambda tensor, pad_value: pad_list(
+                padding_fn = lambda tensor, pad_value: pad_list(  # noqa: E731
                     tensor, cross_block_bucket_size, pad_value)
 
             real_batch_size = len(seq_group_metadata_list)
@@ -2244,9 +2242,9 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
         ordering : Union[Callable[[Any], Tuple[Any, Any]], \
             Callable[[Any], Tuple[Any, Any, Any]]]
         if strategy == 'min_tokens':
-            ordering = lambda b: (b[0] * b[1], b[1], b[0])
+            ordering = lambda b: (b[0] * b[1], b[1], b[0])  # noqa: E731
         elif strategy == 'max_bs':
-            ordering = lambda b: (-b[0], b[1])
+            ordering = lambda b: (-b[0], b[1])  # noqa: E731
         else:
             raise NotImplementedError(
                 f'Unsupported graph allocation strategy: {strategy}')
@@ -2479,8 +2477,8 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
             self.inc_initialized_successfully and \
             not getattr(self, "_is_inc_finalized", False)
         if can_finalize_inc:
-            from neural_compressor.torch.quantization import (
-                finalize_calibration)
+            from neural_compressor.torch.quantization import \
+                finalize_calibration
             finalize_calibration(self.model.model)
             self._is_inc_finalized = True
 
@@ -3110,8 +3108,8 @@ class HPUModelRunner(HPUModelRunnerBase[ModelInputForHPUWithSamplingMetadata]):
                                 and self.inc_initialized_successfully and
                                 not getattr(self, "_is_inc_finalized", False))
         if can_finalize_inc:
-            from neural_compressor.torch.quantization import (
-                finalize_calibration)
+            from neural_compressor.torch.quantization import \
+                finalize_calibration
             finalize_calibration(self.model.model)
             self._is_inc_finalized = True
 

@@ -1,13 +1,12 @@
 from typing import Callable, Optional
 
 import torch
-from vllm.model_executor.layers.quantization.base_config import (
-    QuantizationConfig)
-from vllm.model_executor.layers.fused_moe.layer import \
-    UnquantizedFusedMoEMethod, FusedMoE
 from vllm.model_executor.custom_op import CustomOp
+from vllm.model_executor.layers.fused_moe.layer import (
+    FusedMoE, UnquantizedFusedMoEMethod)
 
-@CustomOp.register("unquantized_fused_moe", custom_op=True)
+
+@CustomOp.register("UnquantizedFusedMoEMethod", custom_op=True)
 class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
     """MoE method without quantization."""
 
@@ -17,13 +16,14 @@ class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
         num_experts = layer.local_num_experts
         ep_shift = layer.ep_rank * num_experts
         quant_config = layer.quant_config
-        from vllm_hpu_extension.ops import (
-            VllmMixtureOfExpertsOp, VllmMixtureOfExpertsOpFP8,
-            VllmMixtureOfExpertsOpFP8PerChannel)
+        from vllm_hpu_extension.ops import (VllmMixtureOfExpertsOp,
+                                            VllmMixtureOfExpertsOpFP8,
+                                            VllmMixtureOfExpertsOpFP8PerChannel
+                                            )
 
         experts_min, experts_max = ep_shift, num_experts + ep_shift - 1
         if quant_config is None or isinstance(self.quant_method,
-                                                UnquantizedFusedMoEMethod):
+                                              UnquantizedFusedMoEMethod):
             moe_op = VllmMixtureOfExpertsOp(
                 num_experts,
                 experts_min,
@@ -91,7 +91,7 @@ class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
             topk_weights = topk_weights.to(x.dtype)
         topk_ids = topk_ids.view(*x.shape[:-1], -1)
         topk_weights = topk_weights.view(*x.shape[:-1], -1)
-        
+
         return layer.moe_op(
             x,
             topk_ids.to(torch.int64),
@@ -99,4 +99,3 @@ class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
             permuted_weights=True,
             activation=activation,
         ).view(*input_shape)
-
