@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import math
 import habana_frameworks.torch.core as htcore
-from vllm_hpu_extension.flags import enabled_flags
+from vllm_hpu_extension.runtime import get_config
 import habana_frameworks.torch.utils.experimental as htexp
 
 is_hpu_gaudi2 = htexp._get_device_type(
@@ -62,7 +62,7 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
 
-    if 'fused_block_softmax_adjustment' in enabled_flags() and block_max.dtype != torch.float16:
+    if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                          block_sums.to(block_max.dtype),
                                                          block_groups,
@@ -163,7 +163,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    if 'fp32_softmax' in enabled_flags():
+    if get_config().fp32_softmax:
         attn = attn.float()
         htcore.mark_step()
     attn = attn + block_bias
@@ -237,7 +237,7 @@ def _naive_prompt_attention(
         if attn_bias is not None:
             attn_bias = attn_bias.unsqueeze(2)
     attn_weights = matmul_qk_op(query * scale, key.transpose(-1, -2))
-    if 'fp32_softmax' in enabled_flags():
+    if get_config().fp32_softmax:
         softmax_op = torch.softmax
         attn_weights = attn_weights.float()
         htcore.mark_step()
@@ -266,7 +266,7 @@ def _fsdpa_prompt_attention(
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
-    if 'fp32_softmax' in enabled_flags():
+    if get_config().fp32_softmax:
         softmax_mode = 'fp32'
     else:
         softmax_mode = 'fast'
@@ -290,9 +290,9 @@ def prompt_attention(
 ) -> torch.Tensor:
     _get_context(args)
     impl_mapping = {
-        'naive': _naive_prompt_attention,
-        'fsdpa': _fsdpa_prompt_attention,
-        'flex': _flex_prompt_attention,
+        'naive_impl': _naive_prompt_attention,
+        'fsdpa_impl': _fsdpa_prompt_attention,
+        'flex_impl': _flex_prompt_attention,
     }
     assert impl in impl_mapping, f'Unsupported implementation: {impl}'
     return impl_mapping[impl](**args)

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import List, Set, Tuple
 from .common import WeakSingleton
 
+from vllm_hpu_extension.runtime import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
                  max_num_batched_tokens, use_merged_prefill,
-                 max_model_len=None, max_prompt_seq=None, 
+                 max_model_len, max_prompt_seq=None,
                  max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
@@ -147,7 +148,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         if is_prompt:
             return self.get_padded_prompt_seq_len(seq_or_block)
         return self.get_padded_decode_num_blocks(seq_or_block)
-    
+
     def get_closest_prompt_bucket(self, target):
         return get_closest_bucket(self.prompt_buckets, target)
 
@@ -160,7 +161,11 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
 
     @property
     def decode_buckets(self):
-        return self.global_state.decode_buckets
+        # decode_buckets should've been generated during warmup,
+        # but in case of unit_tests warmup method is not called at all
+        if hasattr(self.global_state, 'decode_buckets'):
+            return self.global_state.decode_buckets
+        return []
 
     @classmethod
     def get_instance(cls):
@@ -198,14 +203,16 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
 
+
 def find_bucket(buckets, value, dim=None):
     if dim is not None:
         buckets = get_buckets_single_dim(buckets, dim)
     try:
         return next(p for p in sorted(buckets) if p >= value)
     except StopIteration:
-        return None
-        
+        logger.warning(f"Couldn't find a bucket for value: {value} in {buckets} dim:{dim}")
+        return value
+
 
 def get_buckets_single_dim(buckets, dim):
     return [b[dim] for b in buckets]
@@ -234,7 +241,7 @@ def generate_prompt_buckets(bs_bucket_config,
         raise ValueError(msg)
 
     filtered_buckets = buckets
-    if max_num_batched_tokens is not None:
+    if max_num_batched_tokens is not None and max_model_len is not None:
         # Remove buckets exceeding batch token budget
         filtered_buckets = list(
             filter(
@@ -373,8 +380,7 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
     for i in range(num_buckets):
         power_unpadded = bmin * np.float_power(
             bmax / bmin, (1. / float(num_buckets - 1)) * i)
-        if i == num_buckets - 1 and os.environ.get(
-                'VLLM_CONTIGUOUS_PA', 'true').lower() == 'true':
+        if i == num_buckets - 1 and get_config().use_contiguous_pa:
             bucket = bmax
         else:
             bucket = math.ceil(power_unpadded / bstep) * bstep

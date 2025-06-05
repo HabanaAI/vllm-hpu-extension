@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from functools import cache, wraps
 import os
-from functools import lru_cache
+from functools import lru_cache, wraps
 
 import habana_frameworks.torch as htorch
 import torch
+
+from vllm_hpu_extension.runtime import get_config
 
 
 @lru_cache(maxsize=None)
@@ -54,8 +55,7 @@ class VLLMKVCache(torch.nn.Module):
 
     def __init__(self):
         super(VLLMKVCache, self).__init__()
-        self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
-                                                'true').lower() == 'true'
+        self.use_contiguous_pa = get_config().use_contiguous_pa
 
     def forward(self, input, cache, slot_mapping):
         # In cross-attention kv cache forward inputs are None in decode
@@ -70,12 +70,12 @@ class VLLMKVCache(torch.nn.Module):
         else:
             return cache.index_select(0, blocks)
 
+
 class VLLMFP8KVCache(VLLMKVCache):
 
     def __init__(self, input_scale=1.0):
         super(VLLMKVCache, self).__init__()
-        self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
-                                                'true').lower() == 'true'
+        self.use_contiguous_pa = get_config().use_contiguous_pa
         self.input_scale = input_scale
         self.output_scale = 1.0 / self.input_scale
 
@@ -98,6 +98,7 @@ class VLLMFP8KVCache(VLLMKVCache):
             return output_cache
         output_cache = super().fetch_from_cache(quant_cache, blocks)
         return self.dequant_output(output_cache)
+
 
 class FP8Matmul(torch.nn.Module):
 
@@ -139,6 +140,7 @@ class FP8Matmul(torch.nn.Module):
         )
         return output
 
+
 class ModuleFusedSDPA(torch.nn.Module):
     def __init__(self, fusedSDPA):
         super().__init__()
@@ -174,11 +176,3 @@ class ModuleFusedSDPA(torch.nn.Module):
         )
 
 
-@cache
-def logger():
-    try:
-        from vllm.logger import init_logger
-        return init_logger("vllm-hpu-extension")
-    except ImportError:
-        import logging
-        return logging.getLogger("vllm-hpu-extension")
