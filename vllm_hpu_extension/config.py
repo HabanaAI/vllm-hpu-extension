@@ -113,7 +113,7 @@ def choice(*options: List[Any]) -> Callable[Any, Any]:
 
 def boolean(x: str) -> Callable[str, bool]:
     """Converts string representation of a bool to its value"""
-    return x.lower()[0] in ['t', '1']
+    return x.lower() in ['true', '1', 'yes', 'on']
 
 
 class Env:

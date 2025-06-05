@@ -31,8 +31,9 @@ def get_user_flags():
         Env('VLLM_DECODE_BLOCK_BUCKET_MAX', int),
         Env('VLLM_DECODE_BLOCK_BUCKET_LIMIT', int),
 
-        # Non-vllm flags that are also important
-        Env('EXPERIMENTAL_WEIGHT_SHARING', boolean),
+        # Non-vllm flags that are also important to print
+        Env('EXPERIMENTAL_WEIGHT_SHARING', str),
+        Env('PT_HPU_WEIGHT_SHARING', str),
     ]
     return to_dict(flags)
 
