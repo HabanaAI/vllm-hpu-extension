@@ -24,7 +24,7 @@ import torch
 import vllm_hpu_extension.environment as environment
 from attr import dataclass
 from vllm_hpu_extension.bucketing.common import get_bucketing_context
-from vllm_hpu_extension.flags import enabled_flags
+from vllm_hpu_extension.runtime import get_config
 from vllm_hpu_extension.ops import LoraMask as LoraMask
 from vllm_hpu_extension.profiler import (HabanaHighLevelProfiler,
                                          HabanaMemoryProfiler, format_bytes)
@@ -32,7 +32,7 @@ from vllm_hpu_extension.profiler import (HabanaHighLevelProfiler,
 import vllm.envs as envs
 from vllm.attention import AttentionMetadata, get_attn_backend
 from vllm.attention.backends.abstract import AttentionType
-from vllm.attention.backends.hpu_attn import HPUAttentionImpl
+from vllm_hpu.attention.backends.hpu_attn import HPUAttentionImpl
 from vllm.config import DeviceConfig, VllmConfig
 from vllm.distributed import broadcast_tensor_dict, get_pp_group
 from vllm.distributed.parallel_state import get_world_group
@@ -286,7 +286,8 @@ class HpuModelAdapter(torch.nn.Module):
     def __init__(self, model, vllm_config, layer_names, is_causal, sampler):
         super().__init__()
         self.model = model
-        self.prefill_use_fusedsdpa = "fsdpa" in enabled_flags()
+        self.prefill_use_fusedsdpa = get_config(
+        ).prompt_attn_impl == 'fsdpa_impl'
         self.recompute_cos_sin = os.getenv('VLLM_COS_SIN_RECOMPUTE',
                                            'false').lower() in ['1', 'true']
         self.sampler = sampler
@@ -689,7 +690,7 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
         is_causal: bool = True,
     ):
         ModelRunnerBase.__init__(self, vllm_config=vllm_config)
-        environment.set_model_config(self.model_config)
+        environment.set_vllm_config(vllm_config)
         self.is_driver_worker = is_driver_worker
         self.return_hidden_states = return_hidden_states
 
@@ -758,15 +759,7 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
         self.use_contiguous_pa = envs.VLLM_USE_HPU_CONTIGUOUS_CACHE_FETCH
 
         self._set_gc_threshold()
-        if self.vllm_config.cache_config.enable_prefix_caching:
-            os.environ.setdefault("VLLM_CONTIGUOUS_PA", "False")
-            assert os.environ.get(
-                "VLLM_CONTIGUOUS_PA",
-                "").lower() != "true", "Contiguous PA doesn't support APC"
-        self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
-                                                'true').lower() == 'true'
-        if self.use_contiguous_pa != 'true':
-            self.use_contiguous_pa = envs.VLLM_USE_HPU_CONTIGUOUS_CACHE_FETCH
+        self.use_contiguous_pa = get_config().use_contiguous_pa
         if vllm_config.speculative_config is not None \
             and self.use_contiguous_pa:
             raise ValueError(
@@ -784,15 +777,12 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
         self.spec_decode_enabled = \
             self.vllm_config.speculative_config is not None
         self.sampler = get_sampler()
-        default_use_delayed_sampling = (not self.spec_decode_enabled
-                                        and not is_fake_hpu()
-                                        and self.is_single_step
-                                        and not self.lora_config)
-        default_use_delayed_sampling = 'true' if default_use_delayed_sampling \
-            else 'false'
-        self.use_delayed_sampling = (os.environ.get(
-            'VLLM_DELAYED_SAMPLING',
-            default_use_delayed_sampling).lower() == 'true')
+        can_use_delayed_sampling = (not self.spec_decode_enabled
+                                    and not is_fake_hpu()
+                                    and self.is_single_step
+                                    and not self.lora_config)
+        self.use_delayed_sampling = get_config(
+        ).use_delayed_sampling and can_use_delayed_sampling
 
     def _set_gc_threshold(self) -> None:
         """
@@ -820,8 +810,7 @@ class HPUModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
             ]
         gc.set_threshold(*requested_gc_thrs)
 
-        self.skip_warmup = os.environ.get('VLLM_SKIP_WARMUP',
-                                          'false').lower() == 'true'
+        self.skip_warmup = get_config().skip_warmup
 
     @property
     def model_is_mrope(self) -> bool:
