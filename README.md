@@ -1,23 +1,43 @@
 # deploy
 
 ```
+
+# install vllm, before upstream PR merged, need to use fork firstly.
 #git clone https://github.com/vllm-project/vllm.git
-#git clone https://github.com/vllm-project/vllm-hpu.git
+VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/HabanaAI/vllm-fork.git@vllm-upstream-plugin-enhancement
 
-git clone -b vllm-upstream-plugin-enhancement https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm;
+# install plugin
 git clone -b plugin/vllm-hpu https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm-hpu;
+cd vllm-hpu; pip install -e .; pip uninstall -y triton;  cd..
+```
 
-cd vllm; pip install -r requirements/hpu.txt; VLLM_TARGET_DEVICE=hpu pip install -e .  --no-build-isolation; cd ..
-cd vllm-hpu; pip install -e .; cd..
+# supported model and feature
+
+| model_name | worker | task | acc metrics | acc score |
+|----------- | ------ | ---- | ----------- | --------- |
+| Meta-Llama-3.1-8B-Instruct | v0 | gsm8k_cot_llama | exact_match,strict-match | 0.8066 |
+| Meta-Llama-3.1-8B-Instruct | v1 | gsm8k_cot_llama | exact_match,strict-match | 0.8105 |
+| Qwen3-30B-A3B | v0 | gsm8k | exact_match,strict-match | 0.9023 |
+| Qwen3-30B-A3B | v1 | gsm8k | exact_match,strict-match | 0.9062 |
+
+```
+cd vllm-hpu/examples; bash run_tests.sh
 ```
 
 # test
 
 ```
-cd vllm-hpu/examples; PT_HPU_LAZY_MODE=1 python test_plugin.py
+cd vllm-hpu/examples;
+
+# v0
+PT_HPU_LAZY_MODE=1 python test_plugin.py
+
+# v1
+PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false python test_plugin.py
 ```
 
 expected output
+
 ```
 INFO 06-05 01:12:17 [__init__.py:31] Available plugins for group vllm.platform_plugins:
 INFO 06-05 01:12:17 [__init__.py:33] - hpu -> vllm_hpu:register

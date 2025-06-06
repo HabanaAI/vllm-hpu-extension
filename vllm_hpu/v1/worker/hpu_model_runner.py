@@ -36,14 +36,15 @@ from vllm.transformers_utils.tokenizer_group import init_tokenizer_from_configs
 from vllm.utils import (STR_DTYPE_TO_TORCH_DTYPE, LayerBlockType, cdiv,
                         is_pin_memory_available)
 from vllm_hpu.utils import is_fake_hpu
-from vllm.v1.attention.backends.hpu_attn import HPUAttentionMetadataV1
+from vllm_hpu.v1.attention.backends.hpu_attn import HPUAttentionMetadataV1
 from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
                                         KVCacheSpec)
 from vllm.v1.outputs import (EMPTY_MODEL_RUNNER_OUTPUT, LogprobsLists,
                              LogprobsTensors, ModelRunnerOutput)
 from vllm.v1.sample.metadata import SamplingMetadata
 from vllm.v1.utils import bind_kv_cache
-from vllm.v1.worker.gpu_input_batch import CachedRequestState, InputBatch
+from vllm.v1.worker.gpu_input_batch import CachedRequestState
+from vllm_hpu.v1.worker.hpu_input_batch import InputBatch
 
 if TYPE_CHECKING:
     from vllm.v1.core.scheduler import SchedulerOutput
@@ -582,10 +583,11 @@ class HPUModelRunner:
         self.input_batch = InputBatch(
             max_num_reqs=self.scheduler_config.max_num_seqs,
             max_model_len=self.max_model_len,
-            max_num_blocks_per_req=self.max_num_blocks_per_req,
+            max_num_batched_tokens=self.max_num_blocks_per_req,
             device=self.device,
             pin_memory=self.pin_memory,
             vocab_size=self.model_config.get_vocab_size(),
+            block_sizes=[self.block_size],
         )
         self.mem_margin = None
 
@@ -612,7 +614,7 @@ class HPUModelRunner:
         self.max_num_batched_tokens = \
         self.scheduler_config.max_num_batched_tokens
         self.use_merged_prefill = False
-        
+
         if self.enable_bucketing:
             logger.info("Bucketing is ON.")
             HPUBucketingContext = get_bucketing_context()
@@ -924,7 +926,7 @@ class HPUModelRunner:
             indices = [None] * block_bucket_size
             for i, bid in enumerate(block_list):
                 indices[bid] = i
-            padding_fn = lambda tensor, pad_value: gather_list(
+            padding_fn = lambda tensor, pad_value: gather_list(  # noqa: E731
                 tensor, indices, pad_value)
         else:
             if bucketing:
@@ -933,7 +935,7 @@ class HPUModelRunner:
                     len(block_list))
             else:
                 block_bucket_size = len(block_list)
-            padding_fn = lambda tensor, pad_value: pad_list(
+            padding_fn = lambda tensor, pad_value: pad_list(  # noqa: E731
                 tensor, block_bucket_size, pad_value)
 
         block_list = padding_fn(block_list, self._PAD_BLOCK_ID)
@@ -1030,7 +1032,8 @@ class HPUModelRunner:
         prefill_position_ids = []
         prefill_attn_metadata = []
         prefill_logits_indices = []
-        block_table_cpu_tensor = self.input_batch.block_table.get_cpu_tensor()
+        block_table_cpu_tensor = self.input_batch.block_table.block_tables[
+            0].get_cpu_tensor()
         fake_prefix_prefill = False
 
         # DECODES are the first num_decodes REQUESTS.
@@ -1227,7 +1230,8 @@ class HPUModelRunner:
         # logic knows to ignore those indicies. Otherwise, the
         # padding data can be dummy since we have a causal mask.
 
-        block_table_cpu_tensor = self.input_batch.block_table.get_cpu_tensor()
+        block_table_cpu_tensor = self.input_batch.block_table.block_tables[
+            0].get_cpu_tensor()
         if num_decodes == 0:
             return DecodeInputData(num_decodes=0)
 
@@ -2045,9 +2049,9 @@ class HPUModelRunner:
         ordering : Union[Callable[[Any], tuple[Any, Any]], \
             Callable[[Any], tuple[Any, Any, Any]]]
         if strategy == 'min_tokens':
-            ordering = lambda b: (b[0] * b[1], b[1], b[0])
+            ordering = lambda b: (b[0] * b[1], b[1], b[0])  # noqa: E731
         elif strategy == 'max_bs':
-            ordering = lambda b: (-b[0], b[1])
+            ordering = lambda b: (-b[0], b[1])  # noqa: E731
         else:
             raise NotImplementedError(
                 f'Unsupported graph allocation strategy: {strategy}')

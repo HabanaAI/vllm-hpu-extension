@@ -54,8 +54,6 @@ class HpuPlatform(Platform):
 
     @classmethod
     def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
-        
-        scheduler_config = vllm_config.scheduler_config
         parallel_config = vllm_config.parallel_config
 
         if parallel_config.worker_cls == "auto":
@@ -87,6 +85,20 @@ class HpuPlatform(Platform):
                     "To override that behavior, please set "
                     "VLLM_WORKER_MULTIPROC_METHOD=fork explicitly.")
                 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+
+        if envs.VLLM_USE_V1:
+            from vllm.config import CompilationLevel
+            compilation_config = vllm_config.compilation_config
+            # Activate custom ops for v1.
+            compilation_config.custom_ops = ["all"]
+
+            if compilation_config.level != CompilationLevel.NO_COMPILATION:
+                logger.info(
+                    "[HPU] Forcing CompilationLevel.NO_COMPILATION compilation level"
+                )
+                compilation_config.level = CompilationLevel.NO_COMPILATION
+
+            print(f"========={compilation_config.custom_ops=}===========")
 
     @classmethod
     def is_pin_memory_available(cls):
