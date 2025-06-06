@@ -26,11 +26,11 @@ def find_measurement_path(measurement, measurements_dir_path, scales, group_size
 
 
 def is_moe(node_name):
-    return True if node_name.endswith("MoeOp") else False
+    return True if node_name.endswith("moe_op") else False
 
 
 def is_moe_experts(node_name):
-    return True if "MoeOp.w13_list" in node_name or "MoeOp.w2_list" in node_name else False
+    return True if "moe" in node_name.lower() and (".w13_list" in node_name or ".w2_list" in node_name) else False
 
 
 def analyze_expert_name(node_name):
@@ -111,18 +111,18 @@ def unify_measurements(
                         moe_experts_data[new_node_name] = measurement_json[node_name]
                     continue
 
-                for i in range(0, len(max_inputs)):
-                    max_inputs[i] = max(
-                        measurement_json[node_name]["inputs"][i], max_inputs[i])
+                # for moe op, keep max of the first, retain rest from other measurements
+                if use_ep and is_moe(node_name) and idx > 0:
+                    max_inputs[0] = max(
+                        measurement_json[node_name]["inputs"][0], max_inputs[0])
+                    max_inputs.extend(measurement_json[node_name]["inputs"][1:])
+                else:
+                    for i in range(0, len(max_inputs)):
+                        max_inputs[i] = max(
+                            measurement_json[node_name]["inputs"][i], max_inputs[i])
                 if max_outputs is not None:
-                    # for moe op, keep max of the first, retain rest from other measurements
-                    if use_ep and is_moe(node_name) and idx > 0:
-                        max_outputs[0] = max(
-                            measurement_json[node_name]["outputs"][0], max_outputs[0])
-                        max_outputs.extend(measurement_json[node_name]["outputs"][1:])
-                    else:
-                        max_outputs = max(
-                            measurement_json[node_name]["outputs"], max_outputs)
+                    max_outputs = max(
+                        measurement_json[node_name]["outputs"], max_outputs)
                 if max_weight is not None:
                     max_weight = max(
                         measurement_json[node_name]["params"]["weight"], max_weight)
@@ -193,7 +193,7 @@ def unify_measurements(
         layers[layer] = {}
         layers[layer]["inputs"] = [np.array(x) for x in dlayer["inputs"]]
         if dlayer.get("outputs") is not None:
-            layers[layer]["outputs"] = np.array(dlayer["outputs"])
+            layers[layer]["outputs"] = [np.array(x) for x in dlayer["outputs"]]
         if dlayer.get("params") is not None and dlayer["params"].get("weight") is not None:
             layers[layer]["params"] = {}
             layers[layer]["params"]["weight"] = np.array(
