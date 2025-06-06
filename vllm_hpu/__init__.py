@@ -3,7 +3,8 @@ def register():
 
     return "vllm_hpu.platform.HpuPlatform"
 
+
 def register_ops():
     """Register custom ops for the HPU platform."""
 
-    from vllm_hpu.ops.hpu_fused_moe import HPUUnquantizedFusedMoEMethod # noqa: F401
+    import vllm_hpu.ops  # noqa: F401
