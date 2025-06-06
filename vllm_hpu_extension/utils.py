@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from functools import cache, wraps
 import os
-from functools import lru_cache
+from functools import lru_cache, wraps
 
 import habana_frameworks.torch as htorch
 import torch
+
+from vllm_hpu_extension.runtime import get_config
 
 
 @lru_cache(maxsize=None)
@@ -54,8 +55,7 @@ class VLLMKVCache(torch.nn.Module):
 
     def __init__(self):
         super(VLLMKVCache, self).__init__()
-        self.use_contiguous_pa = os.environ.get('VLLM_CONTIGUOUS_PA',
-                                                'true').lower() == 'true'
+        self.use_contiguous_pa = get_config().use_contiguous_pa
 
     def forward(self, input, cache, slot_mapping):
         # In cross-attention kv cache forward inputs are None in decode
@@ -69,6 +69,76 @@ class VLLMKVCache(torch.nn.Module):
             return cache[:blocks.size(0)]
         else:
             return cache.index_select(0, blocks)
+
+
+class VLLMFP8KVCache(VLLMKVCache):
+
+    def __init__(self, input_scale=1.0):
+        super(VLLMKVCache, self).__init__()
+        self.use_contiguous_pa = get_config().use_contiguous_pa
+        self.input_scale = input_scale
+        self.output_scale = 1.0 / self.input_scale
+
+    def quant_input(self, input):
+        return torch.ops.hpu.cast_to_fp8_v2(input, self.input_scale, False, False, torch.float8_e4m3fn)[0]
+    
+    def dequant_output(self, output):
+        return torch.ops.hpu.cast_from_fp8(output, self.output_scale, torch.bfloat16)
+
+    def forward(self, input, *args, **kwargs):
+        qinput = self.quant_input(input)
+        return super().forward(qinput, *args, **kwargs)
+
+    def fetch_from_cache(self, quant_cache, blocks, permutations=None):
+        if permutations:
+            output_cache = super().fetch_from_cache(quant_cache, blocks,
+                                                        permutations)
+            for i in range(len(output_cache)):
+                output_cache[i] = self.dequant_output(output_cache[i])
+            return output_cache
+        output_cache = super().fetch_from_cache(quant_cache, blocks)
+        return self.dequant_output(output_cache)
+
+
+class FP8Matmul(torch.nn.Module):
+
+    def __init__(self, scale_input=1.0, scale_other=1.0,):
+        super().__init__()
+        self.scale_input = scale_input
+        self.scale_other = scale_other
+
+    def quant_input(self, x, scale):
+        return torch.ops.hpu.cast_to_fp8_v2(
+            x, scale, False, False, torch.float8_e4m3fn
+        )[0]
+
+    def matmul_fp8(
+        self, x, other, out_dtype, scale_input_inv=None, scale_other_inv=None
+    ):
+        return torch.ops.hpu.fp8_gemm_v2(
+            A=x,
+            trans_A=False,
+            B=other,
+            trans_B=False,
+            D=None,
+            out_dtype=out_dtype,
+            A_scale_inv=scale_input_inv,
+            B_scale_inv=scale_other_inv,
+            bias=None,
+            accumulate=False,
+        )
+
+    def forward(self, input, other):
+        qinput = self.quant_input(input, self.scale_input)
+        qother = self.quant_input(other, self.scale_other)
+        output = self.matmul_fp8(
+            qinput,
+            qother,
+            out_dtype=torch.bfloat16,
+            scale_input_inv=1.0 / self.scale_input,
+            scale_other_inv=1.0 / self.scale_other,
+        )
+        return output
 
 
 class ModuleFusedSDPA(torch.nn.Module):
@@ -106,11 +176,3 @@ class ModuleFusedSDPA(torch.nn.Module):
         )
 
 
-@cache
-def logger():
-    try:
-        from vllm.logger import init_logger
-        return init_logger("vllm-hpu-extension")
-    except ImportError:
-        import logging
-        return logging.getLogger("vllm-hpu-extension")

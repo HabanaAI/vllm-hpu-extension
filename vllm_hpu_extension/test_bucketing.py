@@ -1,5 +1,12 @@
+###############################################################################
+# Copyright (C) 2024-2025 Intel Corporation
+#
+# This source code is licensed under the Apache 2.0 license found in the
+# LICENSE file in the root directory of this source tree.
+###############################################################################
+
+
 import pytest
-import os
 
 import vllm_hpu_extension.bucketing.linear as linear
 from vllm_hpu_extension.bucketing.exponential import HPUExponentialBucketingContext
@@ -13,7 +20,8 @@ def hpu_linear_bucketing_context():
         block_size=128,
         max_num_batched_tokens=4096,
         max_model_len=2048,
-        max_prompt_seq=1024
+        max_prompt_seq=1024,
+        use_merged_prefill=False,
     )
     ctx.num_hpu_blocks = 1024
     return ctx
@@ -26,7 +34,8 @@ def hpu_exponential_bucketing_context():
         max_num_prefill_seqs=16,
         block_size=128,
         max_num_batched_tokens=4096,
-        max_model_len=4096
+        max_model_len=4096,
+        use_merged_prefill=False,
     )
     ctx.num_hpu_blocks = 1024
     return ctx
@@ -35,6 +44,7 @@ def hpu_exponential_bucketing_context():
 @pytest.fixture
 def bucketing_cls(request):
     return request.param
+
 
 @pytest.fixture
 def reset_singleton(bucketing_cls):
@@ -56,7 +66,8 @@ def test_singleton_same_args(bucketing_cls, reset_singleton):
         block_size=128,
         max_num_batched_tokens=4096,
         max_model_len=2048,
-        max_prompt_seq=1024
+        max_prompt_seq=1024,
+        use_merged_prefill=False,
     )
     context2 = bucketing_cls(
         max_num_seqs=128,
@@ -64,7 +75,8 @@ def test_singleton_same_args(bucketing_cls, reset_singleton):
         block_size=128,
         max_num_batched_tokens=4096,
         max_model_len=2048,
-        max_prompt_seq=1024
+        max_prompt_seq=1024,
+        use_merged_prefill=False,
     )
     assert context1 is context2
 
@@ -77,7 +89,8 @@ def test_singleton_different_args(bucketing_cls, reset_singleton):
         block_size=128,
         max_num_batched_tokens=4096,
         max_model_len=2048,
-        max_prompt_seq=1024
+        max_prompt_seq=1024,
+        use_merged_prefill=False,
     )
     with pytest.raises(AssertionError) as e_info:
         context2 = bucketing_cls(
@@ -86,7 +99,8 @@ def test_singleton_different_args(bucketing_cls, reset_singleton):
             block_size=128,
             max_num_batched_tokens=4096,
             max_model_len=2048,
-            max_prompt_seq=1024
+            max_prompt_seq=1024,
+            use_merged_prefill=False,
         )
 
 @pytest.mark.parametrize("bucketing_cls", [linear.HPUBucketingContext, HPUExponentialBucketingContext], indirect=True)
@@ -102,7 +116,8 @@ def test_singleton_get_instance():
         block_size=128,
         max_num_batched_tokens=4096,
         max_model_len=2048,
-        max_prompt_seq=1024
+        max_prompt_seq=1024,
+        use_merged_prefill=False
     )
     context2 = linear.HPUBucketingContext.get_instance()
     assert context1 is context2
@@ -140,8 +155,8 @@ def test_generate_prompt_buckets():
 
 
 def test_generate_decode_buckets():
-    bs_bucket_config = (1, 32, 128)
-    blocks_bucket_config = (128, 128, 2048)
+    bs_bucket_config = [1, 32, 128]
+    blocks_bucket_config = [128, 128, 2048]
     max_blocks = 1024
     buckets = linear.generate_decode_buckets(
         bs_bucket_config, blocks_bucket_config, max_blocks
