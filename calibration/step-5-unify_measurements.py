@@ -26,7 +26,7 @@ def find_measurement_path(measurement, measurements_dir_path, scales, group_size
 
 
 def is_moe(node_name):
-    return True if node_name.endswith("moe_op") else False
+    return True if "moe" in node_name.lower() and ".w13_list" not in node_name and ".w2_list" not in node_name else False
 
 
 def is_moe_experts(node_name):
