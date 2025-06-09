@@ -408,6 +408,7 @@ class MoeMatmul(torch.nn.Module):
 class VllmMixtureOfExpertsOp(torch.nn.Module):
 
     def __init__(self, num_total_experts, experts_min: int = 0, experts_max: int = 8):
+    def __init__(self, num_total_experts, experts_min: int = 0, experts_max: int = 8):
         super().__init__()
         self.w13_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
