@@ -160,7 +160,11 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
 
     @property
     def decode_buckets(self):
-        return self.global_state.decode_buckets
+        # decode_buckets should've been generated during warmup,
+        # but in case of unit_tests warmup method is not called at all
+        if hasattr(self.global_state, 'decode_buckets'):
+            return self.global_state.decode_buckets
+        return []
 
     @classmethod
     def get_instance(cls):
@@ -204,7 +208,8 @@ def find_bucket(buckets, value, dim=None):
     try:
         return next(p for p in sorted(buckets) if p >= value)
     except StopIteration:
-        return None
+        logger.warning(f"Couldn't find a bucket for value: {value} in {buckets} dim:{dim}")
+        return value
         
 
 def get_buckets_single_dim(buckets, dim):
