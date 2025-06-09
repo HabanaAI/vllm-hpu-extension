@@ -4,7 +4,7 @@
 
 # install vllm, before upstream PR merged, need to use fork firstly.
 #git clone https://github.com/vllm-project/vllm.git
-VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/HabanaAI/vllm-fork.git@vllm-upstream-plugin-enhancement
+VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/HabanaAI/vllm-fork.git@dev/upstream_vllm_for_plugin
 
 # install plugin
 git clone -b plugin/vllm-hpu https://github.com/HabanaAI/vllm-fork.git; mv vllm-fork vllm-hpu;
@@ -38,6 +38,7 @@ PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false python test_plugin.py
 
 expected see vllm hpu plugin registered
 * For v0
+
 ```
 INFO 06-05 01:12:17 [__init__.py:31] Available plugins for group vllm.platform_plugins:
 INFO 06-05 01:12:17 [__init__.py:33] - hpu -> vllm_hpu:register
@@ -52,6 +53,7 @@ INFO 06-05 01:12:19 [__init__.py:36] All plugins in this group will be loaded. S
 ```
 
 * For v1
+
 ```
 WARNING 06-07 01:38:28 [importing.py:29] Triton is not installed. Using dummy decorators. Install it via `pip install triton` to enable kernel compilation.
 INFO 06-07 01:38:28 [__init__.py:39] Available plugins for group vllm.platform_plugins:
