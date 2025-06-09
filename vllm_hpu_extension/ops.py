@@ -495,7 +495,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
 
             selected_experts = (expert_routing_table - self.experts_min).to(torch.int64)
             moe_intermediate = self.w2_weight.shape[2]
-            padded_weights = torch.zeros((bt, self.num_experts),
+            padded_weights = torch.zeros((tokens_num, self.num_experts),
                                          dtype=hidden_states.dtype,
                                          device=hidden_states.device)
             padded_weights.scatter_(-1, selected_experts, router_weights)
@@ -505,7 +505,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 hidden_states,
                 self.w13_weight.view(-1, self.w13_weight.size(-1)).transpose(
                     0, 1))
-            up_gate_states = up_gate_states.reshape(bt, self.num_experts, 2,
+            up_gate_states = up_gate_states.reshape(tokens_num, self.num_experts, 2,
                                                     moe_intermediate)
             up_states = up_gate_states[:, :, 0, :]
             gate_states = up_gate_states[:, :, 1, :]
