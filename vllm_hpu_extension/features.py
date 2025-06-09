@@ -50,6 +50,7 @@ def get_experimental_flags():
 def get_features():
     supported_attn_impls = ['flex_impl', 'fsdpa_impl', 'naive_impl']
     features = [
+        Value('fp32_alibi_biases', True, env_var='VLLM_ALIBI_USE_FLOAT32_BIASES'),
         Value('fp32_softmax', ModelType('qwen2')),
         Value('fused_block_softmax_adjustment', All(VersionRange(">=1.22.0.101"),
                                                     Hardware('gaudi3'),
