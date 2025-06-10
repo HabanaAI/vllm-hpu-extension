@@ -25,9 +25,8 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, use_merged_prefill,
-                 max_model_len, max_prompt_seq=None,
-                 max_decode_seq=None, prefix_caching=True):
+                 max_num_batched_tokens, use_merged_prefill, prefix_caching,
+                 max_model_len, max_prompt_seq=None, max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
 
@@ -99,9 +98,9 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
             self.global_state.prompt_bs_bucket_cfg,
             self.global_state.prompt_seq_bucket_cfg,
             self.block_size,
+            self.prefix_caching,
             self.max_num_batched_tokens,
-            self.max_model_len,
-            self.prefix_caching)
+            self.max_model_len)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
                f"prompt buckets [bs, seq]: "
@@ -232,9 +231,9 @@ def get_closest_bucket(buckets, target):
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
                             block_size,
+                            prefix_caching,
                             max_num_batched_tokens=None,
-                            max_model_len=None,
-                            prefix_caching=True):
+                            max_model_len=None):
     _, _, bmax, _ = seq_bucket_config
     batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
     seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
