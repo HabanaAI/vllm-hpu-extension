@@ -22,6 +22,10 @@ class Config:
         """Allow conveniently querying keys by using dot notation"""
         return self.get(key)
 
+    def __bool__(self) -> bool:
+        """Check if config is not empty"""
+        return bool(self._data)
+
     def get(self, key: str):
         """Get key from internal structure, triggering calculation if needed"""
         assert key in self._data, f'Unknown run-time configuration parameter: {key}!'
@@ -31,10 +35,14 @@ class Config:
             self._data[key] = value
         return value
 
-    def get_all(self, keys: Optional[List[str]] = None):
+    def get_all(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
         """Return a dict with a subset of keys"""
         keys = keys or self._data.keys()
         return {k: self.get(k) for k in keys}
+
+    def finalize(self) -> None:
+        """Trigger calculating all values"""
+        self.get_all()
 
 
 ValueFn: TypeAlias = Callable[Config, Any]
