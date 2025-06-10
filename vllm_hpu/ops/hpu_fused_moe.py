@@ -16,7 +16,7 @@ class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
         num_experts = layer.local_num_experts
         ep_shift = layer.ep_rank * num_experts
         quant_config = layer.quant_config
-        from vllm_hpu_extension.ops import (VllmMixtureOfExpertsOp,
+        from vllm_hpu.extension.ops import (VllmMixtureOfExpertsOp,
                                             VllmMixtureOfExpertsOpFP8,
                                             VllmMixtureOfExpertsOpFP8PerChannel
                                             )

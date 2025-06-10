@@ -1,5 +1,4 @@
-from typing import Optional, Union, Tuple
-
+from typing import Optional, Union
 import torch
 from vllm.model_executor.layers.layernorm import \
     RMSNorm
@@ -13,8 +12,8 @@ class HPURMSNorm(RMSNorm):
         self,
         x: torch.Tensor,
         residual: Optional[torch.Tensor] = None,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        from vllm_hpu_extension.kernels import rms_norm
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        from vllm_hpu.extension.kernels import rms_norm
         HPUFusedRMSNorm = rms_norm()
         if x.dim() < 3:
             # fix an known bug before synapse 1.21 release
