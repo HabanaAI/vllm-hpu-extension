@@ -759,7 +759,11 @@ class HPUModelRunner:
             # Update the block IDs.
             if not req_data.resumed_from_preemption:
                 # Append the new blocks to the existing block IDs.
-                req_state.block_ids.extend(req_data.new_block_ids)
+                for block_ids, new_block_ids in zip(  # type: ignore[call-overload]
+                        req_state.block_ids,
+                        req_data.new_block_ids,
+                        strict=True):
+                    block_ids.extend(new_block_ids)
             else:
                 # The request is resumed from preemption.
                 # Replace the existing block IDs with the new ones.
@@ -2401,10 +2405,10 @@ class HPUModelRunner:
 
         for kv_cache_group in kv_cache_config.kv_cache_groups:
             kv_cache_spec = kv_cache_group.kv_cache_spec
-            for layer_name in kv_cache_group.layer_names:
-                tensor_config = kv_cache_config.tensors[layer_name]
-                assert tensor_config.size % kv_cache_spec.page_size_bytes == 0
-                num_blocks = tensor_config.size // kv_cache_spec.page_size_bytes
+
+            for kv_cache_tensor in kv_cache_config.kv_cache_tensors:
+                assert kv_cache_tensor.size % kv_cache_spec.page_size_bytes == 0
+                num_blocks = kv_cache_tensor.size // kv_cache_spec.page_size_bytes
                 # `num_blocks` is the number of blocks the model runner can use.
                 # `kv_cache_config.num_blocks` is the number of blocks that
                 # KVCacheManager may allocate.
@@ -2422,12 +2426,18 @@ class HPUModelRunner:
                                             dtype=dtype,
                                             device=self.device)
                     value_cache = torch.zeros_like(key_cache)
-                    kv_caches[layer_name] = (key_cache, value_cache)
+                    for layer_name in kv_cache_tensor.shared_by:
+                        kv_caches[layer_name] = (key_cache, value_cache)
                 else:
                     # TODO: add new branches when introducing more types of
                     # KV cache specs.
                     raise ValueError("Unknown KV cache spec type.")
 
+            layer_names = set()
+            for group in kv_cache_config.kv_cache_groups:
+                layer_names.update(group.layer_names)
+            assert layer_names == set(
+                kv_caches.keys()), "Some layers are not correctly initialized"
         bind_kv_cache(
             kv_caches,
             self.vllm_config.compilation_config.static_forward_context,
