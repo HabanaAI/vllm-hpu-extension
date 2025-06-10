@@ -5,6 +5,7 @@ import lm_eval
 import yaml
 import gc
 from lm_eval.models.vllm_causallms import VLLM
+import os
 
 # These have unsupported head_dim for FA. We do not
 # not have a clean way to fall back, so we fail with
@@ -17,12 +18,15 @@ def launch_lm_eval(eval_config):
     trust_remote_code = eval_config.get('trust_remote_code', False)
     dtype = eval_config.get('dtype', 'bfloat16')
     max_num_seqs = eval_config.get('max_num_seqs', 128)
-    tp_size = eval_config.get('tensor_parallel_size', 1)
-    enable_apc = eval_config.get('enable_apc', False)
+    tp_size = os.environ.get('TP_SIZE', '1')
+    enable_apc = os.environ.get('ENABLE_APC', 'False').lower() in ['true', '1']
+    enforce_eager = os.environ.get('ENFORCE_EAGER',
+                                   'False').lower() in ['true', '1']
     task = eval_config.get('tasks', 'gsm8k')
     model_args = {
         'pretrained': eval_config['model_name'],
         'tensor_parallel_size': tp_size,
+        'enforce_eager': enforce_eager,
         'enable_prefix_caching': enable_apc,
         'add_bos_token': True,
         'dtype': dtype,
