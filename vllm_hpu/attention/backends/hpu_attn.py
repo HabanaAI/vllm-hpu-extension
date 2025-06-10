@@ -6,7 +6,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Optional
 
 import torch
 import vllm_hpu.extension.kernels as kernels
@@ -35,15 +35,15 @@ class HPUAttentionBackend(AttentionBackend):
         return "HPU_ATTN"
 
     @staticmethod
-    def get_impl_cls() -> Type["HPUAttentionImpl"]:
+    def get_impl_cls() -> type["HPUAttentionImpl"]:
         return HPUAttentionImpl
 
     @staticmethod
-    def get_metadata_cls() -> Type["AttentionMetadata"]:
+    def get_metadata_cls() -> type["AttentionMetadata"]:
         return HPUAttentionMetadata
 
     @staticmethod
-    def get_state_cls() -> Type["CommonAttentionState"]:
+    def get_state_cls() -> type["CommonAttentionState"]:
         return CommonAttentionState
 
     @staticmethod
@@ -52,7 +52,7 @@ class HPUAttentionBackend(AttentionBackend):
         block_size: int,
         num_kv_heads: int,
         head_size: int,
-    ) -> Tuple[int, ...]:
+    ) -> tuple[int, ...]:
         return HPUPagedAttention.get_kv_cache_shape(num_blocks, block_size,
                                                     num_kv_heads, head_size)
 
@@ -66,7 +66,7 @@ class HPUAttentionBackend(AttentionBackend):
 
     @staticmethod
     def copy_blocks(
-        kv_caches: List[torch.Tensor],
+        kv_caches: list[torch.Tensor],
         src_to_dsts: torch.Tensor,
     ) -> None:
         HPUPagedAttention.copy_blocks(kv_caches, src_to_dsts)
@@ -79,15 +79,15 @@ class HPUMLAAttentionBackend(AttentionBackend):
         return "HPU_MLA"
 
     @staticmethod
-    def get_impl_cls() -> Type["HPUMLAImpl"]:
+    def get_impl_cls() -> type["HPUMLAImpl"]:
         return HPUMLAImpl
 
     @staticmethod
-    def get_metadata_cls() -> Type["AttentionMetadata"]:
+    def get_metadata_cls() -> type["AttentionMetadata"]:
         return HPUMLAMetadata
 
     @staticmethod
-    def get_state_cls() -> Type["CommonAttentionState"]:
+    def get_state_cls() -> type["CommonAttentionState"]:
         return CommonAttentionState
 
     @staticmethod
@@ -96,7 +96,7 @@ class HPUMLAAttentionBackend(AttentionBackend):
         block_size: int,
         num_kv_heads: int,
         head_size: int,
-    ) -> Tuple[int, ...]:
+    ) -> tuple[int, ...]:
         return (num_blocks * block_size, head_size)
 
     @staticmethod
@@ -109,7 +109,7 @@ class HPUMLAAttentionBackend(AttentionBackend):
 
     @staticmethod
     def copy_blocks(
-        kv_caches: List[torch.Tensor],
+        kv_caches: list[torch.Tensor],
         src_to_dists: torch.Tensor,
     ) -> None:
         HPUPagedAttention.copy_blocks(kv_caches, src_to_dists)
@@ -126,8 +126,8 @@ class HPUAttentionMetadata(HPUPagedAttentionMetadata, AttentionMetadata):
     seq_lens_tensor: Optional[torch.Tensor]
     context_lens_tensor: Optional[torch.Tensor]
     input_positions: torch.Tensor
-    seq_lens: Optional[List[int]] = None
-    encoder_seq_lens: Optional[List[int]] = None
+    seq_lens: Optional[list[int]] = None
+    encoder_seq_lens: Optional[list[int]] = None
     encoder_seq_lens_tensor: Optional[torch.Tensor] = None
     max_encoder_seq_len: Optional[int] = None
     cross_block_list: Optional[torch.Tensor] = None
@@ -151,10 +151,10 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
             head_size: int,
             scale: float,
             num_kv_heads: int,
-            alibi_slopes: Optional[List[float]],
+            alibi_slopes: Optional[list[float]],
             sliding_window: Optional[int],
             kv_cache_dtype: str,
-            blocksparse_params: Optional[Dict[str, Any]],
+            blocksparse_params: Optional[dict[str, Any]],
             logits_soft_cap: Optional[float],
             attn_type: str,
             kv_sharing_target_layer_name: Optional[str],
@@ -354,12 +354,13 @@ class HPUAttentionImpl(AttentionImpl, torch.nn.Module):
         head_size: int,
         scale: float,
         num_kv_heads: int,
-        alibi_slopes: Optional[List[float]],
+        alibi_slopes: Optional[list[float]],
         sliding_window: Optional[int],
         kv_cache_dtype: str,
-        blocksparse_params: Optional[Dict[str, Any]] = None,
+        blocksparse_params: Optional[dict[str, Any]] = None,
         logits_soft_cap: Optional[float] = None,
         attn_type: str = AttentionType.DECODER,
+        kv_sharing_target_layer_name: Optional[str] = None,
         use_irope: bool = False,
     ) -> None:
         super(AttentionImpl, self).__init__()
