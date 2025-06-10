@@ -6,5 +6,5 @@ def register():
 
 def register_ops():
     """Register custom ops for the HPU platform."""
-
-    import vllm_hpu.ops  # noqa: F401
+    pass
+    #    import vllm_hpu.ops  # noqa: F401

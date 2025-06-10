@@ -20,7 +20,7 @@ logger = init_logger(__name__)
 
 
 class HpuPlatform(Platform):
-    _enum = PlatformEnum.OOT
+    _enum = PlatformEnum.OOT if envs.VLLM_USE_V1 else PlatformEnum.HPU
     device_name: str = "hpu"
     device_type: str = "hpu"
     dispatch_key: str = "HPU"
@@ -35,14 +35,19 @@ class HpuPlatform(Platform):
                              dtype: torch.dtype, kv_cache_dtype: Optional[str],
                              block_size: int, use_v1: bool,
                              use_mla: bool) -> str:
-        if use_v1:
+        if use_v1 and not use_mla:
             logger.info("Using HPUAttentionV1 backend.")
             return "vllm_hpu.attention.backends.hpu_attn.HPUAttentionBackend"
-        if use_mla:
+        if use_v1 and use_mla:
             logger.info("Using HPUAttentionMLA backend.")
             return "vllm_hpu.attention.backends.hpu_attn.HPUMLAAttentionBackend"
+
+        # Fall back to in-tree HPUAttention backend
+        if use_mla:
+            logger.info("Using HPUAttentionMLA backend.")
+            return "vllm.attention.backends.hpu_attn.HPUMLAAttentionBackend"
         logger.info("Using HPUAttention backend.")
-        return "vllm_hpu.attention.backends.hpu_attn.HPUAttentionBackend"
+        return "vllm.attention.backends.hpu_attn.HPUAttentionBackend"
 
     @classmethod
     def is_async_output_supported(cls, enforce_eager: Optional[bool]) -> bool:
@@ -62,7 +67,7 @@ class HpuPlatform(Platform):
                     "vllm_hpu.v1.worker.hpu_worker.HPUWorker"
             else:
                 parallel_config.worker_cls = \
-                    "vllm_hpu.worker.hpu_worker.HPUWorker"
+                    "vllm.worker.hpu_worker.HPUWorker"
 
         # NOTE(kzawora): default block size for Gaudi should be 128
         # smaller sizes still work, but very inefficiently

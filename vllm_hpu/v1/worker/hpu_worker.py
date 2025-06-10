@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional
 import torch
 import torch.distributed
 import torch.nn as nn
-from vllm_hpu_extension.profiler import HabanaMemoryProfiler, format_bytes
+from vllm_hpu.extension.profiler import HabanaMemoryProfiler, format_bytes
 
 import vllm.envs as envs
 from vllm.config import ParallelConfig, VllmConfig

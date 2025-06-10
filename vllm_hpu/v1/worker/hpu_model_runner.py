@@ -15,9 +15,9 @@ import habana_frameworks.torch.internal.bridge_config as bc
 import numpy as np
 import torch
 import torch.distributed
-import vllm_hpu_extension.environment as environment
-from vllm_hpu_extension.runtime import get_config
-from vllm_hpu_extension.profiler import HabanaMemoryProfiler, format_bytes
+import vllm_hpu.extension.environment as environment
+from vllm_hpu.extension.runtime import get_config
+from vllm_hpu.extension.profiler import HabanaMemoryProfiler, format_bytes
 
 from vllm.attention.backends.abstract import AttentionType
 from vllm.attention.layer import Attention
@@ -49,7 +49,7 @@ from vllm_hpu.v1.worker.hpu_input_batch import InputBatch
 if TYPE_CHECKING:
     from vllm.v1.core.scheduler import SchedulerOutput
 
-from vllm_hpu_extension.bucketing.common import get_bucketing_context
+from vllm_hpu.extension.bucketing.common import get_bucketing_context
 
 logger = init_logger(__name__)
 

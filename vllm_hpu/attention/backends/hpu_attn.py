@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
-import vllm_hpu_extension.kernels as kernels
-import vllm_hpu_extension.ops as ops
-from vllm_hpu_extension.runtime import get_config
-from vllm_hpu_extension.utils import (FP8Matmul, Matmul, ModuleFusedSDPA,
+import vllm_hpu.extension.kernels as kernels
+import vllm_hpu.extension.ops as ops
+from vllm_hpu.extension.runtime import get_config
+from vllm_hpu.extension.utils import (FP8Matmul, Matmul, ModuleFusedSDPA,
                                       Softmax, VLLMFP8KVCache, VLLMKVCache)
 
 from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
