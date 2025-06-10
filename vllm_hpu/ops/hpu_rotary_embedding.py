@@ -1,9 +1,13 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import math
-from vllm.model_executor.layers.rotary_embedding import \
-    RotaryEmbedding, Phi3LongRoPEScaledRotaryEmbedding, Llama4VisionRotaryEmbedding, Llama3RotaryEmbedding, LinearScalingRotaryEmbedding, DynamicNTKScalingRotaryEmbedding, YaRNScalingRotaryEmbedding, DeepseekScalingRotaryEmbedding, MRotaryEmbedding
+from vllm.model_executor.layers.rotary_embedding import (
+    RotaryEmbedding, Phi3LongRoPEScaledRotaryEmbedding,
+    Llama4VisionRotaryEmbedding, Llama3RotaryEmbedding,
+    LinearScalingRotaryEmbedding, DynamicNTKScalingRotaryEmbedding,
+    YaRNScalingRotaryEmbedding, DeepseekScalingRotaryEmbedding,
+    MRotaryEmbedding)
 from vllm.model_executor.custom_op import CustomOp
 
 
@@ -45,7 +49,7 @@ class HPURotaryEmbedding(RotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -132,7 +136,7 @@ class HPULinearScalingRotaryEmbedding(LinearScalingRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -219,7 +223,7 @@ class HPUDynamicNTKScalingRotaryEmbedding(DynamicNTKScalingRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -306,7 +310,7 @@ class HPUYaRNScalingRotaryEmbedding(YaRNScalingRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -393,7 +397,7 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -480,7 +484,7 @@ class HPULlama3RotaryEmbedding(Llama3RotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -558,7 +562,7 @@ class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
@@ -600,6 +604,21 @@ class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
 @CustomOp.register("Llama4VisionRotaryEmbedding", custom_op=True)
 class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
 
+    def __init__(
+        self,
+        head_size: int,
+        rotary_dim: int,
+        max_position_embeddings: int,
+        base: float,
+        is_neox_style: bool,
+        dtype: torch.dtype,
+    ) -> None:
+        # original model use dtype as complex
+        # for HPU, need to change to 'float'
+        dtype = torch.float
+        super().__init__(head_size, rotary_dim, max_position_embeddings, base,
+                         is_neox_style, dtype)
+
     def _compute_cos_sin_cache(self) -> torch.Tensor:
         inv_freq = self._compute_inv_freq(self.base)
 
@@ -633,7 +652,7 @@ class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
         self,
         query: torch.Tensor,
         key: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # Ensure the cache is on the right device.
         self.cos_sin_cache = self.cos_sin_cache.to(query.device)
         cos_cache, sin_cache = self.cos_sin_cache.chunk(2, dim=-1)
@@ -717,7 +736,7 @@ class HPUMRotaryEmbedding(MRotaryEmbedding):
         query: torch.Tensor,
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         from habana_frameworks.torch.hpex.kernels import (
             RotaryPosEmbeddingMode, apply_rotary_pos_emb)
 
