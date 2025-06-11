@@ -375,9 +375,7 @@ class HpuModelAdapter(torch.nn.Module):
             current_module.prepare_cos_sin(
                 positions, recompute_cos_sin=self.recompute_cos_sin)
         else:
-            raise AttributeError(
-                "The module at the end of the path does not have \
-                a 'prepare_cos_sin' method.")
+            pass
 
     def forward(self, *args, **kwargs):
         # TODO(kzawora): something goes VERY WRONG when operating on
@@ -2408,7 +2406,8 @@ class HPUModelRunner:
 
             for kv_cache_tensor in kv_cache_config.kv_cache_tensors:
                 assert kv_cache_tensor.size % kv_cache_spec.page_size_bytes == 0
-                num_blocks = kv_cache_tensor.size // kv_cache_spec.page_size_bytes
+                num_blocks = \
+                    kv_cache_tensor.size // kv_cache_spec.page_size_bytes
                 # `num_blocks` is the number of blocks the model runner can use.
                 # `kv_cache_config.num_blocks` is the number of blocks that
                 # KVCacheManager may allocate.
@@ -2421,11 +2420,18 @@ class HPUModelRunner:
                     kv_cache_shape = self.attn_backend.get_kv_cache_shape(
                         num_blocks + 1, kv_cache_spec.block_size,
                         kv_cache_spec.num_kv_heads, kv_cache_spec.head_size)
+                    v_cache_shape = None if self.model_config.use_mla \
+                    else kv_cache_shape
                     dtype = kv_cache_spec.dtype
                     key_cache = torch.zeros(kv_cache_shape,
                                             dtype=dtype,
                                             device=self.device)
-                    value_cache = torch.zeros_like(key_cache)
+                    if v_cache_shape is not None:
+                        value_cache = torch.zeros(v_cache_shape,
+                                                  dtype=dtype,
+                                                  device=self.device)
+                    else:
+                        value_cache = None
                     for layer_name in kv_cache_tensor.shared_by:
                         kv_caches[layer_name] = (key_cache, value_cache)
                 else:
