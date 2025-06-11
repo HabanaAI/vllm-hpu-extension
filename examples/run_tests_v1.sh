@@ -36,13 +36,17 @@ VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false 
 pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Mistral-7B-Instruct-v0.3.yaml
 
 # mixtral TP=2
-PT_HPU_ENABLE_LAZY_COLLECTIVES=True VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \
+PT_HPU_ENABLE_LAZY_COLLECTIVES=True VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=2 \
 pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Mixtral-8x7B-Instruct-v0.1.yaml
 
 # llama4-moe TP=4 (text generation)
-PT_HPU_ENABLE_LAZY_COLLECTIVES=True VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \
-pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct.yaml
+# PT_HPU_ENABLE_LAZY_COLLECTIVES=True VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=4 \
+# pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct.yaml
+
+# # deepseek-v2-lite-chat
+# VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \
+# pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/DeepSeek-V2-Lite-chat.yaml
 
 # # llama4-moe TP=4 (vision ineference)
 # VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \
-# pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct-vision.yaml
+# pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct-vision.yaml
