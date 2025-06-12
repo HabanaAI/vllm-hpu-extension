@@ -391,7 +391,7 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
 
-    def forward_oot(
+    def forward(
         self,
         positions: torch.Tensor,
         query: torch.Tensor,
@@ -409,6 +409,10 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
                 self, "scaling_factor") or self.sin is None:
             self.prepare_cos_sin(positions, offsets)
         num_tokens = positions.shape[0] * positions.shape[1]
+
+        # deepseek_v2 MLA attention did an unsqueeze on key due to assumption on GPU with (num_tokens, hidden_size)
+        if key.dim() == 4:
+            key = key.squeeze(1)
         # HPU RoPE kernel requires hidden dimension for cos and sin to be equal
         # to query hidden dimension, so the original tensors need to be
         # expanded
@@ -445,6 +449,16 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
         key_rot = apply_rotary_pos_emb(key_rot, cos, sin, None, 0, rope_mode)
         key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
         return query, key
+
+    def forward_oot(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        offsets: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # This method is not used in DeepseekScalingRotaryEmbedding
+        return self.forward(positions, query, key, offsets)
 
 
 @CustomOp.register("Llama3RotaryEmbedding", is_oot_custom_op=True)
