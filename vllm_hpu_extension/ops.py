@@ -13,6 +13,7 @@ import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.runtime import get_config
 import habana_frameworks.torch.utils.experimental as htexp
+from vllm_hpu_extension.logger import logger
 
 is_hpu_gaudi2 = htexp._get_device_type(
     ) == htexp.synDeviceType.synDeviceGaudi2
@@ -699,6 +700,9 @@ def dynamic_quant(data, single_scale = False):
 
 
 def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
+    if get_config().scale_fp8fn_to_fp8fnuz:
+        logger().warning_once("VLLM_SCALE_FP8FN_TO_FP8FN_UZ is enabled, this will scale the weights to FP8FN_UZ limits and take significant amount of time")
+        fp_linear_convert_fnuz(layer)
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
         layer.weight_scale_inv.data,
@@ -729,6 +733,9 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
 
 
 def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
+    if get_config().scale_fp8fn_to_fp8fnuz:
+        logger().warning_once("VLLM_SCALE_FP8FN_TO_FP8FN_UZ is enabled, this will scale the weights to FP8FN_UZ limits and take significant amount of time")
+        fp8_moe_convert_fnuz(layer)
     if force_channel_fp8:
         # convert to channel-wise fp8
         w13_weight, w13_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
@@ -767,6 +774,23 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
         )
     htorch.core.mark_step()
     return layer
+
+def fp_linear_convert_fnuz(layer):
+    """Convert linear layer weights to FP8 format for Gaudi2 by scaling the weight by float8.e4m3fnuz max / float8.e4m3fn max
+    and scale_inv by float8.e4m3fn max / float8.e4m3fnuz max.
+    See https://docs.habana.ai/en/latest/PyTorch/Reference/Debugging_Guide/Model_Troubleshooting.html#using-torch-float8-e4m3fn-on-gaudi-2 for explanation"""
+    layer.weight.data =  (layer.weight.data.cpu().float()   * 240.0 / 448.0 ).to(torch.float8_e4m3fn).to("hpu")      
+    layer.weight_scale_inv.data = (layer.weight_scale_inv.data * 448.0 / 240.0) 
+                
+
+def fp8_moe_convert_fnuz(layer):
+    """Convert FusedMoE layer weights to FP8 format for Gaudi2 by scaling the weight by float8.e4m3fnuz max / float8.e4m3fn max
+    and scale_inv by float8.e4m3fn max / float8.e4m3fnuz max.
+    See https://docs.habana.ai/en/latest/PyTorch/Reference/Debugging_Guide/Model_Troubleshooting.html#using-torch-float8-e4m3fn-on-gaudi-2 for explanation"""
+    layer.w13_weight.data = (layer.w13_weight.data.cpu().float()   / 448.0 * 240.0  ).to(torch.float8_e4m3fn).to("hpu")
+    layer.w13_weight_scale_inv.data =  layer.w13_weight_scale_inv.data * 448.0 / 240.0 
+    layer.w2_weight.data = (layer.w2_weight.data.cpu().float()    / 448.0 * 240.0 ).to(torch.float8_e4m3fn).to("hpu")
+    layer.w2_weight_scale_inv.data =  layer.w2_weight_scale_inv.data * 448.0 / 240.0
 
 
 def fp8_channel_moe_prepare_weights(layer):
