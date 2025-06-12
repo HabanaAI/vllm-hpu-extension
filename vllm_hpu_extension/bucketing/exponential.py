@@ -22,6 +22,7 @@ class HPUExponentialBucketingGlobalState(metaclass=WeakSingleton):
 
 
 class HPUExponentialBucketingContext(metaclass=WeakSingleton):
+    print("expo - zaczynamy")
     global_state = HPUExponentialBucketingGlobalState()
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
@@ -40,6 +41,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
             max_prompt_seq (int, optional): The maximum length of the prompt sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
             max_decode_seq (int, optional): The maximum length of the decode sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
         """
+        print("expo - init")
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
