@@ -63,24 +63,24 @@ Refer to the [Intel Gaudi documentation](https://docs.habana.ai/en/latest/Instal
 Use the following commands to run a Docker image. Make sure to update the versions below as listed in the [Support Matrix](https://docs.habana.ai/en/latest/Support_Matrix/Support_Matrix.html):
 
 ```{.console}
-$ docker pull vault.habana.ai/gaudi-docker/1.21.0/ubuntu22.04/habanalabs/pytorch-installer-2.6.0:latest
-$ docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_vader_single_copy_mechanism=none --cap-add=sys_nice --net=host --ipc=host vault.habana.ai/gaudi-docker/1.21.0/ubuntu22.04/habanalabs/pytorch-installer-2.6.0:latest
+docker pull vault.habana.ai/gaudi-docker/1.21.0/ubuntu22.04/habanalabs/pytorch-installer-2.6.0:latest
+docker run -it --runtime=habana -e HABANA_VISIBLE_DEVICES=all -e OMPI_MCA_btl_vader_single_copy_mechanism=none --cap-add=sys_nice --net=host --ipc=host vault.habana.ai/gaudi-docker/1.21.0/ubuntu22.04/habanalabs/pytorch-installer-2.6.0:latest
 ```
 
 ### Build and Install vLLM
 
 Currently, multiple ways are provided which can be used to install vLLM with Intel® Gaudi®:
 
-=== "Stable version"
+=== "Stable vLLM-fork version"
 
     vLLM releases are being performed periodically to align with Intel® Gaudi® software releases. The stable version is released with a tag, and supports fully validated features and performance optimizations in Gaudi's [vLLM-fork](https://github.com/HabanaAI/vllm-fork). To install the stable release from [HabanaAI/vLLM-fork](https://github.com/HabanaAI/vllm-fork), run the following:
 
     ```{.console}
-    $ git clone https://github.com/HabanaAI/vllm-fork.git
-    $ cd vllm-fork
-    $ git checkout v0.7.2+Gaudi-1.21.0
-    $ pip install -r requirements-hpu.txt
-    $ python setup.py develop
+    git clone https://github.com/HabanaAI/vllm-fork.git
+    cd vllm-fork
+    git checkout v0.7.2+Gaudi-1.21.0
+    pip install -r requirements-hpu.txt
+    python setup.py develop
     ```
 
 === "Latest vLLM-fork"
@@ -89,12 +89,12 @@ Currently, multiple ways are provided which can be used to install vLLM with Int
     To install latest [HabanaAI/vLLM-fork](https://github.com/HabanaAI/vllm-fork), run the following:
 
     ```{.console}
-    $ git clone https://github.com/HabanaAI/vllm-fork.git
-    $ cd vllm-fork
-    $ git checkout habana_main
-    $ pip install --upgrade pip
-    $ pip install -r requirements-hpu.txt
-    $ python setup.py develop
+    git clone https://github.com/HabanaAI/vllm-fork.git
+    cd vllm-fork
+    git checkout habana_main
+    pip install --upgrade pip
+    pip install -r requirements-hpu.txt
+    python setup.py develop
     ```
 
 === "vLLM Upstream"
@@ -102,8 +102,21 @@ Currently, multiple ways are provided which can be used to install vLLM with Int
     If you prefer to build and install directly from the main vLLM source, where periodically we are upstreaming new features, run the following:
 
     ```{.console}
-    $ git clone https://github.com/vllm-project/vllm.git
-    $ cd vllm
-    $ pip install -r requirements-hpu.txt
-    $ python setup.py develop
+    git clone https://github.com/vllm-project/vllm.git
+    cd vllm
+    pip install -r requirements-hpu.txt
+    python setup.py develop
     ```
+
+=== "[EXPERIMENTAL] vLLM Upstream + Plugin"
+
+    You're on the bleeding edge, good luck to you:
+
+    ```{.console}
+    VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/HabanaAI/vllm-fork.git@dev/upstream_vllm_for_plugin
+    pip uninstall -y triton
+    git clone -b plugin_poc https://github.com/HabanaAI/vllm-hpu-extension.git vllm-hpu
+    cd vllm-hpu
+    pip install -e .
+    ```
+
