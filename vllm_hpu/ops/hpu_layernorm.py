@@ -5,7 +5,7 @@ from vllm.model_executor.layers.layernorm import \
 from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("RMSNorm", custom_op=True)
+@CustomOp.register("RMSNorm", is_oot_custom_op=True)
 class HPURMSNorm(RMSNorm):
 
     def forward_oot(

@@ -11,7 +11,7 @@ from vllm.model_executor.layers.rotary_embedding import (
 from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("RotaryEmbedding", custom_op=True)
+@CustomOp.register("RotaryEmbedding", is_oot_custom_op=True)
 class HPURotaryEmbedding(RotaryEmbedding):
     """Original rotary positional embedding."""
 
@@ -99,7 +99,7 @@ class HPURotaryEmbedding(RotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("LinearScalingRotaryEmbedding", custom_op=True)
+@CustomOp.register("LinearScalingRotaryEmbedding", is_oot_custom_op=True)
 class HPULinearScalingRotaryEmbedding(LinearScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -186,7 +186,7 @@ class HPULinearScalingRotaryEmbedding(LinearScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("DynamicNTKScalingRotaryEmbedding", custom_op=True)
+@CustomOp.register("DynamicNTKScalingRotaryEmbedding", is_oot_custom_op=True)
 class HPUDynamicNTKScalingRotaryEmbedding(DynamicNTKScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -273,7 +273,7 @@ class HPUDynamicNTKScalingRotaryEmbedding(DynamicNTKScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("YaRNScalingRotaryEmbedding", custom_op=True)
+@CustomOp.register("YaRNScalingRotaryEmbedding", is_oot_custom_op=True)
 class HPUYaRNScalingRotaryEmbedding(YaRNScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -360,7 +360,7 @@ class HPUYaRNScalingRotaryEmbedding(YaRNScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("DeepseekScalingRotaryEmbedding", custom_op=True)
+@CustomOp.register("DeepseekScalingRotaryEmbedding", is_oot_custom_op=True)
 class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -447,7 +447,7 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("Llama3RotaryEmbedding", custom_op=True)
+@CustomOp.register("Llama3RotaryEmbedding", is_oot_custom_op=True)
 class HPULlama3RotaryEmbedding(Llama3RotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -534,7 +534,7 @@ class HPULlama3RotaryEmbedding(Llama3RotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("Phi3LongRoPEScaledRotaryEmbedding", custom_op=True)
+@CustomOp.register("Phi3LongRoPEScaledRotaryEmbedding", is_oot_custom_op=True)
 class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -601,7 +601,7 @@ class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("Llama4VisionRotaryEmbedding", custom_op=True)
+@CustomOp.register("Llama4VisionRotaryEmbedding", is_oot_custom_op=True)
 class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
 
     def __init__(
@@ -699,7 +699,7 @@ class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
         return query_out.type_as(query), key_out.type_as(key)
 
 
-@CustomOp.register("MRotaryEmbedding", custom_op=True)
+@CustomOp.register("MRotaryEmbedding", is_oot_custom_op=True)
 class HPUMRotaryEmbedding(MRotaryEmbedding):
 
     def prepare_cos_sin(self,

@@ -6,7 +6,7 @@ from vllm.model_executor.layers.fused_moe.layer import (
     FusedMoE, UnquantizedFusedMoEMethod)
 
 
-@CustomOp.register("UnquantizedFusedMoEMethod", custom_op=True)
+@CustomOp.register("UnquantizedFusedMoEMethod", is_oot_custom_op=True)
 class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
     """MoE method without quantization."""
 

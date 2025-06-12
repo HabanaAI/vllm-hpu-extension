@@ -5,7 +5,7 @@ from vllm.lora.layers import \
 from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("VocabParallelEmbeddingWithLoRA", custom_op=True)
+@CustomOp.register("VocabParallelEmbeddingWithLoRA", is_oot_custom_op=True)
 class HPUVocabParallelEmbeddingWithLoRA(VocabParallelEmbeddingWithLoRA):
 
     def forward_oot(self, x: torch.Tensor) -> torch.Tensor:
