@@ -1,6 +1,6 @@
 nav:
   - Home: 
-    - vLLM: README.md
+    - vLLM x Intel Gaudi: README.md
     - Getting Started:
       - getting_started/quickstart.md
       - getting_started/installation.md
