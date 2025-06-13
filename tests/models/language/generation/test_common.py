@@ -18,7 +18,7 @@ def launch_lm_eval(eval_config):
     trust_remote_code = eval_config.get('trust_remote_code', False)
     dtype = eval_config.get('dtype', 'bfloat16')
     max_num_seqs = eval_config.get('max_num_seqs', 128)
-    tp_size = os.environ.get('TP_SIZE', '1')
+    tp_size = int(os.environ.get('TP_SIZE', '1'))
     enable_apc = os.environ.get('ENABLE_APC', 'False').lower() in ['true', '1']
     enforce_eager = os.environ.get('ENFORCE_EAGER',
                                    'False').lower() in ['true', '1']
@@ -34,6 +34,8 @@ def launch_lm_eval(eval_config):
         'max_num_seqs': max_num_seqs,
         'trust_remote_code': trust_remote_code,
         'batch_size': max_num_seqs,
+        'enable_expert_parallel': eval_config.get('enable_expert_parallel',
+                                                  False),
     }
     if eval_config.get("fp8"):
         model_args['quantization'] = 'inc'
@@ -58,7 +60,8 @@ def launch_lm_eval(eval_config):
 
 
 def test_models(model_card_path, monkeypatch) -> None:
-    model_card = yaml.safe_load(open(model_card_path, 'r'))
+    with open(model_card_path) as f:
+        model_card = yaml.safe_load(f)
     print(f"{model_card=}")
     model_config = model_card['model_card']
     results = launch_lm_eval(model_config)
@@ -76,3 +79,20 @@ def test_models(model_card_path, monkeypatch) -> None:
           f"Metric: {metric['name']} | "
           f"Expected: {metric['value']} | "
           f"Measured: {measured_value}")
+
+
+def __main__(args):
+    model_card_path = args.model_card_path
+    test_models(model_card_path, None)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Test vLLM models with lm-eval")
+    parser.add_argument("--model_card_path",
+                        type=str,
+                        required=True,
+                        help="Path to the model card YAML file.")
+    args = parser.parse_args()
+    __main__(args)
