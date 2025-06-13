@@ -4,7 +4,6 @@ import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
-from .common import WeakSingleton, HPUBucketingManager
 
 from vllm_hpu_extension.runtime import get_config
 
@@ -14,99 +13,93 @@ logger = logging.getLogger(__name__)
 class LinearBucketingStrategy:
     print("linear - zaczynamy")
 
-    def setup_prompt_buckets(self):
-        print("linear - i am generating prompt")
-        example_list: List[Tuple[int, int, int]] = [
-            (1, 2, 3),
-            (4, 5, 6),
-            (7, 8, 9),
-            (10, 11, 12),
-            (13, 14, 15)
-        ]
-        print(type(example_list))
-        
-        return example_list
-
-    def _setup_buckets(self, is_prompt, ) -> None:
-        # FIXME: The default values should be max_model_len
-
+    def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
+                           max_num_batched_tokens, max_prompt_seq, max_model_len):
         default_max_prompt_seq = 1024
-        default_max_decode_seq = 2048
-        if self.max_model_len is None and self.max_prompt_seq is None:
+        if max_model_len is None and max_prompt_seq is None:
             logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
-        if self.max_model_len is None and self.max_decode_seq is None:
-            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
 
-        max_prompt_seq = next((item for item in [self.max_prompt_seq, self.max_model_len] if item is not None), default_max_prompt_seq)
-        max_decode_seq = next((item for item in [self.max_decode_seq, self.max_model_len] if item is not None), default_max_decode_seq)
-        max_blocks = max(
-            self.block_size,
-            self.max_num_seqs * max_decode_seq // self.block_size)
+        max_prompt_seq = next((item for item in [max_prompt_seq, max_model_len] if item is not None), default_max_prompt_seq)
 
         prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=32,
-            max=self.max_num_prefill_seqs)
-        self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
-            'prompt', 'seq', min=self.block_size,
-            step=self.block_size, max=max_prompt_seq)
-        self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=32,
-            max=self.max_num_seqs)
-        self.global_state.decode_block_bucket_cfg = read_bucket_settings(
-            'decode', 'block', min=self.block_size,
-            step=self.block_size, max=max_blocks)
+            max=max_num_prefill_seqs)
+        prompt_seq_bucket_cfg = read_bucket_settings(
+            'prompt', 'seq', min=block_size,
+            step=block_size, max=max_prompt_seq)
 
-        if self.use_merged_prefill:
-            prev_prompt_bs_bucket_cfg = tuple(self.global_state.prompt_bs_bucket_cfg)
-            prev_prompt_seq_bucket_cfg = tuple(self.global_state.prompt_seq_bucket_cfg)
-            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
-            max_bs = self.global_state.prompt_bs_bucket_cfg[2]
-            self.global_state.prompt_bs_bucket_cfg = (1, 1, 1)
-            self.global_state.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
-            new_prompt_bs_bucket_cfg = self.global_state.prompt_bs_bucket_cfg
-            new_prompt_seq_bucket_cfg = self.global_state.prompt_seq_bucket_cfg
-            print('Merged prefill is enabled!\n'
-                  'Overriding prompt bucketing settings!\n'
-                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
-                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
+        #TODO - if self.use_merged_prefill:
 
         msg = ("Prompt bucket config (min, step, max_warmup) "
-               f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
-               f"seq:{self.global_state.prompt_seq_bucket_cfg}")
+               f"bs:{prompt_bs_bucket_cfg}, "
+               f"seq:{prompt_seq_bucket_cfg}")
         logger.info(msg)
 
-        msg = ("Decode bucket config (min, step, max_warmup) "
-               f"bs:{self.global_state.decode_bs_bucket_cfg}, "
-               f"block:{self.global_state.decode_block_bucket_cfg}")
-        logger.info(msg)
-
-    def generate_prompt_buckets(self):
-        self.global_state.prompt_buckets, prompt_omitted_buckets = \
+        prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
-            self.global_state.prompt_bs_bucket_cfg,
-            self.global_state.prompt_seq_bucket_cfg,
-            self.max_num_batched_tokens)
+            prompt_bs_bucket_cfg,
+            prompt_seq_bucket_cfg,
+            max_num_batched_tokens)
 
-        msg = (f"Generated {len(self.global_state.prompt_buckets)} "
+        msg = (f"Generated {len(prompt_buckets)} "
                f"prompt buckets [bs, seq]: "
-               f"{list(sorted(self.global_state.prompt_buckets))}")
+               f"{list(sorted(prompt_buckets))}")
         logger.info(msg)
 
         msg = (f"Omitted {len(prompt_omitted_buckets)} "
                "prompt buckets due to exceeded token budget "
-               f"(max_num_batched_tokens={self.max_num_batched_tokens})")
+               f"(max_num_batched_tokens={max_num_batched_tokens})")
+        logger.info(msg)
+        
+        return prompt_buckets
+
+    def get_decode_buckets(self, max_num_seqs, block_size, max_num_batched_tokens, max_decode_seq, max_model_len, num_max_blocks):
+        default_max_decode_seq = 2048
+        if max_model_len is None and max_decode_seq is None:
+            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
+
+        max_decode_seq = next((item for item in [max_decode_seq, max_model_len] if item is not None), default_max_decode_seq)
+        max_blocks = max(
+            block_size,
+            max_num_seqs * max_decode_seq // block_size)
+
+        decode_bs_bucket_cfg = read_bucket_settings(
+            'decode', 'bs', min=1, step=32,
+            max=max_num_seqs)
+        decode_block_bucket_cfg = read_bucket_settings(
+            'decode', 'block', min=block_size,
+            step=block_size, max=max_blocks)
+
+        #TODO - if self.use_merged_prefill:
+
+        msg = ("Decode bucket config (min, step, max_warmup) "
+               f"bs:{decode_bs_bucket_cfg}, "
+               f"block:{decode_block_bucket_cfg}")
         logger.info(msg)
 
-        msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
-        logger.info(msg)
-
-    def generate_decode_buckets(self, max_blocks):
-        self.global_state.decode_buckets = generate_decode_buckets(
-            self.global_state.decode_bs_bucket_cfg,
-            self.global_state.decode_block_bucket_cfg, max_blocks)
-        logger.info(f"Generated {len(self.global_state.decode_buckets)} "
+        decode_buckets = generate_decode_buckets(
+            decode_bs_bucket_cfg,
+            decode_block_bucket_cfg, num_max_blocks)
+        logger.info(f"Generated {len(decode_buckets)} "
               f"decode buckets [bs, total_blocks]: "
-              f"{list(sorted(self.global_state.decode_buckets))}")
+              f"{list(sorted(decode_buckets))}")
+
+        return decode_buckets
+
+    def _setup_buckets(self) -> None:
+        if self.use_merged_prefill:
+            prev_prompt_bs_bucket_cfg = tuple(self.prompt_bs_bucket_cfg)
+            prev_prompt_seq_bucket_cfg = tuple(self.prompt_seq_bucket_cfg)
+            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
+            max_bs = self.prompt_bs_bucket_cfg[2]
+            self.prompt_bs_bucket_cfg = (1, 1, 1)
+            self.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
+            new_prompt_bs_bucket_cfg = self.prompt_bs_bucket_cfg
+            new_prompt_seq_bucket_cfg = self.prompt_seq_bucket_cfg
+            print('Merged prefill is enabled!\n'
+                  'Overriding prompt bucketing settings!\n'
+                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
+                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
     @classmethod
     def get_instance(cls):

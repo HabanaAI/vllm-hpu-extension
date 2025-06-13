@@ -40,13 +40,13 @@ class WeakSingleton(type):
         return cls._instances[cls]
 
 
-class HPUBucketingManager:
+class HPUBucketingManager():
     prompt_buckets: List[Tuple[int, int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int, int]] = field(init=False)
     max_prompt_config: Tuple[int, int, int]
     max_decode_config: Tuple[int, int, int]
 
-    def __init(self, max_num_seqs, max_num_prefill_seqs, block_size,
+    def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
                  max_num_batched_tokens, use_merged_prefill, prefix_caching,
                  max_model_len, max_prompt_seq=None, max_decode_seq=None):
         self.max_num_seqs = max_num_seqs
@@ -79,21 +79,20 @@ class HPUBucketingManager:
     def generate_prompt_buckets(self, prompt_strategy = None):
         strategy = self.get_bucketing_strategy(prompt_strategy=prompt_strategy)
 
-        self.prompt_buckets = strategy.setup_prompt_buckets()
-        print("done prompt")
-        print(self.prompt_buckets)
+        self.prompt_buckets = strategy.get_prompt_buckets(self.max_num_prefill_seqs, self.block_size,
+                           self.max_num_batched_tokens, self.max_prompt_seq, self.max_model_len)
         return
 
-    def generate_decode_buckets(self, decode_strategy = None):
+    def generate_decode_buckets(self, num_max_blocks, decode_strategy = None):
         strategy = self.get_bucketing_strategy(decode_strategy=decode_strategy)
 
-        self.decode_buckets = strategy.setup_decode_buckets()
-        print("done decode")
-        print(self.decode_buckets)
+        self.decode_buckets = strategy.get_decode_buckets(max_num_seqs = self.max_num_seqs, 
+                                                          block_size = self.block_size, 
+                                                          max_num_batched_tokens = self.max_num_batched_tokens, 
+                                                          max_decode_seq = self.max_decode_seq, 
+                                                          max_model_len = self.max_model_len, 
+                                                          num_max_blocks = num_max_blocks)
         return
-
-    def generate_decode_buckets():
-        pass
 
     def find_bucket():
         pass
