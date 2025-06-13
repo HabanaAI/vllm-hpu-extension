@@ -39,9 +39,7 @@ create_measure_config() {
 
     model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
 
-    if [[ $model_name_lower =~ ^mixtral ]]; then
-        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
-    elif [[ $model_name_lower =~ ^deepseek ]]; then
+    if [[ $model_name_lower =~ ^deepseek ]]; then
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
@@ -54,10 +52,7 @@ create_quant_config() {
     
     model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
 
-    #note(kwisniewski98): mixtral models has attention masked to not cause regression in accuracy
-    if [[ $model_name_lower =~ ^mixtral ]]; then
-        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
-    elif [[ $model_name_lower =~ ^deepseek ]]; then
+    if [[ $model_name_lower =~ ^deepseek ]]; then
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"scalar\", \"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
