@@ -51,6 +51,9 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         self._setup_buckets()
         self.generate_prompt_buckets()
 
+    def _num_buckets(self, value, coef, minimum=4):
+        return max(math.ceil(math.pow(value, coef)), minimum)
+
     def _setup_buckets(self) -> None:
         default_max_prompt_seq = 1024
         default_max_decode_seq = 2048
@@ -65,23 +68,31 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
             self.block_size,
             self.max_num_seqs * max_decode_seq // self.block_size)
 
-        prompt_bs_limit = math.ceil(math.log2(self.max_num_prefill_seqs)) + 1
+        # TODO: Following coeficients are completely arbitrary and were
+        # selected by trail and error. This is something worth tuning
+        # in the future
+        prompt_bs_coef = 0.2
+        prompt_seq_coef = 0.2 if get_config().prefix_caching else 0.4
+        decode_bs_coef = 0.4
+        decode_block_coef = 0.2
+
+        prompt_bs_limit = self._num_buckets(self.max_num_prefill_seqs, prompt_bs_coef)
         self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=1, limit=prompt_bs_limit,
             max=self.max_num_prefill_seqs)
-        decode_bs_limit = math.ceil(math.log2(self.max_num_seqs)) + 1
+        decode_bs_limit = self._num_buckets(self.max_num_seqs, decode_bs_coef)
         self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=1, limit=decode_bs_limit,
+            'decode', 'bs', min=1, step=8, limit=decode_bs_limit,
             max=self.max_num_seqs)
-        max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
+        max_prompt_seq_limit = self._num_buckets(max_prompt_seq, prompt_seq_coef)
         self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
             'prompt', 'seq', min=self.block_size, limit=max_prompt_seq_limit,
             step=self.block_size, max=max_prompt_seq)
-        max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
+        max_decode_block_limit = self._num_buckets(max_blocks, decode_block_coef)
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=self.block_size, limit=max_decode_block_limit,
             step=self.block_size, max=max_blocks)
-            
+
         msg = ("Prompt bucket config (min, step, max_warmup, limit) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
                f"seq:{self.global_state.prompt_seq_bucket_cfg}")
@@ -95,12 +106,12 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
     def generate_prompt_buckets(self):
         self.global_state.prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
-            self.global_state.prompt_bs_bucket_cfg,
-            self.global_state.prompt_seq_bucket_cfg,
-            self.block_size,
-            self.prefix_caching,
-            self.max_num_batched_tokens,
-            self.max_model_len)
+                self.global_state.prompt_bs_bucket_cfg,
+                self.global_state.prompt_seq_bucket_cfg,
+                self.block_size,
+                self.prefix_caching,
+                self.max_num_batched_tokens,
+                self.max_model_len)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
                f"prompt buckets [bs, seq]: "
@@ -139,7 +150,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
     def get_padded_decode_num_blocks(self, num_blocks):
         assert self.num_hpu_blocks is not None, "num_hpu_blocks is not set"
         bucket_size = find_bucket(self.decode_buckets, num_blocks, 2)
-        return min(bucket_size, self.num_hpu_blocks)
+        return bucket_size
 
     def get_padded_batch_size(self, batch_size, is_prompt):
         if is_prompt:
@@ -236,15 +247,17 @@ def generate_prompt_buckets(bs_bucket_config,
                             max_model_len=None):
     _, _, bmax, _ = seq_bucket_config
     batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
-    seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
+    seq_buckets = warmup_range_with_limit(seq_bucket_config)
 
     if prefix_caching:
         buckets_3d = []
         for bs in batch_size_buckets:
-            for b in seq_bucket_config:
-                max_blocks_range = (bmax - b) // block_size
-                for i in range(0, max_blocks_range + 1):
-                    buckets_3d.append((bs, b, i))
+            for q_len in seq_bucket_config:
+                for ctx_len in [0] + seq_buckets:
+                    if q_len + ctx_len > bmax:
+                        break
+                    num_ctx_blocks = math.ceil(ctx_len / block_size)
+                    buckets_3d.append((bs, q_len, num_ctx_blocks))
         buckets = buckets_3d
     else:
         buckets = list(
@@ -329,34 +342,14 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
-def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
+def warmup_range_with_limit(config: Tuple[int, int, int, int]):
     """ 
     NOTE(kzawora): we'll use exponential spacing for buckets in which scaled 
     power will return bmin for first bucket iteration, and bmax for last 
     iteration, with elements between determined by the exponent, and base being 
     unchanged. Note that after padding to bstep, duplicates may occur. 
-    Handling of duplicates is configured by fill parameter. 
-    If fill is False, duplicates are removed and less buckets are returned. 
+    Duplicates are removed and less buckets are returned. 
     
-    If fill is True, duplicates are resolved by selecting the closest (larger 
-    or smaller) bucket. If duplicate resolution is not possible, less buckets 
-    are returned. In that case, buckets are guaranteed to be linearly spaced.
-    Example (bmin=128, bstep=128, bmax=2048, num_buckets=10):
-    There are 16 possible buckets (2048/128), and we'll attempt to select 10 of 
-    them with exponential spacing.
-    base = (bmax/bmin) ** (1/(num_buckets-1)); (2048/128) ** (1/9) = 1.36079
-    exponent = i
-    power = base ** exponent
-    scaled_power = b_min * power
-    For i == 0 (first bucket), power is 1.36079 ** 0 = 1; 
-        scaled_power is 1 * 128 = 128 (==bmin)
-    For i == 9 (last bucket), power is 1.36079 ** 9 = 16; 
-        scaled_power is 16 * 128 = 2048 (==bmax)
-    So, computing for all buckets:
-    scaled_powers_unpadded     = [bmin*base^0(==bmin), bmin*base^1, bmin*base^2,       ...,     bmin*base^9(==bmax)]
-    scaled_powers_unpadded     = [128.00, 174.18, 237.02, 322.54, 438.91, 597.26, 812.75, 1105.98, 1505.01, 2048.00]
- 
-    if fill is False:
         scaled_powers_padded   = [   128,    256,    256,    384,    512,    640,    896,    1152,    1536,    2048]
                                                ^_______^ 
                                                duplicates
@@ -364,51 +357,19 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
                                                       ^ 
                                          duplicate bucket removed
         len(buckets) = 9, num_buckets = 10
-    if fill is True:
-        buckets                = [   128,    256,    384,    512,    640,    768,    896,    1152,    1536,    2048]
-                                                      ^_______^_______^_______^ 
-                                                   closest unused buckets selected
-                                                              ^_______^_______^ 
-                                      these become duplicates once previous duplicates are resolved
-        
-        In this case we'll have four duplicated buckets:
-        174.18 -> 256, optimal bucket,
-        237.02 -> (256) -> 384, taking closest available bucket, 
-            as optimal bucket 256 was already captured by 174.18, 
-        322.54 -> (384) -> 512, taking closest available bucket, 
-            as optimal bucket 384 was already captured by 237.02,
-        438.91 -> (512) -> 640, taking closest available bucket, 
-            as optimal bucket 512 was already captured by 322.54,
-        597.26 -> (640) -> 768, taking closest available bucket, 
-            as optimal bucket 640 was already captured by 438.91,
-        812.75 -> 896, optimal bucket
-        len(buckets) = 10, num_buckets = 10
-        In this case, the end result has the same buckets as fill=False, 
-        but with additional bucket 768 added. 
-        The difference is more pronounced for larger ranges and larger number 
-        of buckets.
     """ # noqa: E501
 
     bmin, bstep, bmax, num_buckets = config
-    linear_buckets = set(np.arange(bmin, bmax + 1, step=bstep))
     assert num_buckets > 0, "num_buckets must be a positive integer"
     if num_buckets == 1:
         return [bmax]
     buckets: Set[Tuple[int, int]] = set()
     for i in range(num_buckets):
-        power_unpadded = bmin * np.float_power(
-            bmax / bmin, (1. / float(num_buckets - 1)) * i)
         if i == num_buckets - 1 and get_config().use_contiguous_pa:
             bucket = bmax
         else:
+            power_unpadded = bmin * np.float_power(
+                bmax / bmin, (1. / float(num_buckets - 1)) * i)
             bucket = math.ceil(power_unpadded / bstep) * bstep
-        if fill and bucket in buckets:
-            available_buckets = linear_buckets.difference(buckets)
-            if len(available_buckets) == 0:
-                break  # there are no more unique buckets, let's exit now
-            new_bucket = min(available_buckets,
-                             key=lambda x: abs(x - power_unpadded))
-            buckets.add(new_bucket)
-        else:
-            buckets.add(bucket)
+        buckets.add(bucket)
     return list(sorted(buckets))
