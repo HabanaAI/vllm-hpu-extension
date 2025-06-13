@@ -65,7 +65,6 @@ def get_features():
         Value('merged_prefill', False),
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
-        Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
-        Value('scale_fp8fn_to_fp8fnuz', Hardware('gaudi2'), env_var='VLLM_SCALE_FP8FN_TO_FP8FNUZ'),
+        Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING')
     ]
     return split_values_and_flags(features)
