@@ -12,9 +12,8 @@ logger = logging.getLogger(__name__)
 
 class LinearBucketingStrategy:
     print("linear - zaczynamy")
-
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
-                           max_num_batched_tokens, max_prompt_seq, max_model_len):
+                           max_num_batched_tokens, max_prompt_seq, max_model_len, prefix_caching):
         default_max_prompt_seq = 1024
         if max_model_len is None and max_prompt_seq is None:
             logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
@@ -39,6 +38,8 @@ class LinearBucketingStrategy:
             generate_prompt_buckets(
             prompt_bs_bucket_cfg,
             prompt_seq_bucket_cfg,
+            block_size,
+            prefix_caching,
             max_num_batched_tokens)
 
         msg = (f"Generated {len(prompt_buckets)} "
@@ -53,7 +54,7 @@ class LinearBucketingStrategy:
         
         return prompt_buckets
 
-    def get_decode_buckets(self, max_num_seqs, block_size, max_num_batched_tokens, max_decode_seq, max_model_len, num_max_blocks):
+    def get_decode_buckets(self, max_num_seqs, block_size, max_num_batched_tokens, max_decode_seq, max_model_len, num_max_blocks, prefix_caching):
         default_max_decode_seq = 2048
         if max_model_len is None and max_decode_seq is None:
             logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
@@ -162,10 +163,26 @@ def warmup_range(config: Tuple[int, int, int]):
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
+                            block_size,
+                            prefix_caching,
                             max_num_batched_tokens=None):
-    buckets = list(
-        itertools.product(warmup_range(bs_bucket_config),
-                          warmup_range(seq_bucket_config)))
+    _, _, bmax = seq_bucket_config
+    batch_size_buckets = warmup_range(bs_bucket_config)
+    seq_bucket_config = warmup_range(seq_bucket_config)
+
+    if prefix_caching:
+        buckets_3d = []
+        for bs in batch_size_buckets:
+            for b in seq_bucket_config:
+                max_blocks_range = (bmax - b) // block_size
+                for i in range(0, max_blocks_range + 1):
+                    buckets_3d.append((bs, b, i))
+        buckets = buckets_3d
+    else:
+        buckets = list(
+                itertools.product(batch_size_buckets,
+                                seq_bucket_config, [0]))
+
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
@@ -178,14 +195,14 @@ def generate_prompt_buckets(bs_bucket_config,
         # Remove buckets exceeding batch token budget
         filtered_buckets = list(
             filter(
-                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
+                lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens,
                 buckets))
 
         if len(filtered_buckets) == 0:
             # we can handle this if we ignore max_num_batched_tokens
-            min_bucket_bs, min_bucket_seq = min(buckets,
+            min_bucket_bs, min_bucket_seq, min_bucket_ctx = min(buckets,
                                                 key=lambda b: (b[0] * b[1]))
-            min_reqd_budget = min_bucket_bs * min_bucket_seq
+            min_reqd_budget = min_bucket_bs * (min_bucket_seq + min_bucket_ctx * block_size)
             msg = (
                 "The current bucketing configuration "
                 f"(min, step, max_warmup): "
@@ -202,6 +219,7 @@ def generate_prompt_buckets(bs_bucket_config,
 
     captured_buckets = list(
         sorted(filtered_buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+
     omitted_buckets = list(
         sorted([x for x in buckets if x not in filtered_buckets]))
     return captured_buckets, omitted_buckets
@@ -226,7 +244,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                 # Skip a dummy case when bs > blocks, which cannot occur in real execution
                 continue
             if blocks >= last_bucket:
-                buckets.append((bs, last_bucket))
+                buckets.append((bs, 1, last_bucket))
                 break
-            buckets.append((bs, blocks))
+            buckets.append((bs, 1, blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
