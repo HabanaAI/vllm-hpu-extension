@@ -4,7 +4,7 @@ model_card:
   num_fewshot: 5
   limit: 250
   trust_remote_code: True
-  enable_expert_parallel: False
+  enable_expert_parallel: True
 
 metrics:
   name: exact_match,strict-match
