@@ -10,6 +10,10 @@ from vllm.model_executor.layers.fused_moe.layer import (
 class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
     """MoE method without quantization."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        torch.hpu.synchronize()
+
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         super().process_weights_after_loading(layer)
         # custom handling for HPU
