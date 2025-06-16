@@ -104,9 +104,8 @@ class HpuPlatform(Platform):
             compilation_config.custom_ops = ["all"]
 
             if compilation_config.level != CompilationLevel.NO_COMPILATION:
-                logger.info(
-                    "[HPU] Forcing CompilationLevel.NO_COMPILATION compilation level"
-                )
+                logger.info("[HPU] Forcing CompilationLevel.NO_COMPILATION "
+                            "compilation level")
                 compilation_config.level = CompilationLevel.NO_COMPILATION
 
             print(f"========={compilation_config.custom_ops=}===========")
@@ -132,3 +131,17 @@ class HpuPlatform(Platform):
     def supports_v1(cls, model_config: ModelConfig) -> bool:
         # V1 support on HPU is experimental
         return True
+
+    @classmethod
+    def set_torch_compile(cls) -> None:
+        # NOTE: PT HPU lazy backend (PT_HPU_LAZY_MODE = 1)
+        # does not support torch.compile
+        # Eager backend (PT_HPU_LAZY_MODE = 0) must be selected for
+        # torch.compile support
+        is_lazy = os.environ.get('PT_HPU_LAZY_MODE', '1') == '1'
+        if is_lazy:
+            torch._dynamo.config.disable = True
+            # NOTE multi-HPU inference with HPUGraphs (lazy-only)
+            # requires enabling lazy collectives
+            # see https://docs.habana.ai/en/latest/PyTorch/Inference_on_PyTorch/Inference_Using_HPU_Graphs.html # noqa: E501
+            os.environ['PT_HPU_ENABLE_LAZY_COLLECTIVES'] = 'true'

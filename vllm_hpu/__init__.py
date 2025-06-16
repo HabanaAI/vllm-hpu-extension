@@ -1,6 +1,9 @@
+from vllm_hpu.platform import HpuPlatform
+
+
 def register():
     """Register the HPU platform."""
-
+    HpuPlatform.set_torch_compile()
     return "vllm_hpu.platform.HpuPlatform"
 
 
