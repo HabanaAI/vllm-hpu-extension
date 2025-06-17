@@ -52,7 +52,7 @@ class LinearBucketingStrategy:
                f"(max_num_batched_tokens={max_num_batched_tokens})")
         logger.info(msg)
         
-        return prompt_buckets
+        return sorted(prompt_buckets), prompt_seq_bucket_cfg
 
     def get_decode_buckets(self, max_num_seqs, block_size, max_num_batched_tokens, max_decode_seq, max_model_len, num_max_blocks, prefix_caching):
         default_max_decode_seq = 2048

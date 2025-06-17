@@ -43,6 +43,7 @@ class WeakSingleton(type):
 class HPUBucketingManager():
     prompt_buckets: List[Tuple[int, int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int, int]] = field(init=False)
+    prompt_seq_cfgi: Tuple[int, int, int]
     max_prompt_config: Tuple[int, int, int]
     max_decode_config: Tuple[int, int, int]
 
@@ -70,7 +71,8 @@ class HPUBucketingManager():
             'VLLM_EXPONENTIAL_BUCKETING', 'true').lower() == 'true'
         if use_exponential_bucketing:
             from vllm_hpu_extension.bucketing.exponential import (
-                HPUExponentialBucketingContext as HPUBucketingContext)
+                ExponentialBucketingStrategy)
+            strategy = ExponentialBucketingStrategy()
         else:
             from vllm_hpu_extension.bucketing.linear import LinearBucketingStrategy
             strategy = LinearBucketingStrategy()
@@ -79,13 +81,13 @@ class HPUBucketingManager():
     def generate_prompt_buckets(self, prompt_strategy = None):
         strategy = self.get_bucketing_strategy(prompt_strategy=prompt_strategy)
 
-        self.prompt_buckets = sorted(strategy.get_prompt_buckets(
+        self.prompt_buckets, self.prompt_seq_cfg = strategy.get_prompt_buckets(
                             max_num_prefill_seqs = self.max_num_prefill_seqs,
                             block_size = self.block_size,
                             max_num_batched_tokens = self.max_num_batched_tokens,
                             max_prompt_seq = self.max_prompt_seq,
                             max_model_len = self.max_model_len,
-                            prefix_caching = self.prefix_caching))
+                            prefix_caching = self.prefix_caching)
         return
 
     def generate_decode_buckets(self, num_max_blocks, decode_strategy = None):
@@ -103,10 +105,11 @@ class HPUBucketingManager():
 
     def find_bucket(self, batch_size, seq_len, ctx_len, is_prompt):
         buckets = self.prompt_buckets if is_prompt else self.decode_buckets
-        print("looking for:", batch_size, seq_len, ctx_len, is_prompt)
         found_bucket = find_equal_or_closest_greater_config(buckets, (batch_size, seq_len, ctx_len))
-        print("closest: ", found_bucket)
         return found_bucket
+
+    def get_max_prompt_shape(self):
+        return self.prompt_seq_cfg[-1]
 
 
 def find_equal_or_closest_greater_config(sorted_list, target_tuple):
