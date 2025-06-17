@@ -71,10 +71,10 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         # TODO: Following coeficients are completely arbitrary and were
         # selected by trail and error. This is something worth tuning
         # in the future
-        prompt_bs_coef = 0.2
-        prompt_seq_coef = 0.2 if get_config().prefix_caching else 0.4
+        prompt_bs_coef = 0.4
+        prompt_seq_coef = 0.15 if get_config().prefix_caching else 0.25
         decode_bs_coef = 0.4
-        decode_block_coef = 0.2
+        decode_block_coef = 0.25
 
         prompt_bs_limit = self._num_buckets(self.max_num_prefill_seqs, prompt_bs_coef)
         self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
@@ -305,14 +305,19 @@ def generate_prompt_buckets(bs_bucket_config,
     return captured_buckets, omitted_buckets
 
 
+def flip_buckets(buckets):
+    """Change buckets so that more values are assigned near bmax"""
+    bmin = buckets[0]
+    bmax = buckets[-1]
+    return [bmax - b + bmin for b in reversed(buckets)]
+
 def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                             max_blocks, max_model_len, block_size, 
                             skip_invalid=False):
     buckets = []
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
-    tmp_blocks_bucket_config = blocks_bucket_config
-    tmp_blocks_bucket_config = (*tmp_blocks_bucket_config[:2], max_blocks, tmp_blocks_bucket_config[-1])
-    block_buckets = warmup_range_with_limit(tmp_blocks_bucket_config)
+    block_buckets = warmup_range_with_limit(blocks_bucket_config)
+    block_buckets = flip_buckets(block_buckets)
     last_bucket = max_blocks
     valid_blocks = set()
     if not skip_invalid:
@@ -372,4 +377,5 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int]):
                 bmax / bmin, (1. / float(num_buckets - 1)) * i)
             bucket = math.ceil(power_unpadded / bstep) * bstep
         buckets.add(bucket)
-    return list(sorted(buckets))
+    buckets = list(sorted(buckets))
+    return buckets
