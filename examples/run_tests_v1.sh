@@ -39,9 +39,17 @@ pytest -v ../tests/models/language/generation/test_common.py --model_card_path .
 VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=2 \
 pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Mixtral-8x7B-Instruct-v0.1.yaml
 
+# Qwen3-30V-A3B-FP8
+VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \
+pytest -v ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Qwen3-30V-A3B-FP8.yaml
+
 # llama4-moe TP=4 (text generation)
 VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=4 \
 pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct.yaml
+
+# llama4-moe fp8-compressed-tensor TP=4 (text generation)
+VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=4 \
+pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Llama-4-Scout-17B-16E-Instruct-FP8-dynamic.yaml
 
 # deepseek-v2-lite-chat
 VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false \

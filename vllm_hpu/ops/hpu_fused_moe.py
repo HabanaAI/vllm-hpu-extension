@@ -4,6 +4,7 @@ import torch
 from vllm.model_executor.custom_op import CustomOp
 from vllm.model_executor.layers.fused_moe.layer import (
     FusedMoE, UnquantizedFusedMoEMethod)
+from vllm_hpu.extension.ops import (VllmMixtureOfExpertsOp)
 
 
 @CustomOp.register("UnquantizedFusedMoEMethod", is_oot_custom_op=True)
@@ -19,34 +20,13 @@ class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
         # custom handling for HPU
         num_experts = layer.local_num_experts
         ep_shift = layer.ep_rank * num_experts
-        quant_config = layer.quant_config
-        from vllm_hpu.extension.ops import (VllmMixtureOfExpertsOp,
-                                            VllmMixtureOfExpertsOpFP8,
-                                            VllmMixtureOfExpertsOpFP8PerChannel
-                                            )
 
         experts_min, experts_max = ep_shift, num_experts + ep_shift - 1
-        if quant_config is None or isinstance(self.quant_method,
-                                              UnquantizedFusedMoEMethod):
-            moe_op = VllmMixtureOfExpertsOp(
-                num_experts,
-                experts_min,
-                experts_max,
-            )
-        elif quant_config is not None:
-            if hasattr(quant_config, "weight_block_size"):
-                moe_op = VllmMixtureOfExpertsOpFP8(
-                    num_experts,
-                    experts_min,
-                    experts_max,
-                )
-            else:
-                moe_op = VllmMixtureOfExpertsOpFP8PerChannel(
-                    num_experts,
-                    experts_min,
-                    experts_max,
-                )
-        layer.moe_op = moe_op
+        layer.moe_op = VllmMixtureOfExpertsOp(
+            num_experts,
+            experts_min,
+            experts_max,
+        )
 
         for expert_id in range(layer.local_num_experts):
             layer.moe_op.w13_list[expert_id].set_weight(
