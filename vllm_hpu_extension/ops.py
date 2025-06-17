@@ -699,8 +699,14 @@ def dynamic_quant(data, single_scale = False):
     return data_fp8, scale.float()
 
 
+def fp8_check_nan_g2(tensor: torch.Tensor):
+    """Check if tensor will contain NaNs on Gaudi2."""
+    return torch.any(tensor.view(torch.uint8).bitwise_or(0b10000111) == 0b11111111)
+
+
 def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
-    if is_hpu_gaudi2 and torch.any(layer.weight.data.isnan()):
+    assert layer.weight.data.device == torch.device("cpu"), f"Layer weight must be on CPU for conversion, but is {layer.weight.data.device}"
+    if is_hpu_gaudi2 and (fp8_check_nan_g2(layer.weight.data) or fp8_check_nan_g2(layer.weight_scale_inv.data)): 
         logger().warning_once("Nans detected in weights, they will be scaled to FP8FN_UZ limits. This might take significant amount of time. " \
         "It is recommended to convert model using vllm-hpu-extension script.")
         fp_linear_convert_fnuz(layer)
@@ -734,7 +740,10 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
 
 
 def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
-    if is_hpu_gaudi2 and (torch.any(layer.w13_weight.data.isnan()) or torch.any(layer.w2_weight.data.isnan())) : 
+    if is_hpu_gaudi2 and (fp8_check_nan_g2(layer.w13_weight.data) or \
+       fp8_check_nan_g2(layer.w2_weight.data) or \
+       fp8_check_nan_g2(layer.w13_weight_scale_inv.data) or \
+       fp8_check_nan_g2(layer.w2_weight_scale_inv.data)): 
         logger().warning_once("Nans detected in weights, they will be scaled to FP8FN_UZ limits. This might take significant amount of time. " \
         "It is recommended to convert model using vllm-hpu-extension script.")
         fp8_moe_convert_fnuz(layer)
@@ -777,22 +786,40 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
     htorch.core.mark_step()
     return layer
 
+def do_on_cpu(func):
+    """Decorator to ensure the function is executed on CPU."""
+    def wrapper(*args, **kwargs):
+        tensors = [tensor for _, tensor in args[0].named_parameters()]
+        for tensor in tensors:
+            if tensor.device == torch.device("hpu"):
+                logger.warning_once(f"Weights has to be moved to CPU for conversion, please use --weights-load-device cpu")
+                tensor = tensor.to("cpu")
+        func(*args, **kwargs)
+        tensors = [tensor for _, tensor in args[0].named_parameters()]
+        for tensor in tensors:
+            tensor = tensor.to("hpu")
+    return wrapper
+
+@do_on_cpu
 def fp_linear_convert_fnuz(layer):
     """Convert linear layer weights to FP8 format for Gaudi2 by scaling the weight by float8.e4m3fnuz max / float8.e4m3fn max
     and scale_inv by float8.e4m3fn max / float8.e4m3fnuz max.
     See https://docs.habana.ai/en/latest/PyTorch/Reference/Debugging_Guide/Model_Troubleshooting.html#using-torch-float8-e4m3fn-on-gaudi-2 for explanation"""
-    layer.weight.data =  (layer.weight.data.cpu().float()   * 240.0 / 448.0 ).to(torch.float8_e4m3fn).to("hpu")
-    layer.weight_scale_inv.data = (layer.weight_scale_inv.data * 448.0 / 240.0) 
+    assert layer.weight.data.device == torch.device("cpu"), "Layer weight must be on CPU for conversion"
+    layer.weight.data =  (layer.weight.data.float()   / 2.0).to(torch.float8_e4m3fn)
+    layer.weight_scale_inv.data = layer.weight_scale_inv.data * 2.0
                 
-
+@do_on_cpu
 def fp8_moe_convert_fnuz(layer):
     """Convert FusedMoE layer weights to FP8 format for Gaudi2 by scaling the weight by float8.e4m3fnuz max / float8.e4m3fn max
     and scale_inv by float8.e4m3fn max / float8.e4m3fnuz max.
     See https://docs.habana.ai/en/latest/PyTorch/Reference/Debugging_Guide/Model_Troubleshooting.html#using-torch-float8-e4m3fn-on-gaudi-2 for explanation"""
-    layer.w13_weight.data = (layer.w13_weight.data.cpu().float()   / 448.0 * 240.0  ).to(torch.float8_e4m3fn).to("hpu")
-    layer.w13_weight_scale_inv.data =  layer.w13_weight_scale_inv.data * 448.0 / 240.0 
-    layer.w2_weight.data = (layer.w2_weight.data.cpu().float()    / 448.0 * 240.0 ).to(torch.float8_e4m3fn).to("hpu")
-    layer.w2_weight_scale_inv.data =  layer.w2_weight_scale_inv.data * 448.0 / 240.0
+    assert layer.w13_weight.data.device == torch.device("cpu"), "Layer weight must be on CPU for conversion"
+
+    layer.w13_weight.data = (layer.w13_weight.data.float() / 2.0).to(torch.float8_e4m3fn) 
+    layer.w13_weight_scale_inv.data =  layer.w13_weight_scale_inv.data * 2.0 
+    layer.w2_weight.data = (layer.w2_weight.data.float() / 2.0).to(torch.float8_e4m3fn)
+    layer.w2_weight_scale_inv.data =  layer.w2_weight_scale_inv.data * 2.0
 
 
 def fp8_channel_moe_prepare_weights(layer):
