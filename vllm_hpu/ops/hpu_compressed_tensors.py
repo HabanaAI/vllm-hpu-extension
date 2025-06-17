@@ -14,7 +14,7 @@ from vllm.model_executor.parameter import (ChannelQuantScaleParameter,
 from vllm.model_executor.layers.quantization.compressed_tensors import (
     compressed_tensors)
 from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors import (  # noqa: E501
-    CompressedTensorsLinearMethod)
+    CompressedTensorsLinearMethod as OrigCompressedTensorsLinearMethod)
 from vllm.model_executor.layers.quantization.compressed_tensors import (
     compressed_tensors_moe)
 from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (  # noqa: E501
@@ -27,8 +27,7 @@ SUPPORTED_STRATEGIES = [
 ]
 
 
-@CustomOp.register("CompressedTensorsLinearMethod", is_oot_custom_op=True)
-class HPUCompressedTensorsLinearMethod(CompressedTensorsLinearMethod):
+class CompressedTensorsLinearMethod(OrigCompressedTensorsLinearMethod):
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         if layer.scheme.strategy == QuantizationStrategy.TENSOR:
@@ -197,6 +196,6 @@ class HPUCompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsW8A8Fp8MoEMethod):
 
 
 compressed_tensors.CompressedTensorsLinearMethod = \
-    HPUCompressedTensorsLinearMethod
+    CompressedTensorsLinearMethod
 compressed_tensors_moe.CompressedTensorsW8A8Fp8MoEMethod = \
     HPUCompressedTensorsW8A8Fp8MoEMethod
