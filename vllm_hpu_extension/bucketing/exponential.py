@@ -262,7 +262,7 @@ def generate_prompt_buckets(bs_bucket_config,
     else:
         buckets = list(
                 itertools.product(batch_size_buckets,
-                                seq_bucket_config, [0]))
+                                  seq_buckets, [0]))
 
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
