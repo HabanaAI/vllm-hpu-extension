@@ -62,6 +62,7 @@ def get_features():
         Value('naive_impl', True),
         Value('prompt_attn_impl', FirstEnabled(*supported_attn_impls), env_var_type=choice(*supported_attn_impls)),
         Value('skip_warmup', False),
+        Value('merged_prefill', False),
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
