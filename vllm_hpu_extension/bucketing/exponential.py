@@ -49,7 +49,6 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
         self.max_decode_seq = max_decode_seq
         self.prefix_caching = prefix_caching
         self._setup_buckets()
-        self.generate_prompt_buckets()
 
     def _setup_buckets(self) -> None:
         default_max_prompt_seq = 1024
