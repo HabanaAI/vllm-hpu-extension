@@ -3,12 +3,13 @@ import logging
 import operator
 import os
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Tuple
 from .common import WeakSingleton
 
 from vllm_hpu.extension.runtime import get_config
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class HPUBucketingGlobalState(metaclass=WeakSingleton):
@@ -16,16 +17,23 @@ class HPUBucketingGlobalState(metaclass=WeakSingleton):
     decode_bs_bucket_cfg: Tuple[int, int, int] = field(init=False)
     prompt_seq_bucket_cfg: Tuple[int, int, int] = field(init=False)
     decode_block_bucket_cfg: Tuple[int, int, int] = field(init=False)
-    prompt_buckets: List[Tuple[int, int]] = field(init=False)
-    decode_buckets: List[Tuple[int, int]] = field(init=False)
+    prompt_buckets: list[Tuple[int, int]] = field(init=False)
+    decode_buckets: list[Tuple[int, int]] = field(init=False)
 
 
 class HPUBucketingContext(metaclass=WeakSingleton):
     global_state = HPUBucketingGlobalState()
 
-    def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, use_merged_prefill, max_model_len,
-                 max_prompt_seq=None, max_decode_seq=None):
+    def __init__(self,
+                 max_num_seqs,
+                 max_num_prefill_seqs,
+                 block_size,
+                 max_num_batched_tokens,
+                 use_merged_prefill,
+                 prefix_caching,
+                 max_model_len,
+                 max_prompt_seq=None,
+                 max_decode_seq=None):
         """
         Initializes the bucketing parameters for sequence padding.
 
@@ -47,8 +55,8 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         self.max_model_len = max_model_len
         self.max_prompt_seq = max_prompt_seq
         self.max_decode_seq = max_decode_seq
+        self.prefix_caching = prefix_caching
         self._setup_buckets()
-        self.generate_prompt_buckets()
 
     def _setup_buckets(self) -> None:
         # FIXME: The default values should be max_model_len
@@ -56,42 +64,59 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         default_max_prompt_seq = 1024
         default_max_decode_seq = 2048
         if self.max_model_len is None and self.max_prompt_seq is None:
-            logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
+            logger.warning(
+                f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues."
+            )
         if self.max_model_len is None and self.max_decode_seq is None:
-            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
+            logger.warning(
+                f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues."
+            )
 
-        max_prompt_seq = next((item for item in [self.max_prompt_seq, self.max_model_len] if item is not None), default_max_prompt_seq)
-        max_decode_seq = next((item for item in [self.max_decode_seq, self.max_model_len] if item is not None), default_max_decode_seq)
-        max_blocks = max(
-            self.block_size,
-            self.max_num_seqs * max_decode_seq // self.block_size)
+        max_prompt_seq = next(
+            (item for item in [self.max_prompt_seq, self.max_model_len]
+             if item is not None), default_max_prompt_seq)
+        max_decode_seq = next(
+            (item for item in [self.max_decode_seq, self.max_model_len]
+             if item is not None), default_max_decode_seq)
+        max_blocks = max(self.block_size,
+                         self.max_num_seqs * max_decode_seq // self.block_size)
 
         self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
-            'prompt', 'bs', min=1, step=32,
-            max=self.max_num_prefill_seqs)
+            'prompt', 'bs', min=1, step=32, max=self.max_num_prefill_seqs)
         self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=32,
-            max=self.max_num_seqs)
+            'decode', 'bs', min=1, step=32, max=self.max_num_seqs)
         self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
-            'prompt', 'seq', min=self.block_size,
-            step=self.block_size, max=max_prompt_seq)
+            'prompt',
+            'seq',
+            min=self.block_size,
+            step=self.block_size,
+            max=max_prompt_seq)
         self.global_state.decode_block_bucket_cfg = read_bucket_settings(
-            'decode', 'block', min=self.block_size,
-            step=self.block_size, max=max_blocks)
+            'decode',
+            'block',
+            min=self.block_size,
+            step=self.block_size,
+            max=max_blocks)
 
         if self.use_merged_prefill:
-            prev_prompt_bs_bucket_cfg = tuple(self.global_state.prompt_bs_bucket_cfg)
-            prev_prompt_seq_bucket_cfg = tuple(self.global_state.prompt_seq_bucket_cfg)
+            prev_prompt_bs_bucket_cfg = tuple(
+                self.global_state.prompt_bs_bucket_cfg)
+            prev_prompt_seq_bucket_cfg = tuple(
+                self.global_state.prompt_seq_bucket_cfg)
             seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
             max_bs = self.global_state.prompt_bs_bucket_cfg[2]
             self.global_state.prompt_bs_bucket_cfg = (1, 1, 1)
-            self.global_state.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
+            self.global_state.prompt_seq_bucket_cfg = (
+                seq_min, seq_step,
+                min(max_bs * seq_max, self.max_num_batched_tokens))
             new_prompt_bs_bucket_cfg = self.global_state.prompt_bs_bucket_cfg
             new_prompt_seq_bucket_cfg = self.global_state.prompt_seq_bucket_cfg
-            print('Merged prefill is enabled!\n'
-                  'Overriding prompt bucketing settings!\n'
-                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
-                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
+            print(
+                'Merged prefill is enabled!\n'
+                'Overriding prompt bucketing settings!\n'
+                f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
+                f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n'
+            )
 
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
@@ -108,6 +133,8 @@ class HPUBucketingContext(metaclass=WeakSingleton):
             generate_prompt_buckets(
             self.global_state.prompt_bs_bucket_cfg,
             self.global_state.prompt_seq_bucket_cfg,
+            self.block_size,
+            self.prefix_caching,
             self.max_num_batched_tokens)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
@@ -128,24 +155,21 @@ class HPUBucketingContext(metaclass=WeakSingleton):
             self.global_state.decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks)
         logger.info(f"Generated {len(self.global_state.decode_buckets)} "
-              f"decode buckets [bs, total_blocks]: "
-              f"{list(sorted(self.global_state.decode_buckets))}")
+                    f"decode buckets [bs, total_blocks]: "
+                    f"{list(sorted(self.global_state.decode_buckets))}")
 
     def get_max_prompt_shape(self):
         return (self.global_state.prompt_bs_bucket_cfg[-1],
                 self.global_state.prompt_seq_bucket_cfg[-1])
 
     def get_padded_prompt_batch_size(self, batch_size):
-        return find_bucket(batch_size,
-                           self.global_state.prompt_bs_bucket_cfg)
+        return find_bucket(batch_size, self.global_state.prompt_bs_bucket_cfg)
 
     def get_padded_decode_batch_size(self, batch_size):
-        return find_bucket(batch_size,
-                           self.global_state.decode_bs_bucket_cfg)
+        return find_bucket(batch_size, self.global_state.decode_bs_bucket_cfg)
 
     def get_padded_prompt_seq_len(self, seq_len):
-        return find_bucket(seq_len,
-                           self.global_state.prompt_seq_bucket_cfg)
+        return find_bucket(seq_len, self.global_state.prompt_seq_bucket_cfg)
 
     def get_padded_decode_num_blocks(self, num_blocks):
         assert self.num_hpu_blocks is not None, "num_hpu_blocks is not set"
@@ -184,6 +208,7 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         """
         assert cls in cls._instances, "Singleton instance not initialized"
         return type(cls)._instances[cls]
+
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
     """Read bucketing configuration from env variables.
@@ -232,10 +257,25 @@ def warmup_range(config: Tuple[int, int, int]):
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
+                            block_size,
+                            prefix_caching,
                             max_num_batched_tokens=None):
-    buckets = list(
-        itertools.product(warmup_range(bs_bucket_config),
-                          warmup_range(seq_bucket_config)))
+    _, _, bmax = seq_bucket_config
+    batch_size_buckets = warmup_range(bs_bucket_config)
+    seq_bucket_config = warmup_range(seq_bucket_config)
+
+    if prefix_caching:
+        buckets_3d = []
+        for bs in batch_size_buckets:
+            for b in seq_bucket_config:
+                max_blocks_range = (bmax - b) // block_size
+                for i in range(0, max_blocks_range + 1):
+                    buckets_3d.append((bs, b, i))
+        buckets = buckets_3d
+    else:
+        buckets = list(
+            itertools.product(batch_size_buckets, seq_bucket_config, [0]))
+
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
                f"(min, step, max_warmup): "
@@ -248,14 +288,17 @@ def generate_prompt_buckets(bs_bucket_config,
         # Remove buckets exceeding batch token budget
         filtered_buckets = list(
             filter(
-                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
+                lambda bucket: bucket[0] *
+                (bucket[1] + bucket[2] * block_size) <= max_num_batched_tokens,
                 buckets))
 
         if len(filtered_buckets) == 0:
             # we can handle this if we ignore max_num_batched_tokens
-            min_bucket_bs, min_bucket_seq = min(buckets,
-                                                key=lambda b: (b[0] * b[1]))
-            min_reqd_budget = min_bucket_bs * min_bucket_seq
+            min_bucket_bs, min_bucket_seq, min_bucket_ctx = min(buckets,
+                                                                key=lambda b:
+                                                                (b[0] * b[1]))
+            min_reqd_budget = min_bucket_bs * (min_bucket_seq +
+                                               min_bucket_ctx * block_size)
             msg = (
                 "The current bucketing configuration "
                 f"(min, step, max_warmup): "
@@ -272,6 +315,7 @@ def generate_prompt_buckets(bs_bucket_config,
 
     captured_buckets = list(
         sorted(filtered_buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+
     omitted_buckets = list(
         sorted([x for x in buckets if x not in filtered_buckets]))
     return captured_buckets, omitted_buckets
@@ -296,9 +340,9 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                 # Skip a dummy case when bs > blocks, which cannot occur in real execution
                 continue
             if blocks >= last_bucket:
-                buckets.append((bs, last_bucket))
+                buckets.append((bs, 1, last_bucket))
                 break
-            buckets.append((bs, blocks))
+            buckets.append((bs, 1, blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
@@ -320,4 +364,4 @@ def find_bucket(value: int, config: Tuple[int, int, int]) -> int:
     else:
         next_step = round_up(value, bstep)
         next_pow = next_pow2(value, bmin)
-        return next_pow if next_pow <= bstep else next_step
+        return min(next_step, next_pow)
