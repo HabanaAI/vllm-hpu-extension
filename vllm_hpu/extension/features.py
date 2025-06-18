@@ -5,7 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm_hpu.extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, Env, Disabled, Engine, choice, boolean, to_dict, split_values_and_flags
+from vllm_hpu.extension.config import (Not, Hardware, VersionRange, ModelType,
+                                       Kernel, FirstEnabled, All, Value, Env,
+                                       Disabled, Engine, choice, boolean,
+                                       to_dict, split_values_and_flags)
 from vllm_hpu.extension.kernels import fsdpa, block_softmax_adjustment
 
 
@@ -67,7 +70,7 @@ def get_features():
               FirstEnabled(*supported_attn_impls),
               env_var_type=choice(*supported_attn_impls)),
         Value('skip_warmup', False),
-        Value('merged_prefill', False),
+        Value('merged_prefill', True),
         Value('use_contiguous_pa',
               Disabled('prefix_caching'),
               env_var='VLLM_CONTIGUOUS_PA'),
