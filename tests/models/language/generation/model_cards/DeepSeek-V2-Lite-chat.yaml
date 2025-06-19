@@ -7,4 +7,4 @@ model_card:
 
 metrics:
   name: exact_match,strict-match
-  value: 0.671
+  value: 0.66
