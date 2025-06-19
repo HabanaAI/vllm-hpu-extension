@@ -25,6 +25,7 @@ if __name__ == "__main__":
     llm = vllm.LLM(
         model=args.model,
         tensor_parallel_size=args.tensor_parallel_size,
+        enable_expert_parallel=True,
         enforce_eager=enforce_eager,
         dtype=torch.bfloat16,
         quantization="inc",

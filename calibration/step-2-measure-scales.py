@@ -58,6 +58,7 @@ if __name__ == "__main__":
         quantization="inc",
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
+        enable_expert_parallel=True,
         max_model_len=args.max_model_len,
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         trust_remote_code=True,
