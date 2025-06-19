@@ -181,6 +181,7 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
         HPUFusedSDPA = kernels.fsdpa()
         self.fused_scaled_dot_product_attention = None if HPUFusedSDPA is None \
             else ModuleFusedSDPA(HPUFusedSDPA)
+        self.use_merged_prefill = get_config().merged_prefill
 
         self.prefill_impl = get_config().prompt_attn_impl
         assert self.prefill_impl != 'fsdpa_impl' or alibi_slopes is None, \
@@ -217,8 +218,6 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
 
         is_prefill = attn_metadata.is_prompt
 
-        k_pe = k_pe.view(-1, 1, self.qk_rope_head_dim)
-
         if not is_prefill:
             # decode
             q_nope, q_pe = q.split(
@@ -246,17 +245,32 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
             k_cache = kv_cache[0]
 
         if is_prefill:
-            return self._forward_prefill(q, k_c_normed, k_pe, k_cache,
+            return self._forward_prefill(q, latent_vec_k, k_cache,
                                          attn_metadata)
         else:
             return self._forward_decode(decode_ql_nope, q_pe, k_cache,
                                         attn_metadata)
 
     def _forward_prefill(  # type: ignore
-            self, q: torch.Tensor, k_c_normed: torch.Tensor,
-            k_pe: torch.Tensor, k_cache: torch.Tensor,
+            self, q: torch.Tensor, latent_vec_k: torch.Tensor,
+            k_cache: torch.Tensor,
             attn_metadata: HPUAttentionMetadata) -> torch.Tensor:
-        batch_size = attn_metadata.seq_lens_tensor.shape[0]
+
+        ##### get prefix cache #####
+        if attn_metadata.block_list is not None:
+            current = latent_vec_k
+            past = self.latent_cache_k.fetch_from_cache(
+                k_cache.unflatten(0, (-1, attn_metadata.block_size)),
+                attn_metadata.block_list)
+            past = past.view(-1, past.shape[-1])
+            current = torch.concat((past, current), dim=0)
+            latent_vec_k = current
+        # =========================== #
+
+        k_c_normed, k_pe = latent_vec_k.split(
+            [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
+        k_pe = k_pe.view(-1, 1, self.qk_rope_head_dim)
+
         kv_nope = self.kv_b_proj(k_c_normed)[0]\
             .view(-1, self.num_heads, self.qk_nope_head_dim + self.v_head_dim)
         k_nope, v = kv_nope\
@@ -264,6 +278,10 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
 
         k = torch.cat((k_nope, k_pe.expand((*k_nope.shape[:-1], -1))), dim=-1)
 
+        if not self.use_merged_prefill:
+            batch_size = attn_metadata.seq_lens_tensor.shape[0]
+        else:
+            batch_size = 1
         q = q.view(batch_size, -1, self.num_heads, self.qk_head_dim)
         k = k.view(batch_size, -1, self.num_heads, self.qk_head_dim)
         v = v.view(batch_size, -1, self.num_heads, self.v_head_dim)
@@ -284,15 +302,11 @@ class HPUMLAImpl(MLACommonImpl[HPUAttentionMetadata], torch.nn.Module):
             key=k,
             value=v_padded,
             is_causal=True,
-            attn_bias=None,
+            attn_bias=attn_metadata.attn_bias,
             position_bias=None,
             valid_seq_lengths=attn_metadata.seq_lens_tensor,
             **self.common_attention_args())
-        if attn_metadata.attn_bias is not None:
-            # since MLA hidden_size is different in prefill and decode.
-            # we need to handle prefix cache seperately.
-            #TODO handle prefix cache here
-            pass
+
         # remove padding
         output = output.view(-1, self.num_heads,
                              q.shape[-1])[..., :v.shape[-1]]
@@ -407,6 +421,7 @@ class HPUAttentionImpl(AttentionImpl, torch.nn.Module):
         HPUFusedSDPA = kernels.fsdpa()
         self.fused_scaled_dot_product_attention = None if HPUFusedSDPA is None \
             else ModuleFusedSDPA(HPUFusedSDPA)
+        self.use_merged_prefill = get_config().merged_prefill
 
         self.prefill_impl = get_config().prompt_attn_impl
         self.use_contiguous_pa = get_config().use_contiguous_pa
@@ -502,7 +517,10 @@ class HPUAttentionImpl(AttentionImpl, torch.nn.Module):
 
         if query.dim() == 2:
             if attn_metadata.seq_lens_tensor is not None:
-                batch_size = attn_metadata.seq_lens_tensor.shape[0]
+                if not self.use_merged_prefill:
+                    batch_size = attn_metadata.seq_lens_tensor.shape[0]
+                else:
+                    batch_size = 1
             else:
                 batch_size = attn_metadata.block_mapping.shape[1]
             num_tokens, hidden_size = query.shape

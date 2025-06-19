@@ -70,7 +70,7 @@ def get_features():
               FirstEnabled(*supported_attn_impls),
               env_var_type=choice(*supported_attn_impls)),
         Value('skip_warmup', False),
-        Value('merged_prefill', True),
+        Value('merged_prefill', True, env_var='VLLM_MERGED_PREFILL'),
         Value('use_contiguous_pa',
               Disabled('prefix_caching'),
               env_var='VLLM_CONTIGUOUS_PA'),
