@@ -41,6 +41,8 @@ create_measure_config() {
 
     if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    elif [[ $model_name_lower == *"qwen3"* ]]; then
+        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [\"Softmax\"], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     fi
@@ -56,6 +58,7 @@ create_quant_config() {
     block_types="[\"Softmax\"]"
     block_names="[]"
     fp8_config="E4M3"
+    scale_format="constant"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* || $model_name_lower == *"qwen2-7b-instruct"* ]]; then
         scale_method="MAXABS_ARBITRARY"
         block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
@@ -66,8 +69,12 @@ create_quant_config() {
         fi
     elif [[ $model_name_lower =~ ^mixtral ]]; then
         block_names="[\"self_attn\", \"lm_head\"]"
+    elif [[ $model_name_lower == *"qwen3"* ]]; then
+        scale_method="maxabs_hw"
+        scale_format="scalar"
+        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
     fi
-    tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"${scale_method}\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": ${block_types},\"names\": ${block_names}},\"dump_stats_path\": \"$1/$2/$3/inc_output\", \"fp8_config\": \"${fp8_config}\"}"
+    tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"${scale_method}\",\"scale_format\": \"${scale_format}\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": ${block_types},\"names\": ${block_names}},\"dump_stats_path\": \"$1/$2/$3/inc_output\", \"fp8_config\": \"${fp8_config}\"}"
 
     echo "$tmp_config" > $1/$2/maxabs_quant_$3.json
 }
@@ -83,6 +90,11 @@ extract_last_folder_name() {
 }
 
 cleanup_tmp
+
+export PT_HPU_LAZY_MODE=${PT_HPU_LAZY_MODE:-"1"}
+export VLLM_DISABLE_MARK_SCALES_AS_CONST=true
+export PT_HPU_RECIPE_CACHE_CONFIG=/models/.hpu_cache,false,40960
+
 
 EXTRA_FLAGS=""
 BATCH_SIZE=32
@@ -217,7 +229,7 @@ fi
 
 echo ""
 echo "4/4 Quantize scales"
-if $MULTI_NODE_RUN; then
+if $MULTI_NODE_SETUP; then
     python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray || (echo "Error in step 4" && exit 1)
 else
     python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
