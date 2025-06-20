@@ -3,11 +3,8 @@
 ```
 
 # install vllm, before upstream PR merged, need to use fork firstly.
-#git clone https://github.com/vllm-project/vllm.git
 
-VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/HabanaAI/vllm-fork.git@private/kzawora/plugin_poc
-
-pip uninstall -y triton
+VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/vllm-project/vllm.git
 
 # install plugin
 git clone -b plugin_poc https://github.com/HabanaAI/vllm-hpu-extension.git; mv vllm-fork vllm-hpu;
