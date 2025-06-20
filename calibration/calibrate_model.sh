@@ -21,6 +21,7 @@ usage() {
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
     echo "  -g    - groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--', e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on."
+    echo "  -e    - set this flag to enable enforce_eager execution"
     echo
 }
 
@@ -77,11 +78,16 @@ extract_last_folder_name() {
 
 cleanup_tmp
 
-EXTRA_FLAGS=""
+EXTRA_FLAGS_STEP_1=""
+EXTRA_FLAGS_STEP_2=""
+EXTRA_FLAGS_STEP_3=""
+EXTRA_FLAGS_STEP_4=""
 BATCH_SIZE=32
 TP_SIZE=1
 MULTI_NODE_SETUP=false
-while getopts "m:b:l:t:d:h:o:g:" OPT; do
+ENFORCE_EAGER=false
+
+while getopts "m:b:l:t:d:h:o:g:e" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -103,6 +109,9 @@ while getopts "m:b:l:t:d:h:o:g:" OPT; do
             ;;
         g )
             CARD_GROUPS="$OPTARG"
+            ;;
+        e ) 
+            ENFORCE_EAGER=true
             ;;
         h )
             usage
@@ -165,21 +174,21 @@ if [[ $TP_SIZE > 1 ]]; then
 fi
 
 if [[ $MODEL_PATH_NAME == llama.*2.* ]]; then
-    EXTRA_FLAGS+="--chat-template template/llama-2-chat.jinja "
+    EXTRA_FLAGS_STEP_1+="--chat-template template/llama-2-chat.jinja "
 elif  [[ "$MODEL_PATH" == *"Mixtral-8x7B"* ]]; then
-    EXTRA_FLAGS+="--chat-template template/mistral_mixtral.jinja "
+    EXTRA_FLAGS_STEP_1+="--chat-template template/mistral_mixtral.jinja "
 fi
 
 if [[ -n $LIMIT ]]; then
-    EXTRA_FLAGS+="--max-dataset-samples $LIMIT "
+    EXTRA_FLAGS_STEP_1+="--max-dataset-samples $LIMIT "
 fi
 
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
-    EXTRA_FLAGS_STEP_2="--block-quant --expert-parallel"
+    EXTRA_FLAGS_STEP_2+="--block-quant --expert-parallel "
     EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
-    EXTRA_FLAGS_STEP_3="--deepseek "
+    EXTRA_FLAGS_STEP_3+="--deepseek "
     EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
-    EXTRA_FLAGS_STEP_4="--block-quant --expert-parallel"
+    EXTRA_FLAGS_STEP_4+="--block-quant --expert-parallel "
 fi
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
@@ -188,9 +197,14 @@ else
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
 fi
 
+if $ENFORCE_EAGER; then
+    EXTRA_FLAGS_STEP_2+="--enforce-eager "
+    EXTRA_FLAGS_STEP_4+="--enforce-eager "
+fi
+
 echo ""
 echo "1/4 Preparing calibration dataset"
-python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
+python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS_STEP_1 || (echo "Error in step 1" && exit 1)
 echo "Step 1/4 done"
 
 echo ""
