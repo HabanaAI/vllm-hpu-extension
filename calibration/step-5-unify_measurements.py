@@ -2,8 +2,10 @@
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
 ###############################################################################
 import argparse
+import glob
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -23,8 +25,23 @@ def find_measurement_path(measurement, measurements_dir_path, scales, group_size
                 return os.path.join(measurements_dir_path, measurment_file)
 
 
+def is_moe(node_name):
+    return True if "moe" in node_name.lower() and ".w13_list" not in node_name and ".w2_list" not in node_name else False
+
+
+def is_moe_experts(node_name):
+    return True if "moe" in node_name.lower() and (".w13_list" in node_name or ".w2_list" in node_name) else False
+
+
+def analyze_expert_name(node_name):
+    parts = node_name.split(".")
+    assert parts[-1].isdigit()
+    expert_id = int(parts[-1])
+    prefix = ".".join(parts[:-1])
+    return prefix, expert_id
+
 def unify_measurements(
-    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False
+    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False, use_ep=True
 ):
     measurements_paths = []
     group_name = ""
@@ -66,6 +83,10 @@ def unify_measurements(
         unified_json = json.load(json_file)
         unified_json["LocalRank"] = group_index if groups_num != 1 else -1
 
+    moe_experts_data = {}
+    # expert_num is used only when use_ep is True
+    expert_num = max([analyze_expert_name(i)[1] for i in unified_json["Nodes"] if is_moe_experts(i)]) + 1 if use_ep else -1
+
     # iterate all unified json nodes
     for node_name, node_values in unified_json["Nodes"].items():
         max_inputs = node_values["inputs"]
@@ -78,10 +99,27 @@ def unify_measurements(
 
         # iterate over all the measurment group and take the maximum for each tensor and its channel
         if scales:
-            for measurement_json in measurements_jsons:
-                for i in range(0, len(max_inputs)):
-                    max_inputs[i] = max(
-                        measurement_json[node_name]["inputs"][i], max_inputs[i])
+            for idx, measurement_json in enumerate(measurements_jsons):
+                # for experts of moe, append results in all measurements
+                if use_ep and is_moe_experts(node_name):
+                    if node_name not in moe_experts_data:
+                        moe_experts_data[node_name] = node_values
+                    else:
+                        prefix, local_expert_id = analyze_expert_name(node_name)
+                        new_node_name = ".".join((prefix, str(expert_num * idx + local_expert_id)))
+                        assert new_node_name not in moe_experts_data
+                        moe_experts_data[new_node_name] = measurement_json[node_name]
+                    continue
+
+                # for moe op, keep max of the first, retain rest from other measurements
+                if use_ep and is_moe(node_name) and idx > 0:
+                    max_inputs[0] = max(
+                        measurement_json[node_name]["inputs"][0], max_inputs[0])
+                    max_inputs.extend(measurement_json[node_name]["inputs"][1:])
+                else:
+                    for i in range(0, len(max_inputs)):
+                        max_inputs[i] = max(
+                            measurement_json[node_name]["inputs"][i], max_inputs[i])
                 if max_outputs is not None:
                     max_outputs = max(
                         measurement_json[node_name]["outputs"], max_outputs)
@@ -89,15 +127,31 @@ def unify_measurements(
                     max_weight = max(
                         measurement_json[node_name]["params"]["weight"], max_weight)
         else:
-            for measurement_json in measurements_jsons:
+            for idx, measurement_json in enumerate(measurements_jsons):
+                # for experts of moe, append results in all measurements
+                if use_ep and is_moe_experts(node_name):
+                    if node_name not in moe_experts_data:
+                        moe_experts_data[node_name] = node_values
+                    else:
+                        prefix, local_expert_id = analyze_expert_name(node_name)
+                        new_node_name = ".".join((prefix, str(expert_num * idx + local_expert_id)))
+                        assert new_node_name not in moe_experts_data
+                        moe_experts_data[new_node_name] = measurement_json[node_name]
+                    continue
+
                 for i in range(0, len(max_inputs)):
                     for j in range(0, len(max_inputs[i])):
                         max_inputs[i][j][0] = max(
                             measurement_json[node_name]["inputs"][i][j][0], max_inputs[i][j][0])
                 if max_outputs is not None:
-                    for i in range(0, len(max_outputs)):
-                        max_outputs[i][0] = max(
-                            measurement_json[node_name]["outputs"][i][0], max_outputs[i][0])
+                    if use_ep and is_moe(node_name) and idx > 0:
+                        max_outputs[0][0] = max(
+                            measurement_json[node_name]["outputs"][0][0], max_outputs[0][0])
+                        max_outputs.extend(measurement_json[node_name]["outputs"][1:])
+                    else:
+                        for i in range(0, len(max_outputs)):
+                            max_outputs[i][0] = max(
+                                measurement_json[node_name]["outputs"][i][0], max_outputs[i][0])
                 if max_weight is not None:
                     for i in range(0, len(max_weight)):
                         max_weight[i][0] = max(
@@ -121,12 +175,14 @@ def unify_measurements(
             if max_weight is not None:
                 for i in range(0, len(max_weight)):
                     unified_json["Nodes"][node_name]["params"]["weight"][i][0] = max_weight[i][0]
+    if use_ep:
+        unified_json["Nodes"].update(moe_experts_data)
     global_rank = None
     local_rank = group_index if groups_num != 1 else -1
     mode = ""
     layers = {}
     with open(unified_json_path, "w") as json_file:
-        json.dump(unified_json, json_file)
+        json.dump(unified_json, json_file, indent=4)
     mode = unified_json["Mode"]
     nodes = unified_json["Nodes"]
 
@@ -137,7 +193,7 @@ def unify_measurements(
         layers[layer] = {}
         layers[layer]["inputs"] = [np.array(x) for x in dlayer["inputs"]]
         if dlayer.get("outputs") is not None:
-            layers[layer]["outputs"] = np.array(dlayer["outputs"])
+            layers[layer]["outputs"] = [np.array(x) for x in dlayer["outputs"]]
         if dlayer.get("params") is not None and dlayer["params"].get("weight") is not None:
             layers[layer]["params"] = {}
             layers[layer]["params"]["weight"] = np.array(
@@ -156,11 +212,10 @@ def parse_args(args):
         "-m", "--measurements", type=str, help="path to the directory of the measurements that will be unified"
     )
     parser.add_argument(
-        "-g",
-        "--groups",
-        type=str,
-        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
-                        - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
+        "-r",
+        "--rank",
+        type=int,
+        help="rank of unified measurements"
     )
     parser.add_argument(
         "-o",
@@ -169,17 +224,30 @@ def parse_args(args):
         default=os.getcwd(),
         help="path to the directory where the unified measurements will be written",
     )
+    parser.add_argument(
+        "-u",
+        "--use_ep",
+        action="store_true",
+        help="unify original measurement results based on expert parallelism rules",
+    )
     return parser.parse_args(args)
 
 
-def prepare_group_list(grouping_string):
-    group_seperator = '--'
-    card_seperator = ','
-    grouping_string = grouping_string.replace(" ", "").strip(group_seperator).strip(card_seperator)
-    group_list=[group.strip(card_seperator).split(card_seperator) for group in grouping_string.split(group_seperator)]  
-    print("Card grouping list >> {}".format(group_list))
-    return group_list
-
+def prepare_group_list(measurements_path, rank):
+    measure_files = glob.glob(os.path.join(measurements_path, "*_mod_list.json"))
+    if len(measure_files) > 0:
+        matched = re.match(r"^(\w+)_(\d+)_(\d+)_(\w+)_(\w+)\.json$", os.path.basename(measure_files[0]))
+        if matched:
+            total_rank = int(matched.group(3))
+            assert total_rank % rank == 0
+            group_size = total_rank // rank
+            group_list = [[str(i * group_size + j) for j in range(group_size)] for i in range(rank)]
+            print("Card grouping list >> {}".format(group_list))
+            return group_list
+        else:
+            raise ValueError("Unrecognized file name!")
+    else:
+        raise ValueError("*_mod_list.json doesn't exist in {}".format(measurements_path))
 
 def main(args):
     args = parse_args(args)
@@ -187,7 +255,7 @@ def main(args):
     if not os.path.exists(output_path):
         os.mkdir(output_path)
     measurements_path = args.measurements
-    groups = prepare_group_list(args.groups)
+    groups = prepare_group_list(measurements_path, args.rank)
 
     num_jsons_drange = 0
     num_jsons_scales = 0
@@ -205,10 +273,10 @@ def main(args):
 
     for group_index, group in enumerate(groups):
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False
+            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_ep
         )
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True
+            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_ep
         )
 
     print("finished measurement unifier script")
