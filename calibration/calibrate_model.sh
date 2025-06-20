@@ -59,7 +59,7 @@ create_quant_config() {
     block_types="[\"Softmax\"]"
     block_names="[]"
     fp8_config="E4M3"
-    scale_format="constant"
+    scale_format="scalar"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* || $model_name_lower == *"qwen2-7b-instruct"* ]]; then
         scale_method="MAXABS_ARBITRARY"
         block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
@@ -72,7 +72,7 @@ create_quant_config() {
         block_names="[\"self_attn\", \"lm_head\"]"
     elif [[ $model_name_lower == *"qwen3"* ]]; then
         scale_method="maxabs_hw"
-        scale_format="scalar"
+        scale_format="const"
         block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
     fi
     tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"${scale_method}\",\"scale_format\": \"${scale_format}\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": ${block_types},\"names\": ${block_names}},\"dump_stats_path\": \"$1/$2/$3/inc_output\", \"fp8_config\": \"${fp8_config}\"}"
