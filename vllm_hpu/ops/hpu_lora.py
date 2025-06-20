@@ -1,12 +1,10 @@
 import torch
 import torch.nn.functional as F
-from vllm.lora.layers import \
-    VocabParallelEmbeddingWithLoRA
 from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("VocabParallelEmbeddingWithLoRA", is_oot_custom_op=True)
-class HPUVocabParallelEmbeddingWithLoRA(VocabParallelEmbeddingWithLoRA):
+@CustomOp.register_oot(name='VocabParallelEmbeddingWithLoRA')
+class HPUVocabParallelEmbeddingWithLoRA:
 
     def forward_oot(self, x: torch.Tensor) -> torch.Tensor:
         # x need to reshaped into 2d as batch is there

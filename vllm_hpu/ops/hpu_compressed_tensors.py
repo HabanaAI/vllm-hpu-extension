@@ -120,7 +120,7 @@ class CompressedTensorsLinearMethod(OrigCompressedTensorsLinearMethod):
                                             trans_B=False)
 
 
-@CustomOp.register("CompressedTensorsW8A8Fp8MoEMethod", is_oot_custom_op=True)
+@CustomOp.register_oot(name='CompressedTensorsW8A8Fp8MoEMethod')
 class HPUCompressedTensorsW8A8Fp8MoEMethod(CompressedTensorsW8A8Fp8MoEMethod):
     """MoE method without quantization."""
 

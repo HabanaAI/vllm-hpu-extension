@@ -2,10 +2,9 @@ from typing import Optional, Union
 import torch
 from vllm.model_executor.layers.layernorm import \
     RMSNorm
-from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("RMSNorm", is_oot_custom_op=True)
+@RMSNorm.register_oot
 class HPURMSNorm(RMSNorm):
 
     def forward_oot(

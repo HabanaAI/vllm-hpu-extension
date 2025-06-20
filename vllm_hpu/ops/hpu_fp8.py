@@ -51,7 +51,7 @@ class Fp8LinearMethod(OrigFp8LinearMethod):
                                             trans_B=False)
 
 
-@CustomOp.register("Fp8MoEMethod", is_oot_custom_op=True)
+@CustomOp.register_oot(name='Fp8MoEMethod')
 class HPUFp8MoEMethod(Fp8MoEMethod):
 
     def __init__(self, quant_config: Fp8Config):

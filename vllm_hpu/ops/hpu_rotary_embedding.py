@@ -11,7 +11,7 @@ from vllm.model_executor.layers.rotary_embedding import (
 from vllm.model_executor.custom_op import CustomOp
 
 
-@CustomOp.register("RotaryEmbedding", is_oot_custom_op=True)
+@RotaryEmbedding.register_oot
 class HPURotaryEmbedding(RotaryEmbedding):
     """Original rotary positional embedding."""
 
@@ -99,7 +99,7 @@ class HPURotaryEmbedding(RotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("LinearScalingRotaryEmbedding", is_oot_custom_op=True)
+@LinearScalingRotaryEmbedding.register_oot
 class HPULinearScalingRotaryEmbedding(LinearScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -186,7 +186,7 @@ class HPULinearScalingRotaryEmbedding(LinearScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("DynamicNTKScalingRotaryEmbedding", is_oot_custom_op=True)
+@DynamicNTKScalingRotaryEmbedding.register_oot
 class HPUDynamicNTKScalingRotaryEmbedding(DynamicNTKScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -273,7 +273,7 @@ class HPUDynamicNTKScalingRotaryEmbedding(DynamicNTKScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("YaRNScalingRotaryEmbedding", is_oot_custom_op=True)
+@YaRNScalingRotaryEmbedding.register_oot
 class HPUYaRNScalingRotaryEmbedding(YaRNScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -360,7 +360,7 @@ class HPUYaRNScalingRotaryEmbedding(YaRNScalingRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("DeepseekScalingRotaryEmbedding", is_oot_custom_op=True)
+@DeepseekScalingRotaryEmbedding.register_oot
 class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -410,7 +410,8 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
             self.prepare_cos_sin(positions, offsets)
         num_tokens = positions.shape[0] * positions.shape[1]
 
-        # deepseek_v2 MLA attention did an unsqueeze on key due to assumption on GPU with (num_tokens, hidden_size)
+        # deepseek_v2 MLA attention did an unsqueeze on key due to assumption on
+        # GPU with (num_tokens, hidden_size)
         if key.dim() == 4:
             key = key.squeeze(1)
         # HPU RoPE kernel requires hidden dimension for cos and sin to be equal
@@ -461,7 +462,7 @@ class HPUDeepseekScalingRotaryEmbedding(DeepseekScalingRotaryEmbedding):
         return self.forward(positions, query, key, offsets)
 
 
-@CustomOp.register("Llama3RotaryEmbedding", is_oot_custom_op=True)
+@Llama3RotaryEmbedding.register_oot
 class HPULlama3RotaryEmbedding(Llama3RotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -548,7 +549,7 @@ class HPULlama3RotaryEmbedding(Llama3RotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("Phi3LongRoPEScaledRotaryEmbedding", is_oot_custom_op=True)
+@CustomOp.register_oot(name='Phi3LongRoPEScaledRotaryEmbedding')
 class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
 
     def prepare_cos_sin(self,
@@ -615,7 +616,7 @@ class HPUPhi3LongRoPEScaledRotaryEmbedding(Phi3LongRoPEScaledRotaryEmbedding):
         return query, key
 
 
-@CustomOp.register("Llama4VisionRotaryEmbedding", is_oot_custom_op=True)
+@Llama4VisionRotaryEmbedding.register_oot
 class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
 
     def __init__(
@@ -713,7 +714,7 @@ class HPULlama4VisionRotaryEmbedding(Llama4VisionRotaryEmbedding):
         return query_out.type_as(query), key_out.type_as(key)
 
 
-@CustomOp.register("MRotaryEmbedding", is_oot_custom_op=True)
+@MRotaryEmbedding.register_oot
 class HPUMRotaryEmbedding(MRotaryEmbedding):
 
     def prepare_cos_sin(self,

@@ -1,13 +1,12 @@
 from typing import Callable, Optional
 
 import torch
-from vllm.model_executor.custom_op import CustomOp
 from vllm.model_executor.layers.fused_moe.layer import (
     FusedMoE, UnquantizedFusedMoEMethod)
 from vllm_hpu.extension.ops import (VllmMixtureOfExpertsOp)
 
 
-@CustomOp.register("UnquantizedFusedMoEMethod", is_oot_custom_op=True)
+@UnquantizedFusedMoEMethod.register_oot
 class HPUUnquantizedFusedMoEMethod(UnquantizedFusedMoEMethod):
     """MoE method without quantization."""
 
