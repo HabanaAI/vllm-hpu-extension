@@ -58,3 +58,7 @@ pytest -v -s ../tests/models/language/generation/test_common.py --model_card_pat
 # # llama4-moe TP=4 (vision inference)
 # ENFORCE_EAGER=True VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 VLLM_CONTIGUOUS_PA=false TP_SIZE=4 \
 # pytest -v -s ../tests/models/multimodal/generation/test_common.py --model_card_path ../tests/models/multimodal/generation/model_cards/Llama-4-Scout-17B-16E-Instruct-vision.yaml
+
+# deepseek-R1
+VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 TP_SIZE=8 \
+pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/DeepSeek-R1.yaml
