@@ -192,23 +192,27 @@ class HPUWorker:
         gc.collect()
         return cache_size_bytes - dummy_block_headroom
 
-    def initialize_cache(self, kv_cache_configs: list[KVCacheConfig]) -> None:
-        """Allocate GPU KV cache with the specified kv_cache_config."""
-        kv_cache_config = kv_cache_configs[self.rank]
+    # def initialize_cache(self, kv_cache_configs: list[KVCacheConfig]) -> None:
+    #     """Allocate GPU KV cache with the specified kv_cache_config."""
+    #     kv_cache_config = kv_cache_configs[self.rank]
 
-        with HabanaMemoryProfiler() as m:
-            self.model_runner.initialize_kv_cache(kv_cache_config)
-            torch.hpu.synchronize()
-        msg = (f"Usable num_blocks: {kv_cache_config.num_blocks}, "
-               f"actual allocated num_blocks: "
-               f"{self.model_runner.kv_caches[0][0].shape[0]} "
-               f"(_PAD_BLOCK_ID={self.model_runner._PAD_BLOCK_ID}, "
-               f"_PAD_SLOT_ID={self.model_runner._PAD_SLOT_ID})")
-        logger.info(msg)
-        msg = ("Initializing cache engine "
-               f"took {m.get_summary_string()}")
-        logger.info(msg)
-        self.compile_or_warm_up_model()
+    #     with HabanaMemoryProfiler() as m:
+    #         self.model_runner.initialize_kv_cache(kv_cache_config)
+    #         torch.hpu.synchronize()
+    #     msg = (f"Usable num_blocks: {kv_cache_config.num_blocks}, "
+    #            f"actual allocated num_blocks: "
+    #            f"{self.model_runner.kv_caches[0][0].shape[0]} "
+    #            f"(_PAD_BLOCK_ID={self.model_runner._PAD_BLOCK_ID}, "
+    #            f"_PAD_SLOT_ID={self.model_runner._PAD_SLOT_ID})")
+    #     logger.info(msg)
+    #     msg = ("Initializing cache engine "
+    #            f"took {m.get_summary_string()}")
+    #     logger.info(msg)
+    #     self.compile_or_warm_up_model()
+    def initialize_cache(self, num_gpu_blocks: int,
+                         num_cpu_blocks: int) -> None:
+        self.cache_config.num_gpu_blocks = num_gpu_blocks
+        self.cache_config.num_cpu_blocks = num_cpu_blocks
 
     def compile_or_warm_up_model(self) -> None:
         if not self.model_config.enforce_eager:
