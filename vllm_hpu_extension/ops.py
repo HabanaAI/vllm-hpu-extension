@@ -16,6 +16,8 @@ from vllm.logger import init_logger
 
 logger = init_logger(__name__)
 
+def get_inc_quant_method(layer):
+    return layer
 
 def grouped_max(block_max, batch_size, block_groups):
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
