@@ -1,5 +1,5 @@
 model_card:
-  model_name: "/mnt/weka/data/pytorch/llama3.1/Meta-Llama-3-70B-Instruct"
+  model_name: "/mnt/weka/data/pytorch/llama3.1/Meta-Llama-3.1-70B-Instruct"
   tasks: gsm8k
   num_fewshot: 5
   limit: 250

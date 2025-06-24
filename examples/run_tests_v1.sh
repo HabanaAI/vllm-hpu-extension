@@ -62,3 +62,14 @@ pytest -v -s ../tests/models/language/generation/test_common.py --model_card_pat
 # deepseek-R1
 VLLM_CONTIGUOUS_PA=False VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 TP_SIZE=8 \
 pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/DeepSeek-R1.yaml
+
+# llama fp8
+KV_CACHE_DTYPE=fp8_inc \
+VLLM_CONTIGUOUS_PA=False VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 \
+QUANT_CONFIG=../tests/models/language/generation/inc_unit_scale_quant.json \
+pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Meta-Llama-3.1-8B-Instruct.yaml
+
+# llama fp8 without fp8 kv
+VLLM_CONTIGUOUS_PA=False VLLM_SKIP_WARMUP=True PT_HPU_LAZY_MODE=1 VLLM_USE_V1=1 \
+QUANT_CONFIG=../tests/models/language/generation/inc_unit_scale_quant_without_fp8kv.json \
+pytest -v -s ../tests/models/language/generation/test_common.py --model_card_path ../tests/models/language/generation/model_cards/Meta-Llama-3.1-8B-Instruct.yaml

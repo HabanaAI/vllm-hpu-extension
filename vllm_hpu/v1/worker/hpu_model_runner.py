@@ -957,6 +957,8 @@ class HPUModelRunner:
             indices: list[Any]
             indices = [None] * block_bucket_size
             for i, bid in enumerate(block_list):
+                if bid >= block_bucket_size:
+                    break
                 indices[bid] = i
             padding_fn = lambda tensor, pad_value: gather_list(  # noqa: E731
                 tensor, indices, pad_value)

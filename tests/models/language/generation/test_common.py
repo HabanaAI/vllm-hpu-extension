@@ -22,6 +22,7 @@ def launch_lm_eval(eval_config):
     enable_apc = os.environ.get('ENABLE_APC', 'False').lower() in ['true', '1']
     enforce_eager = os.environ.get('ENFORCE_EAGER',
                                    'False').lower() in ['true', '1']
+    kv_cache_dtype = os.environ.get('KV_CACHE_DTYPE', None)
     task = eval_config.get('tasks', 'gsm8k')
     model_args = {
         'pretrained': eval_config['model_name'],
@@ -37,6 +38,8 @@ def launch_lm_eval(eval_config):
         'enable_expert_parallel': eval_config.get('enable_expert_parallel',
                                                   False),
     }
+    if kv_cache_dtype is not None:
+        model_args['kv_cache_dtype'] = kv_cache_dtype
     if eval_config.get("fp8"):
         model_args['quantization'] = 'inc'
         model_args['kv_cache_dtype'] = 'fp8_inc'

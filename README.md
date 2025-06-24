@@ -3,11 +3,14 @@
 ```
 
 # install vllm, before upstream PR merged, need to use fork firstly.
-
 VLLM_TARGET_DEVICE=hpu pip install git+https://github.com/vllm-project/vllm.git
 
 # install plugin
-git clone -b plugin_poc https://github.com/HabanaAI/vllm-hpu-extension.git; mv vllm-fork vllm-hpu;
+git clone -b plugin_poc https://github.com/HabanaAI/vllm-hpu-extension.git
+cd vllm-hpu-extension; pip install -e .
+
+# install pytest dependencies
+pip install lm_eval pytest pytest_asyncio
 ```
 
 # supported model and feature
