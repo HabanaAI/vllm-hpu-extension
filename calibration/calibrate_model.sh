@@ -72,7 +72,7 @@ create_quant_config() {
         block_names="[\"self_attn\", \"lm_head\"]"
     elif [[ $model_name_lower == *"qwen3"* ]]; then
         scale_method="maxabs_hw"
-        scale_format="const"
+        # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
         block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
     fi
     tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"${scale_method}\",\"scale_format\": \"${scale_format}\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": ${block_types},\"names\": ${block_names}},\"dump_stats_path\": \"$1/$2/$3/inc_output\", \"fp8_config\": \"${fp8_config}\"}"
