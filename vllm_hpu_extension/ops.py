@@ -25,6 +25,8 @@ import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
 MAX_EXPERTS_PER_SLICE = int(os.environ.get("MAX_EXPERTS_PER_SLICE", -1))
 
+def get_inc_quant_method(layer):
+    return layer
 
 def grouped_max(block_max, batch_size, block_groups):
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
