@@ -51,6 +51,35 @@ class Softmax(torch.nn.Module):
         return torch.softmax(x, dim)
 
 
+class ForwardCache:
+    def __init__(self):
+        self.initialize(0, None, [])
+
+    def initialize(self, block_size: int, blocks: torch.tensor, caches: list[torch.tensor]):
+        self.blocks = blocks
+        self.caches = caches
+        self.ready = None
+        self.block_size = block_size
+        self.prepare()
+
+    def prepare(self):
+        if len(self.caches) > 0:
+            cache = self.caches.pop(0)
+            #print('prepare:', id(cache), cache.data_ptr())
+            self.ready = cache.unflatten(0, (-1, self.block_size)).index_select(0, self.blocks)
+
+    def fetch_from_cache(self, _cache, _blocks):
+        #print('fetch:', id(_cache), _cache.data_ptr())
+        assert self.ready is not None, "Data hasn't been fetched!"
+        result = self.ready
+        self.ready = None
+        return result
+
+
+fwd_key_cache = ForwardCache()
+fwd_value_cache = ForwardCache()
+
+
 class VLLMKVCache(torch.nn.Module):
 
     def __init__(self):
