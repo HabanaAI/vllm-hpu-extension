@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 from typing import Callable, Optional, Tuple, List
-
 import habana_frameworks.torch as htorch
 import torch
 import torch.nn.functional as F
@@ -63,13 +62,6 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
             attn = attn.to(value.dtype)
 
         attn = matmul_av_op(attn, value)
-
-        # num_blocks = attn.shape[0]
-        # kv_heads = attn.shape[1]
-        # gqa = attn.shape[2]
-        # out_shape = [num_blocks, kv_heads, gqa]
-        # [num_blocks, kv_heads, gqa]
-        out_shape = attn.shape[:3]
     else:
         if block_bias is not None:
             if attn.dtype != block_bias.dtype:
@@ -82,19 +74,14 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
         attn = matmul_av_op(attn, value)
+    out_shape = [attn.shape[0], attn.shape[1], attn.shape[2], 1, 1]
 
     if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
-        if use_new_softmax:
-            rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
-                                                            block_sums.to(block_max.dtype),
-                                                            block_groups,
-                                                            batch_size,
-                                                            out_shape).to(attn.dtype).view_as(attn)
-        else:
-            rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
-                                                            block_sums.to(block_max.dtype),
-                                                            block_groups,
-                                                            batch_size).to(attn.dtype)
+        rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
+                                                        block_sums.to(block_max.dtype),
+                                                        block_groups,
+                                                        batch_size,
+                                                        out_shape).to(attn.dtype)
     else:
         adjustment_target_shape = block_max.shape
         block_max = block_max.squeeze((-1, -2))
