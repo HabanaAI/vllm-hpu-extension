@@ -53,27 +53,44 @@ class Softmax(torch.nn.Module):
 
 class ForwardCache:
     def __init__(self):
-        self.initialize(0, None, [])
+        self.initialize(0, None, None, [])
 
-    def initialize(self, block_size: int, blocks: torch.tensor, caches: list[torch.tensor]):
+    def initialize(self, block_size: int, blocks: torch.tensor, slots: torch.tensor, caches: list[torch.tensor]):
         self.blocks = blocks
         self.caches = caches
         self.ready = None
         self.block_size = block_size
-        self.prepare()
+        if caches:
+            self.slots = self.recalculate_slots(blocks, caches[0].size(0) // self.block_size, slots)
+            self.prepare()
+        else:
+            self.slots = None
+
+    def recalculate_slots(self, blocks, total_blocks, slots):
+        slots = slots.flatten().to(torch.int32)
+        positions = torch.empty(total_blocks, device=slots.device, dtype=slots.dtype)
+        new_positions = torch.arange(blocks.size(0), device=slots.device, dtype=slots.dtype)
+        positions.index_copy_(0, blocks, new_positions)
+        slots_block = slots.div(self.block_size, rounding_mode='floor')
+        slots_offset = slots.fmod(self.block_size)
+        slots_block = positions.index_select(0, slots_block)
+        return self.block_size * slots_block + slots_offset
 
     def prepare(self):
         if len(self.caches) > 0:
             cache = self.caches.pop(0)
-            #print('prepare:', id(cache), cache.data_ptr())
-            self.ready = cache.unflatten(0, (-1, self.block_size)).index_select(0, self.blocks)
+            self.ready = cache.unflatten(0, (-1, self.block_size)).index_select(0, self.blocks).flatten(0, 1)
+
+    def update(self, input, cache, slot_mapping):
+        assert self.ready is not None, "Data hasn't been fetched!"
+        assert self.slots is not None, "Slots haven't been recalculated!"
+        self.ready.index_copy_(0, self.slots, input)
 
     def fetch_from_cache(self, _cache, _blocks):
-        #print('fetch:', id(_cache), _cache.data_ptr())
         assert self.ready is not None, "Data hasn't been fetched!"
         result = self.ready
         self.ready = None
-        return result
+        return result.unflatten(0, (-1, self.block_size))
 
 
 fwd_key_cache = ForwardCache()
