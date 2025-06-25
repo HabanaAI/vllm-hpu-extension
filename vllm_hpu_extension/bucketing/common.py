@@ -3,49 +3,20 @@ from typing import Dict
 import inspect
 from dataclasses import dataclass, field
 from typing import List, Tuple
-from weakref import WeakValueDictionary
-
-class WeakSingleton(type):
-    """
-    A metaclass that creates a WeakSingleton instance. This ensures that only one instance of the class exists.
-    WeakSingleton doesn't hold a strong reference to the instance, allowing it to be garbage collected when no longer in use.
-
-    Attributes:
-        _instances (Dict[type, object]): A dictionary to store the single instance of each class.
-        _instances_argspec (Dict[type, object]): A dictionary to store the argument specifications of each instance.
-
-    Methods:
-        __call__(cls, *args, **kwargs):
-            Creates or returns the single instance of the class. If the instance already exists, it checks that the 
-            arguments used to create the instance are the same as the ones provided. Raises an assertion error if 
-            the arguments differ.
-    """
-    # NOTE(kzawora): The instances are stored in a weakref dictionary, 
-    # which allows the instances to be garbage collected when they are 
-    # no longer in use. This is important for tests, where model runner 
-    # can get constructed and destroyed multiple times, and we don't 
-    # want to reuse the bucketing context from the previous instance.
-    _instances: WeakValueDictionary[type, object] = WeakValueDictionary()
-    _instances_argspec: Dict[type, object] = {}
-
-    def __call__(cls, *args, **kwargs):
-        argspec = inspect.getcallargs(super().__call__, args, kwargs)
-        if cls not in cls._instances:
-            # NOTE(kzawora): *DO NOT* assign to self._instances[cls] here,
-            # we need this variable to to force a strong reference.
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-            cls._instances_argspec[cls] = argspec
-        assert cls._instances_argspec[cls] == argspec, "Singleton instance already initialized with different arguments"
-        return cls._instances[cls]
 
 
 class HPUBucketingManager():
+    _instance = None
     prompt_buckets: List[Tuple[int, int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int, int]] = field(init=False)
     prompt_seq_cfgi: Tuple[int, int, int]
     max_prompt_config: Tuple[int, int, int]
     max_decode_config: Tuple[int, int, int]
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(HPUBucketingManager, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
                  max_num_batched_tokens, use_merged_prefill, prefix_caching,
@@ -62,7 +33,7 @@ class HPUBucketingManager():
 
     def hello(self):
         # sanity check
-        print("hello from manager")
+        print("hello from manager", self.max_model_len)
 
     def get_bucketing_strategy(self, prompt_strategy = None, decode_strategy = None):
         strategy = None
@@ -106,10 +77,38 @@ class HPUBucketingManager():
     def find_bucket(self, batch_size, seq_len, ctx_len, is_prompt):
         buckets = self.prompt_buckets if is_prompt else self.decode_buckets
         found_bucket = find_equal_or_closest_greater_config(buckets, (batch_size, seq_len, ctx_len))
+        #print("otrzymany", batch_size, seq_len, ctx_len, "znaleziony: ", found_bucket)
+        if found_bucket is None:
+           print("no greater - for now add to rest as it is")
+           new_bucket = (batch_size, seq_len, ctx_len)
+           self.prompt_buckets.append(new_bucket) if is_prompt else self.decode_buckets.append(new_bucket)
+           print(new_bucket)
+           return new_bucket
         return found_bucket
 
     def get_max_prompt_shape(self):
         return self.prompt_seq_cfg[-1]
+
+    @classmethod
+    def get_instance(cls):
+        """
+        Retrieve the singleton instance of the class.
+
+        Returns:
+            The singleton instance of the class.
+
+        Raises:
+            AssertionError: If the class has not been initialized and no instance exists.
+        """
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+def get_bucketing_manager():
+    instance = HPUBucketingManager.get_instance()
+    instance.hello()
+    return instance 
+
 
 
 def find_equal_or_closest_greater_config(sorted_list, target_tuple):
