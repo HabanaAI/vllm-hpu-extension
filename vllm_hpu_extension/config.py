@@ -127,9 +127,11 @@ def boolean(x: str) -> Callable[str, bool]:
 class Env:
     """A callable that fetches values from env variables, applying conversions if necessary"""
 
-    def __init__(self, name: str, value_type: Callable[Any, Any]):
+    def __init__(self, name: str, value_type: Callable[[str], Any], default=None):
         self.name = name
         self.value_type = value_type
+        self.default = default
+        self.hidden = False
 
     def __call__(self, _):
         value = os.environ.get(self.name)
@@ -139,7 +141,10 @@ class Env:
             except Exception as e:
                 msg = f'{self.name}: exception during construction: {e}'
                 raise RuntimeError(msg)
-        return None
+        else:
+            value = self.default
+            self.hidden = True
+        return value
 
 
 class Value:

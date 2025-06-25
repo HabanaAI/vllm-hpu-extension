@@ -43,6 +43,10 @@ def get_experimental_flags():
         Env('VLLM_PT_PROFILE', str),
         Env('VLLM_PROFILE_PROMPT', str),
         Env('VLLM_PROFILE_DECODE', str),
+        Env('VLLM_PROFILE_STEPS', str),
+        Env('VLLM_DEFRAG_DEBUG', boolean, False),
+        Env('VLLM_DEFRAG_THRESHOLD', int, 32),
+        Env('VLLM_DEFRAG_WITH_GRAPHS', boolean, False),
     ]
     return to_dict(flags)
 
@@ -71,5 +75,7 @@ def get_features():
         Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'), 
         Value('linear_bucketing', True),
         Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
+        Value('merged_kv', False),
+        Value('defrag', False),
     ]
     return split_values_and_flags(features)
