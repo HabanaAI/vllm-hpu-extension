@@ -39,8 +39,7 @@ cd vllm-hpu-extension/calibration
 ./calibrate_model.sh -m /path/to/local/llama3.1/Meta-Llama-3.1-405B-Instruct/ -d dataset-processed.pkl -o /path/to/measurements/vllm-benchmarks/inc -b 128 -t 8 -l 4096
 # OR
 ./calibrate_model.sh -m facebook/opt-125m -d dataset-processed.pkl -o inc/
-
-# OR Calibrate with dataset NeelNanda/pile-10k
+# OR Calibrate DeepSeek models with dataset NeelNanda/pile-10k
 PT_HPU_LAZY_MODE=1  bash calibrate_model.sh -m /models/DeepSeek-R1  -d NeelNanda/pile-10k -o inc/ -t 8
 ```
 
