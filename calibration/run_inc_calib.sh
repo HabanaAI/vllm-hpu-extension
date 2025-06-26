@@ -1,7 +1,9 @@
-DEFAULT_MODEL_PATH="/mnt/disk3/DeepSeek-R1-G2-INC"
+#!/bin/bash
+
+DEFAULT_MODEL_PATH="/mnt/disk3/yiliu4/DeepSeek-R1-G2-INC-424-Converter207"
 FP8_MODEL_PATH="${1:-$DEFAULT_MODEL_PATH}"
 
-QUANT_CONFIG_FILE="scripts/quant_configs/inc_measure_config.json"
+QUANT_CONFIG_FILE="./quant_configs/inc_measure_config.json"
 timestamp=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="prepare.pile.512.${timestamp}.log"
 
@@ -30,14 +32,14 @@ VLLM_MOE_N_SLICE=1 \
 QUANT_CONFIG=${QUANT_CONFIG_FILE} \
     python step-2-measure-scales.py \
     --model ${FP8_MODEL_PATH} \
-    --tokenizer ${FP8_MODEL_PATH} \
     --max-tokens 32 \
     --batch-size 1 \
-    --max-dataset-samples 512 \
+    --block-quant \
+    --max-dataset-samples 4 \
     --auto-process-dataset \
     --sample-len 1024 \
     --max-model-len 2048 \
     --verbose \
     --tensor-parallel-size 8 \
     --expert-parallel \
-    --dataset pile 2>&1 | tee $LOG_FILE
+    --dataset "NeelNanda/pile-10k" 2>&1 | tee $LOG_FILE

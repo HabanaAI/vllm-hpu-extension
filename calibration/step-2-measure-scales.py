@@ -77,7 +77,7 @@ def get_dataset(args):
         return samples_lst
     least_tokens = args.sample_len
     num_samples = args.max_dataset_samples
-    assert args.dataset == "NeelNanda/pile-10k", f"Currently only support NeelNanda/pile-10k"
+    assert args.dataset == "NeelNanda/pile-10k", f"Currently only support NeelNanda/pile-10k, but got {args.dataset}."
     prompts = get_pile_prompts(args.model, 
                                dataset_name=args.dataset,
                                num_samples=num_samples)
@@ -115,26 +115,22 @@ if __name__ == "__main__":
     parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
-    parser.add_argument(
-        "--auto-process-dataset",
-        action="store_true",
-        default=False,
-        dest="Genrate prompts from dataset automatically",
-    )
+    parser.add_argument("--auto-process-dataset", action="store_true", default=False)
     parser.add_argument("--use-fp8-model", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
-    parser.add_argument("--max-tokens", type=int, default=1024, dest="Max generated tokens")
-    parser.add_argument("--sample-len", type=int, default=1024, dest="The minimum length of the sample prompts")
+    parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument("--sample-len", type=int, default=1024)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
     kwargs = {}
-    if not args.use_fp8_model:
-        kwargs["quantization"] = "fp8" if args.block_quant else "inc"
-    calibration_ds = get_ds(args)
+    # if not args.use_fp8_model:
+    #     kwargs["quantization"] = "fp8" if args.block_quant else "inc"
+    if not args.auto_process_dataset:
+        calibration_ds = get_ds(args)
     llm = vllm.LLM(
         model=args.model,
         dtype=torch.bfloat16,
