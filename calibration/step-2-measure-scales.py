@@ -116,7 +116,6 @@ if __name__ == "__main__":
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument("--auto-process-dataset", action="store_true", default=False)
-    parser.add_argument("--use-fp8-model", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("--max-tokens", type=int, default=1024)
@@ -127,8 +126,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     kwargs = {}
-    # if not args.use_fp8_model:
-    #     kwargs["quantization"] = "fp8" if args.block_quant else "inc"
     if not args.auto_process_dataset:
         calibration_ds = get_ds(args)
     llm = vllm.LLM(
