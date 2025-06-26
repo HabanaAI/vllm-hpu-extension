@@ -122,6 +122,7 @@ if __name__ == "__main__":
         dest="Genrate prompts from dataset automatically",
     )
     parser.add_argument("--use-fp8-model", action="store_true", default=False)
+    parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("--max-tokens", type=int, default=1024, dest="Max generated tokens")
     parser.add_argument("--sample-len", type=int, default=1024, dest="The minimum length of the sample prompts")
@@ -137,6 +138,8 @@ if __name__ == "__main__":
     llm = vllm.LLM(
         model=args.model,
         dtype=torch.bfloat16,
+        enforce_eager=args.enforce_eager,
+        quantization="fp8" if args.block_quant else "inc",
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len,
