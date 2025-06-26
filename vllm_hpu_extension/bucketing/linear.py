@@ -26,7 +26,19 @@ class LinearBucketingStrategy:
             'prompt', 'seq', min=block_size,
             step=block_size, max=max_prompt_seq)
 
-        #TODO - if self.use_merged_prefill:
+        if self.use_merged_prefill:
+            prev_prompt_bs_bucket_cfg = tuple(prompt_bs_bucket_cfg)
+            prev_prompt_seq_bucket_cfg = tuple(prompt_seq_bucket_cfg)
+            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
+            max_bs = prompt_bs_bucket_cfg[2]
+            prompt_bs_bucket_cfg = (1, 1, 1)
+            prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, max_num_batched_tokens))
+            new_prompt_bs_bucket_cfg = prompt_bs_bucket_cfg
+            new_prompt_seq_bucket_cfg = prompt_seq_bucket_cfg
+            print('Merged prefill is enabled!\n'
+                  'Overriding prompt bucketing settings!\n'
+                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
+                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{prompt_bs_bucket_cfg}, "
@@ -70,8 +82,6 @@ class LinearBucketingStrategy:
             'decode', 'block', min=block_size,
             step=block_size, max=max_blocks)
 
-        #TODO - if self.use_merged_prefill:
-
         msg = ("Decode bucket config (min, step, max_warmup) "
                f"bs:{decode_bs_bucket_cfg}, "
                f"block:{decode_block_bucket_cfg}")
@@ -85,21 +95,6 @@ class LinearBucketingStrategy:
               f"{list(sorted(decode_buckets))}")
 
         return decode_buckets
-
-    def _setup_buckets(self) -> None:
-        if self.use_merged_prefill:
-            prev_prompt_bs_bucket_cfg = tuple(self.prompt_bs_bucket_cfg)
-            prev_prompt_seq_bucket_cfg = tuple(self.prompt_seq_bucket_cfg)
-            seq_min, seq_step, seq_max = prev_prompt_seq_bucket_cfg
-            max_bs = self.prompt_bs_bucket_cfg[2]
-            self.prompt_bs_bucket_cfg = (1, 1, 1)
-            self.prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, self.max_num_batched_tokens))
-            new_prompt_bs_bucket_cfg = self.prompt_bs_bucket_cfg
-            new_prompt_seq_bucket_cfg = self.prompt_seq_bucket_cfg
-            print('Merged prefill is enabled!\n'
-                  'Overriding prompt bucketing settings!\n'
-                  f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
-                  f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
     @classmethod
     def get_instance(cls):
