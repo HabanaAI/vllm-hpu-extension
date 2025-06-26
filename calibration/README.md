@@ -52,7 +52,6 @@ PT_HPU_LAZY_MODE=1  bash calibrate_model.sh -m /models/DeepSeek-R1  -d NeelNanda
 > RuntimeError: [Rank:0] FATAL ERROR :: MODULE:PT_DEVMEM Allocation failed for size::939524096 (896)MB
 > ```
 
-
 # Run inference with FP8 models
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
