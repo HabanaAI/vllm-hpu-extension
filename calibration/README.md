@@ -43,6 +43,11 @@ cd vllm-hpu-extension/calibration
 > RuntimeError: [Rank:0] FATAL ERROR :: MODULE:PT_DEVMEM Allocation failed for size::939524096 (896)MB
 > ```
 
+> [!TIP]
+> For the [DeepSeek-R1](https://huggingface.co/collections/deepseek-ai/deepseek-r1-678e1e131c0169c0bc89728d) series models, which contains 256 experts, it’s important to provide a diverse and 
+> sufficiently large sample set to ensure that all experts are properly activated during calibration.
+> Through our experiments, we found that using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) and selecting 512 samples with at least 1024 tokens each yields good calibration coverage.
+
 # Run inference with FP8 models
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
