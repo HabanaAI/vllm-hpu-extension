@@ -100,7 +100,6 @@ class HPUBucketingManager():
 
 def get_bucketing_manager():
     instance = HPUBucketingManager.get_instance()
-    instance.hello()
     return instance 
 
 
