@@ -10,6 +10,11 @@ There are also optional arguments, and you can read about them by executing the 
 
 The calibration procedure works with any dataset that contains following fields: `system_prompt` and `question`. These fields are used to prepare a calibration dataset with prompts formatted specifically for your model. We recommend to use a public dataset used by MLCommons in Llama2-70b inference submission: https://github.com/mlcommons/inference/tree/master/language/llama2-70b#preprocessed.
 
+> [!TIP]
+> For the [DeepSeek-R1](https://huggingface.co/collections/deepseek-ai/deepseek-r1-678e1e131c0169c0bc89728d) series models, which contains 256 experts, it’s important to provide a diverse and 
+> sufficiently large sample set to ensure that all experts are properly activated during calibration.
+> Through our experiments, we found that using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) and selecting 512 samples with at least 1024 tokens each yields good calibration coverage.
+
 ## Options and Usage
 
 To run the ```calibrate_model.sh``` script, follow the steps below:
@@ -23,6 +28,8 @@ git clone https://github.com/HabanaAI/vllm-hpu-extension.git
 cd vllm-hpu-extension/calibration
 ```
 3. Download the dataset.
+> Note
+> For [DeepSeek-R1](https://huggingface.co/collections/deepseek-ai/deepseek-r1-678e1e131c0169c0bc89728d) series models, you can directly use NeelNanda/pile-10k as the dataset.
 
 4. Run the ```calibrate_model.sh``` script. Refer to the script options and run examples below. The script generates the ```maxabs_quant_g3.json``` file, which is used for FP8 inference.
 
@@ -32,6 +39,9 @@ cd vllm-hpu-extension/calibration
 ./calibrate_model.sh -m /path/to/local/llama3.1/Meta-Llama-3.1-405B-Instruct/ -d dataset-processed.pkl -o /path/to/measurements/vllm-benchmarks/inc -b 128 -t 8 -l 4096
 # OR
 ./calibrate_model.sh -m facebook/opt-125m -d dataset-processed.pkl -o inc/
+
+# OR Calibrate with dataset NeelNanda/pile-10k
+PT_HPU_LAZY_MODE=1  bash calibrate_model.sh -m /models/DeepSeek-R1  -d NeelNanda/pile-10k -o inc/ -t 8
 ```
 
 > [!WARNING] 
@@ -43,10 +53,6 @@ cd vllm-hpu-extension/calibration
 > RuntimeError: [Rank:0] FATAL ERROR :: MODULE:PT_DEVMEM Allocation failed for size::939524096 (896)MB
 > ```
 
-> [!TIP]
-> For the [DeepSeek-R1](https://huggingface.co/collections/deepseek-ai/deepseek-r1-678e1e131c0169c0bc89728d) series models, which contains 256 experts, it’s important to provide a diverse and 
-> sufficiently large sample set to ensure that all experts are properly activated during calibration.
-> Through our experiments, we found that using [NeelNanda/pile-10k](https://huggingface.co/datasets/NeelNanda/pile-10k) and selecting 512 samples with at least 1024 tokens each yields good calibration coverage.
 
 # Run inference with FP8 models
 
