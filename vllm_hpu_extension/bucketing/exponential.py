@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class ExponentialBucketingStrategy():
-    print("expo - zaczynamy")
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
                            max_num_batched_tokens, max_prompt_seq, max_model_len, prefix_caching):
         default_max_prompt_seq = 1024

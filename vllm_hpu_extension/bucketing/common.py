@@ -31,10 +31,6 @@ class HPUBucketingManager():
         self.max_decode_seq = max_decode_seq
         self.prefix_caching = prefix_caching
 
-    def hello(self):
-        # sanity check
-        print("hello from manager", self.max_model_len)
-
     def get_bucketing_strategy(self, prompt_strategy = None, decode_strategy = None):
         strategy = None
         # TODO check if strategy
@@ -77,12 +73,9 @@ class HPUBucketingManager():
     def find_bucket(self, batch_size, seq_len, ctx_len, is_prompt):
         buckets = self.prompt_buckets if is_prompt else self.decode_buckets
         found_bucket = find_equal_or_closest_greater_config(buckets, (batch_size, seq_len, ctx_len))
-        #print("otrzymany", batch_size, seq_len, ctx_len, "znaleziony: ", found_bucket)
         if found_bucket is None:
-           print("no greater - for now add to rest as it is")
            new_bucket = (batch_size, seq_len, ctx_len)
            self.prompt_buckets.append(new_bucket) if is_prompt else self.decode_buckets.append(new_bucket)
-           print(new_bucket)
            return new_bucket
         return found_bucket
 
@@ -104,11 +97,11 @@ class HPUBucketingManager():
             cls._instance = cls()
         return cls._instance
 
+
 def get_bucketing_manager():
     instance = HPUBucketingManager.get_instance()
     instance.hello()
     return instance 
-
 
 
 def find_equal_or_closest_greater_config(sorted_list, target_tuple):
