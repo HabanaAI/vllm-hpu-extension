@@ -136,7 +136,6 @@ if __name__ == "__main__":
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
     args = parser.parse_args()
-    kwargs = {}
     if not args.auto_process_dataset:
         calibration_ds = get_ds(args)
     llm = vllm.LLM(
@@ -151,7 +150,6 @@ if __name__ == "__main__":
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,
-        **kwargs,
     )
 
     sampling_params = vllm.SamplingParams(
