@@ -22,13 +22,9 @@ echo "======================================================"
 
 echo "Start INC calibration with model ${FP8_MODEL_PATH}, log file ${LOG_FILE}"
 
+export PT_HPU_LAZY_MODE=1
 
 VLLM_HPU_FORCE_CHANNEL_FP8=0 \
-PT_HPU_LAZY_MODE=1 \
-VLLM_MLA_PERFORM_MATRIX_ABSORPTION=0 \
-VLLM_ENABLE_RUNTIME_DEQUANT=1 \
-VLLM_REQUANT_FP8_INC=1 \
-VLLM_MOE_N_SLICE=1 \
 QUANT_CONFIG=${QUANT_CONFIG_FILE} \
     python step-2-measure-scales.py \
     --model ${FP8_MODEL_PATH} \

@@ -183,12 +183,17 @@ if [[ -n $LIMIT ]]; then
     EXTRA_FLAGS_STEP_1+="--max-dataset-samples $LIMIT "
 fi
 
+SKIP_STEP_1=false
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
     EXTRA_FLAGS_STEP_2+="--block-quant --expert-parallel "
+    EXTRA_FLAGS_STEP_2+="--max-dataset-samples 512 --batch-size 1 --max-tokens 32 "
+    EXTRA_FLAGS_STEP_2+="--auto-process-dataset --sample-len 1024 --max-model-len 2048 "
+    EXTRA_FLAGS_STEP_2+="--dataset ${DATASET_PATH} "
     EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_3+="--deepseek "
     EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_4+="--block-quant --expert-parallel "
+    SKIP_STEP_1=true
 fi
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
@@ -202,10 +207,14 @@ if $ENFORCE_EAGER; then
     EXTRA_FLAGS_STEP_4+="--enforce-eager "
 fi
 
-echo ""
-echo "1/4 Preparing calibration dataset"
-python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS_STEP_1 || (echo "Error in step 1" && exit 1)
-echo "Step 1/4 done"
+if $SKIP_STEP_1; then
+    echo "Skipping step 1 - prepare calibration dataset with dataset ${DATASET_PATH}"
+else
+    echo ""
+    echo "1/4 Preparing calibration dataset"
+    python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS_STEP_1 || (echo "Error in step 1" && exit 1)
+    echo "Step 1/4 done"
+fi
 
 echo ""
 echo "2/4 Measuring scales"

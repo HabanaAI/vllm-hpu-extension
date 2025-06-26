@@ -47,12 +47,20 @@ def get_dataset(args):
             prompt_token_ids.append([x.item() for x in tokens.input_ids[0]])
         return prompt_token_ids
 
-    def get_pile_prompts(model_name, dataset_name="NeelNanda/pile-10k", num_samples=512):
+    def get_pile_prompts(
+        model_name,
+        dataset_name="NeelNanda/pile-10k",
+        num_samples=512,
+        least_tokens=1024,
+    ):
+        print(
+            f"Loading {num_samples} samples with at least {least_tokens} tokens "
+            f"from {dataset_name} for model {model_name}..."
+        )
         from datasets import load_dataset
         from tqdm import tqdm
         import transformers
 
-        least_tokens = 1024
         seed = 42
 
         reset_seed(seed)
@@ -75,12 +83,15 @@ def get_dataset(args):
             if num_sample >= num_samples:
                 break
         return samples_lst
+
     least_tokens = args.sample_len
     num_samples = args.max_dataset_samples
-    assert args.dataset == "NeelNanda/pile-10k", f"Currently only support NeelNanda/pile-10k, but got {args.dataset}."
-    prompts = get_pile_prompts(args.model, 
-                               dataset_name=args.dataset,
-                               num_samples=num_samples)
+    prompts = get_pile_prompts(
+        args.model,
+        dataset_name=args.dataset,
+        num_samples=num_samples,
+        least_tokens=least_tokens,
+    )
     prompt_token_ids = get_prompt_token_ids(
         args.model, prompts, least_tokens
     )
