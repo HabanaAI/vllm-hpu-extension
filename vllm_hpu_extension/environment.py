@@ -66,7 +66,7 @@ def _get_vllm_engine_version(_):
     try:
         import vllm.envs as envs
         return 'v1' if envs.VLLM_USE_V1 else 'v0'
-    except:
+    except ImportError:
         logger().info("vllm module not installed, returning 'unknown' for engine version")
         return 'unknown'
 
