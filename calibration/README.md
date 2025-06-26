@@ -28,7 +28,7 @@ git clone https://github.com/HabanaAI/vllm-hpu-extension.git
 cd vllm-hpu-extension/calibration
 ```
 3. Download the dataset.
-> Note
+> [!NOTE]
 > For [DeepSeek-R1](https://huggingface.co/collections/deepseek-ai/deepseek-r1-678e1e131c0169c0bc89728d) series models, you can directly use NeelNanda/pile-10k as the dataset.
 
 4. Run the ```calibrate_model.sh``` script. Refer to the script options and run examples below. The script generates the ```maxabs_quant_g3.json``` file, which is used for FP8 inference.
