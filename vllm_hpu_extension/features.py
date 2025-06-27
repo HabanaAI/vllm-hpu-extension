@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, Env, Disabled, Engine, choice, boolean, to_dict, split_values_and_flags
+from vllm_hpu_extension.config import Not, Hardware, Lazy, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, Env, Disabled, Engine, choice, boolean, to_dict, split_values_and_flags
 from vllm_hpu_extension.kernels import fsdpa, block_softmax_adjustment
 
 
@@ -55,7 +55,7 @@ def get_features():
         Value('fused_block_softmax_adjustment', All(VersionRange(">=1.22.0.101"),
                                                     Hardware('gaudi3'),
                                                     Kernel(block_softmax_adjustment),
-                                                    Not(ModelType('qwen2')))),
+                                                    Not(All(ModelType('qwen2'), Not(Lazy()))))),
         Value('flex_impl', False, env_var='VLLM_PROMPT_USE_FLEX_ATTENTION'),
         Value('fsdpa_impl', All(Kernel(fsdpa),
                                 Not(ModelType('mllama'))), env_var='VLLM_PROMPT_USE_FUSEDSDPA'),
