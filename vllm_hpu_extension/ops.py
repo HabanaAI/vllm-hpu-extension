@@ -204,7 +204,7 @@ def prompt_attention(
         if query_heads != kv_heads:
             attn_weights = attn_weights.flatten(1, 2)
     else:
-        softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'None'
+        softmax_mode = 'fp32' if 'fp32_softmax' in enabled_flags() else 'fast'
         recompute_mode = True
         if attn_bias is not None or 'fp32_softmax' in enabled_flags():
             # to ensure the accuracy of FusedSDPA with fp32 softmax
