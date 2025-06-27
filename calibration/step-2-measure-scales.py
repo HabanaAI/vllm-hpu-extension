@@ -47,7 +47,7 @@ def get_dataset(args):
             prompt_token_ids.append([x.item() for x in tokens.input_ids[0]])
         return prompt_token_ids
 
-    def get_pile_prompts(
+    def get_prompts(
         model_name,
         dataset_name="NeelNanda/pile-10k",
         num_samples=512,
@@ -86,12 +86,15 @@ def get_dataset(args):
 
     least_tokens = args.sample_len
     num_samples = args.max_dataset_samples
-    prompts = get_pile_prompts(
-        args.model,
-        dataset_name=args.dataset,
-        num_samples=num_samples,
-        least_tokens=least_tokens,
-    )
+    try:
+        prompts = get_prompts(
+            args.model,
+            dataset_name=args.dataset,
+            num_samples=num_samples,
+            least_tokens=least_tokens,
+        )
+    except:
+        raise RuntimeError(f"Failed to load prompts from dataset {args.dataset}.")
     prompt_token_ids = get_prompt_token_ids(
         args.model, prompts, least_tokens
     )
@@ -126,11 +129,16 @@ if __name__ == "__main__":
     parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
-    parser.add_argument("--auto-process-dataset", action="store_true", default=False)
+    parser.add_argument(
+        "--auto-process-dataset",
+        action="store_true",
+        default=False,
+        help="Automatically generate a calibration dataset based on the provided dataset name.",
+    )
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
-    parser.add_argument("--max-tokens", type=int, default=1024)
-    parser.add_argument("--sample-len", type=int, default=1024)
+    parser.add_argument("--max-tokens", type=int, default=1024, help="Maximum number of tokens to generate.")
+    parser.add_argument("--sample-len", type=int, default=1024, help="Minimum number of tokens in each sample.")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
