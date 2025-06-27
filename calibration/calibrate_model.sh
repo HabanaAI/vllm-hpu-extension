@@ -198,12 +198,11 @@ if  [[ "$model_name_lower" == *"deepseek"* ]]; then
     EXTRA_FLAGS_STEP_3+="--deepseek "
     EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_4+="--block-quant --expert-parallel "
-    SKIP_STEP_1=true
 fi
 
 # Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
 if $SKIP_STEP_1; then
-    EXTRA_FLAGS_STEP_2+="--max-dataset-samples 4 --batch-size 1 --max-tokens 32 "
+    EXTRA_FLAGS_STEP_2+="--max-dataset-samples 512 --batch-size 1 --max-tokens 32 "
     EXTRA_FLAGS_STEP_2+="--auto-process-dataset --sample-len 1024 --max-model-len 2048 "
     EXTRA_FLAGS_STEP_2+="--dataset ${DATASET_PATH_OR_NAME} "
 fi
