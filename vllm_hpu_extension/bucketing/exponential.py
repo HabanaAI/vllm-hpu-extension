@@ -198,7 +198,7 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     for p, e, v, d in zip(params, env_vars, values, default_values):
         prefix = '[non-modifiable] ' if p in hidden_params else ''
         suffix = '' if p in hidden_params else ' (default: %d)' % d
-        logger_call = logger.debug if p in hidden_params else logger.info
+        logger_call = logger().debug if p in hidden_params else logger().info
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
 
