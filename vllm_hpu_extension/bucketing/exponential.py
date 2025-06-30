@@ -47,17 +47,7 @@ class ExponentialBucketingStrategy():
             max_num_batched_tokens,
             max_model_len)
 
-        msg = (f"Generated {len(prompt_buckets)} "
-               f"prompt buckets [bs, seq]: "
-               f"{list(sorted(prompt_buckets))}")
-        logger.info(msg)
-
-        msg = (f"Omitted {len(prompt_omitted_buckets)} "
-               "prompt buckets due to exceeded token budget "
-               f"(max_num_batched_tokens={max_num_batched_tokens})")
-        logger.info(msg)
-
-        return sorted(prompt_buckets), prompt_seq_bucket_cfg
+        return sorted(prompt_buckets), prompt_seq_bucket_cfg, prompt_bs_bucket_cfg
 
 
     def get_decode_buckets(self, max_num_seqs, block_size, 
@@ -81,79 +71,12 @@ class ExponentialBucketingStrategy():
             'decode', 'block', min=block_size, limit=max_decode_block_limit,
             step=block_size, max=max_blocks)
 
-        msg = ("Decode bucket config (min, step, max_warmup, limit) "
-               f"bs:{decode_bs_bucket_cfg}, "
-               f"block:{decode_block_bucket_cfg}")
-        logger.info(msg)
-
         decode_buckets = generate_decode_buckets(
             decode_bs_bucket_cfg, decode_block_bucket_cfg,
             num_max_blocks, max_model_len, block_size)
-        logger.info(f"Generated {len(decode_buckets)} "
-              f"decode buckets [bs, total_blocks]: "
-              f"{list(sorted(decode_buckets))}")
 
-        return decode_buckets
+        return sorted(decode_buckets), decode_block_bucket_cfg, decode_bs_bucket_cfg
 
-    def get_max_prompt_shape(self):
-        return (self.global_state.prompt_bs_bucket_cfg[-2],
-                self.global_state.prompt_seq_bucket_cfg[-2])
-
-    def get_padded_prompt_batch_size(self, batch_size):
-        return find_bucket(self.prompt_buckets, batch_size, 0)
-
-    def get_padded_decode_batch_size(self, batch_size):
-        return find_bucket(self.decode_buckets, batch_size, 0)
-
-    def get_padded_prompt_seq_len(self, seq_len):
-        return find_bucket(self.prompt_buckets, seq_len, 1)
-
-    def get_padded_decode_num_blocks(self, num_blocks):
-        assert self.num_hpu_blocks is not None, "num_hpu_blocks is not set"
-        bucket_size = find_bucket(self.decode_buckets, num_blocks, 2)
-        return min(bucket_size, self.num_hpu_blocks)
-
-    def get_padded_batch_size(self, batch_size, is_prompt):
-        if is_prompt:
-            return self.get_padded_prompt_batch_size(batch_size)
-        return self.get_padded_decode_batch_size(batch_size)
-
-    def get_padded_seq_or_block(self, seq_or_block, is_prompt):
-        if is_prompt:
-            return self.get_padded_prompt_seq_len(seq_or_block)
-        return self.get_padded_decode_num_blocks(seq_or_block)
-
-    def get_closest_prompt_bucket(self, target):
-        return get_closest_bucket(self.prompt_buckets, target)
-
-    def get_closest_decode_bucket(self, target):
-        return get_closest_bucket(self.decode_buckets, target)
-
-    @property
-    def prompt_buckets(self):
-        return self.global_state.prompt_buckets
-
-    @property
-    def decode_buckets(self):
-        # decode_buckets should've been generated during warmup,
-        # but in case of unit_tests warmup method is not called at all
-        if hasattr(self.global_state, 'decode_buckets'):
-            return self.global_state.decode_buckets
-        return []
-
-    @classmethod
-    def get_instance(cls):
-        """
-        Retrieve the singleton instance of the class.
-
-        Returns:
-            The singleton instance of the class.
-
-        Raises:
-            AssertionError: If the class has not been initialized and no instance exists.
-        """
-        assert cls in cls._instances, "Singleton instance not initialized"
-        return type(cls)._instances[cls]
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
     """Read bucketing configuration from env variables.
@@ -178,27 +101,8 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     return values
 
 
-def find_bucket(buckets, value, dim=None):
-    if dim is not None:
-        buckets = get_buckets_single_dim(buckets, dim)
-    try:
-        return next(p for p in sorted(buckets) if p >= value)
-    except StopIteration:
-        logger.warning(f"Couldn't find a bucket for value: {value} in {buckets} dim:{dim}")
-        return value
-
-
 def get_buckets_single_dim(buckets, dim):
     return [b[dim] for b in buckets]
-
-def get_closest_bucket(buckets, target):
-    # euclidean distances of all buckets to target
-    distances = [np.linalg.norm(b-target) for b in buckets] 
-    # indices of buckets sorted in ascending order by their distance to target
-    sorted_indices = sorted(range(len(distances)), key=lambda k: distances[k]) 
-    # whether the bucket can be actually used by the target
-    is_valid_bucket = [b[0] >= target[0] and b[1] >= target[1] for b in buckets]
-    return next(buckets[idx] for idx in sorted_indices if is_valid_bucket)
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,

@@ -42,11 +42,6 @@ class LinearBucketingStrategy:
                   f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
                   f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
-        msg = ("Prompt bucket config (min, step, max_warmup) "
-               f"bs:{prompt_bs_bucket_cfg}, "
-               f"seq:{prompt_seq_bucket_cfg}")
-        logger.info(msg)
-
         prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
             prompt_bs_bucket_cfg,
@@ -55,17 +50,7 @@ class LinearBucketingStrategy:
             prefix_caching,
             max_num_batched_tokens)
 
-        msg = (f"Generated {len(prompt_buckets)} "
-               f"prompt buckets [bs, seq]: "
-               f"{list(sorted(prompt_buckets))}")
-        logger.info(msg)
-
-        msg = (f"Omitted {len(prompt_omitted_buckets)} "
-               "prompt buckets due to exceeded token budget "
-               f"(max_num_batched_tokens={max_num_batched_tokens})")
-        logger.info(msg)
-        
-        return sorted(prompt_buckets), prompt_seq_bucket_cfg
+        return sorted(prompt_buckets), prompt_seq_bucket_cfg, prompt_bs_bucket_cfg
 
     def get_decode_buckets(self, max_num_seqs, block_size, 
                            max_num_batched_tokens, max_model_len, 
@@ -87,33 +72,12 @@ class LinearBucketingStrategy:
             'decode', 'block', min=block_size,
             step=block_size, max=max_blocks)
 
-        msg = ("Decode bucket config (min, step, max_warmup) "
-               f"bs:{decode_bs_bucket_cfg}, "
-               f"block:{decode_block_bucket_cfg}")
-        logger.info(msg)
-
         decode_buckets = generate_decode_buckets(
             decode_bs_bucket_cfg,
             decode_block_bucket_cfg, num_max_blocks)
-        logger.info(f"Generated {len(decode_buckets)} "
-              f"decode buckets [bs, total_blocks]: "
-              f"{list(sorted(decode_buckets))}")
 
-        return decode_buckets
+        return sorted(decode_buckets), decode_block_bucket_cfg, decode_bs_bucket_cfg
 
-    @classmethod
-    def get_instance(cls):
-        """
-        Retrieve the singleton instance of the class.
-
-        Returns:
-            The singleton instance of the class.
-
-        Raises:
-            AssertionError: If the class has not been initialized and no instance exists.
-        """
-        assert cls in cls._instances, "Singleton instance not initialized"
-        return type(cls)._instances[cls]
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
     """Read bucketing configuration from env variables.
