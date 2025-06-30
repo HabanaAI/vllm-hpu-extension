@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 
 class ExponentialBucketingStrategy():
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
-                           max_num_batched_tokens, max_prompt_seq, max_model_len, prefix_caching):
+                           max_num_batched_tokens, max_model_len):
+        use_merged_prefill = get_config().merged_prefill
+        prefix_caching = get_config().prefix_caching
         default_max_prompt_seq = 1024
-        if max_model_len is None and max_prompt_seq is None:
-            logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
-        max_prompt_seq = next((item for item in [max_prompt_seq, max_model_len] if item is not None), default_max_prompt_seq)
+        if max_model_len is None:
+            logger.warning(f"max_model_len is not set. Using default value = {default_max_prompt_seq}. This may cause issues.")
+        max_prompt_seq = max_model_len or default_max_prompt_seq
 
         prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
         prompt_bs_bucket_cfg = read_bucket_settings(
@@ -27,6 +29,9 @@ class ExponentialBucketingStrategy():
         prompt_seq_bucket_cfg = read_bucket_settings(
             'prompt', 'seq', min=block_size, limit=max_prompt_seq_limit,
             step=block_size, max=max_prompt_seq)
+
+        if use_merged_prefill:
+            logger.info("Merged prefill warmup is not implemented for exponential bucketing yet")
 
         msg = ("Prompt bucket config (min, step, max_warmup, limit) "
                f"bs:{prompt_bs_bucket_cfg}, "
@@ -56,12 +61,13 @@ class ExponentialBucketingStrategy():
 
 
     def get_decode_buckets(self, max_num_seqs, block_size, 
-                           max_num_batched_tokens, max_decode_seq, 
-                           max_model_len, num_max_blocks, prefix_caching):
+                           max_num_batched_tokens, max_model_len,
+                           num_max_blocks):
+        prefix_caching = get_config().prefix_caching
         default_max_decode_seq = 2048
-        if max_model_len is None and max_decode_seq is None:
-            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
-        max_decode_seq = next((item for item in [max_decode_seq, max_model_len] if item is not None), default_max_decode_seq)
+        if max_model_len is None:
+            logger.warning(f"max_model_len is not set. Using default value = {default_max_decode_seq}. This may cause issues.")
+        max_decode_seq = max_model_len or default_max_decode_seq
         max_blocks = max(
             block_size,
             max_num_seqs * max_decode_seq // block_size)

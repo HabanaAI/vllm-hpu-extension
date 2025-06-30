@@ -4,12 +4,14 @@ import inspect
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+from vllm_hpu_extension.runtime import get_config
+
 
 class HPUBucketingManager():
     _instance = None
     prompt_buckets: List[Tuple[int, int, int]] = field(init=False)
     decode_buckets: List[Tuple[int, int, int]] = field(init=False)
-    prompt_seq_cfgi: Tuple[int, int, int]
+    prompt_seq_cfg: Tuple[int, int, int]
     max_prompt_config: Tuple[int, int, int]
     max_decode_config: Tuple[int, int, int]
 
@@ -19,23 +21,19 @@ class HPUBucketingManager():
         return cls._instance
 
     def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, use_merged_prefill, prefix_caching,
-                 max_model_len, max_prompt_seq=None, max_decode_seq=None):
+                 max_num_batched_tokens, max_model_len):
         self.max_num_seqs = max_num_seqs
         self.max_num_prefill_seqs = max_num_prefill_seqs
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.num_hpu_blocks = None
         self.max_model_len = max_model_len
-        self.max_prompt_seq = max_prompt_seq
-        self.max_decode_seq = max_decode_seq
-        self.prefix_caching = prefix_caching
 
-    def get_bucketing_strategy(self, prompt_strategy = None, decode_strategy = None):
+    def get_bucketing_strategy(self):
         strategy = None
-        # TODO check if strategy
-        use_exponential_bucketing = os.environ.get(
-            'VLLM_EXPONENTIAL_BUCKETING', 'true').lower() == 'true'
+        # TODO - we can use different startegies for decode and prompt
+        use_exponential_bucketing = get_config().VLLM_EXPONENTIAL_BUCKETING
+        
         if use_exponential_bucketing:
             from vllm_hpu_extension.bucketing.exponential import (
                 ExponentialBucketingStrategy)
@@ -45,29 +43,25 @@ class HPUBucketingManager():
             strategy = LinearBucketingStrategy()
         return strategy
 
-    def generate_prompt_buckets(self, prompt_strategy = None):
-        strategy = self.get_bucketing_strategy(prompt_strategy=prompt_strategy)
+    def generate_prompt_buckets(self):
+        strategy = self.get_bucketing_strategy()
 
         self.prompt_buckets, self.prompt_seq_cfg = strategy.get_prompt_buckets(
                             max_num_prefill_seqs = self.max_num_prefill_seqs,
                             block_size = self.block_size,
                             max_num_batched_tokens = self.max_num_batched_tokens,
-                            max_prompt_seq = self.max_prompt_seq,
-                            max_model_len = self.max_model_len,
-                            prefix_caching = self.prefix_caching)
+                            max_model_len = self.max_model_len)
         return
 
-    def generate_decode_buckets(self, num_max_blocks, decode_strategy = None):
-        strategy = self.get_bucketing_strategy(decode_strategy=decode_strategy)
+    def generate_decode_buckets(self, num_max_blocks):
+        strategy = self.get_bucketing_strategy()
 
         self.decode_buckets = sorted(strategy.get_decode_buckets(
                             max_num_seqs = self.max_num_seqs, 
                             block_size = self.block_size, 
-                            max_num_batched_tokens = self.max_num_batched_tokens, 
-                            max_decode_seq = self.max_decode_seq, 
+                            max_num_batched_tokens = self.max_num_batched_tokens,
                             max_model_len = self.max_model_len, 
-                            num_max_blocks = num_max_blocks,
-                            prefix_caching = self.prefix_caching))
+                            num_max_blocks = num_max_blocks))
         return
 
     def find_bucket(self, batch_size, seq_len, ctx_len, is_prompt):
