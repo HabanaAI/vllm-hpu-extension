@@ -85,14 +85,23 @@ class HPUBucketingManager():
                f"{list(buckets)}")
         logger().info(msg)
 
-    def find_bucket(self, batch_size, seq_len, ctx_len, is_prompt):
-        buckets = self.prompt_buckets if is_prompt else self.decode_buckets
-        found_bucket = find_equal_or_closest_greater_config(buckets, (batch_size, seq_len, ctx_len))
+    def find_prompt_bucket(self, batch_size, seq_len, ctx=0):
+        found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
         if found_bucket is None:
-           logger().warning(f"Bucket for {batch_size, seq_len, ctx_len, \
-                       'prompt' if is_prompt else 'decode'} was not previously warmed up")
-           new_bucket = (batch_size, seq_len, ctx_len)
-           self.prompt_buckets.append(new_bucket) if is_prompt else self.decode_buckets.append(new_bucket)
+           logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
+                            "was not previously warmed up")
+           new_bucket = (batch_size, seq_len, ctx)
+           self.prompt_buckets.append(new_bucket)
+           return new_bucket
+        return found_bucket
+
+    def find_decode_bucket(self, batch_size, num_blocks):
+        found_bucket = find_equal_or_closest_greater_config(self.decode_buckets, (batch_size, 1, num_blocks))
+        if found_bucket is None:
+           logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
+                            "was not previously warmed up")
+           new_bucket = (batch_size, 1, num_blocks)
+           self.decode_buckets.append(new_bucket)
            return new_bucket
         return found_bucket
 
