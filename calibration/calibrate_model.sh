@@ -20,8 +20,8 @@ usage() {
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
-    echo "  -r    - rank of unified measurements"
-    echo "  -u    - unify original measurement results based on expert parallelism rules (default: False)"
+    echo "  -r    - rank of unified measurements, it should be smaller than original rank number and should be a factor of the original rank number"
+    echo "  -u    - unify measurement results based on expert parallelism rules (default: False), expert parallelism unification rule is unique, card 1 expert measurement will be extended to card 0 if unified to x from 2x cards number"
     echo "  -e    - set this flag to enable enforce_eager execution"
     echo
 }
@@ -113,9 +113,9 @@ while getopts "m:b:l:t:d:h:o:r:u:e" OPT; do
         r )
             RANK="$OPTARG"
             ;;
-	      u )
-	          USE_EP="--use_ep"
-	          ;;
+	u )
+	    USE_EP="--use_expert_paral"
+	    ;;
         e ) 
             ENFORCE_EAGER=true
             ;;
