@@ -7,6 +7,7 @@ import pandas as pd
 import time
 import argparse
 import os
+
 os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
 
@@ -30,7 +31,8 @@ def generate_responses(llm, input_batch, args):
     for response in responses:
         if args.verbose:
             print(
-                f"Prompt: {response.prompt};\nAnswer: {response.outputs[0].text}\n")
+                f"Prompt: {response.prompt};\nAnswer: {response.outputs[0].text}\n"
+            )
         total_input_tokens += len(response.prompt_token_ids)
         total_generated_tokens += len(response.outputs[0].token_ids)
 
@@ -44,12 +46,19 @@ if __name__ == "__main__":
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
-    parser.add_argument("--expert-parallel", action="store_true", default=False)
+    parser.add_argument("--expert-parallel",
+                        action="store_true",
+                        default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--max-model-len", type=int, default=2048)
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
-                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
+    parser.add_argument(
+        "--distributed-executor-backend",
+        choices=["mp", "ray"],
+        default="mp",
+        help=
+        "For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend"
+    )
 
     args = parser.parse_args()
 
@@ -68,10 +77,9 @@ if __name__ == "__main__":
         enable_expert_parallel=args.expert_parallel,
     )
 
-    sampling_params = vllm.SamplingParams(
-        temperature=0.0,
-        top_p=1,
-        max_tokens=1024)
+    sampling_params = vllm.SamplingParams(temperature=0.0,
+                                          top_p=1,
+                                          max_tokens=1024)
 
     input_batch = []
     dataset_len = len(calibration_ds)
@@ -86,7 +94,8 @@ if __name__ == "__main__":
             t_end = time.perf_counter()
             batch_done += 1
             print(
-                f"Batch finished: {i}/{calibration_ds.shape[0]} samples done; ETA: {int((t_end - t_start) * (batch_num - batch_done) // 60)} min")
+                f"Batch finished: {i}/{calibration_ds.shape[0]} samples done; ETA: {int((t_end - t_start) * (batch_num - batch_done) // 60)} min"
+            )
             input_batch = []
     generate_responses(llm, input_batch, args)
     print(

@@ -9,11 +9,14 @@ import sys
 import numpy as np
 
 
-def find_measurement_path(measurement, measurements_dir_path, scales, group_size):
+def find_measurement_path(measurement, measurements_dir_path, scales,
+                          group_size):
     measurment_card = "_" + measurement + "_" + str(group_size)
     for measurment_file in os.listdir(measurements_dir_path):
         filename = os.fsdecode(measurment_file)
-        if not filename.endswith(".json") or "_mod_list" in filename or measurment_card not in filename:
+        if not filename.endswith(
+                ".json"
+        ) or "_mod_list" in filename or measurment_card not in filename:
             continue
         if scales:
             if "MAXABS" in filename:
@@ -23,46 +26,50 @@ def find_measurement_path(measurement, measurements_dir_path, scales, group_size
                 return os.path.join(measurements_dir_path, measurment_file)
 
 
-def unify_measurements(
-    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False
-):
+def unify_measurements(measurement_group,
+                       measurements_dir_path,
+                       output_path,
+                       groups_size,
+                       groups_num,
+                       group_index,
+                       scales=False):
     measurements_paths = []
     group_name = ""
 
     # save all the jsons paths in the given measurement group
     for measurement in measurement_group:
-        measurement_path = find_measurement_path(
-            measurement, measurements_dir_path, scales, groups_size)
+        measurement_path = find_measurement_path(measurement,
+                                                 measurements_dir_path, scales,
+                                                 groups_size)
         if measurement_path is not None:
             measurements_paths.append(measurement_path)
         group_name += measurement
 
     if len(measurements_paths) == 0:
-        print("Error: invalid measurement paths. No *.json files or no *mod_list.json files.")
+        print(
+            "Error: invalid measurement paths. No *.json files or no *mod_list.json files."
+        )
         return
 
     # save all the jsons content in the given measurement group
     measurements_jsons = []
     for measurement_path in measurements_paths:
-        with open(measurement_path, "r") as f:
+        with open(measurement_path) as f:
             js = json.load(f)
             measurements_jsons.append(js["Nodes"])
     # create a name for the unified json that will be created for this measurement group
-    unified_json_name = (
-        find_measurement_path(
-            measurement_group[0], measurements_dir_path, scales, groups_size)
-        .split("/")[-1]
-        .replace(
+    unified_json_name = (find_measurement_path(
+        measurement_group[0], measurements_dir_path, scales,
+        groups_size).split("/")[-1].replace(
             "_" + measurement_group[0] + "_" + str(groups_size),
-            "_" + str(group_index) + "_" + str(groups_num)
-        )
-    )
+            "_" + str(group_index) + "_" + str(groups_num)))
     unified_json_path = os.path.join(output_path, unified_json_name)
 
     # open a unified json file
-    with open(measurements_paths[0], "r") as origin, open(unified_json_path, "w") as copy:
+    with open(measurements_paths[0]) as origin, open(unified_json_path,
+                                                     "w") as copy:
         copy.write(origin.read())
-    with open(unified_json_path, "r") as json_file:
+    with open(unified_json_path) as json_file:
         unified_json = json.load(json_file)
         unified_json["LocalRank"] = group_index if groups_num != 1 else -1
 
@@ -73,7 +80,8 @@ def unify_measurements(
         if node_values.get("outputs") is not None:
             max_outputs = node_values["outputs"]
         max_weight = None
-        if node_values.get("params") is not None and node_values["params"].get("weight") is not None:
+        if node_values.get("params") is not None and node_values["params"].get(
+                "weight") is not None:
             max_weight = node_values["params"]["weight"]
 
         # iterate over all the measurment group and take the maximum for each tensor and its channel
@@ -81,27 +89,32 @@ def unify_measurements(
             for measurement_json in measurements_jsons:
                 for i in range(0, len(max_inputs)):
                     max_inputs[i] = max(
-                        measurement_json[node_name]["inputs"][i], max_inputs[i])
+                        measurement_json[node_name]["inputs"][i],
+                        max_inputs[i])
                 if max_outputs is not None:
-                    max_outputs = max(
-                        measurement_json[node_name]["outputs"], max_outputs)
+                    max_outputs = max(measurement_json[node_name]["outputs"],
+                                      max_outputs)
                 if max_weight is not None:
                     max_weight = max(
-                        measurement_json[node_name]["params"]["weight"], max_weight)
+                        measurement_json[node_name]["params"]["weight"],
+                        max_weight)
         else:
             for measurement_json in measurements_jsons:
                 for i in range(0, len(max_inputs)):
                     for j in range(0, len(max_inputs[i])):
                         max_inputs[i][j][0] = max(
-                            measurement_json[node_name]["inputs"][i][j][0], max_inputs[i][j][0])
+                            measurement_json[node_name]["inputs"][i][j][0],
+                            max_inputs[i][j][0])
                 if max_outputs is not None:
                     for i in range(0, len(max_outputs)):
                         max_outputs[i][0] = max(
-                            measurement_json[node_name]["outputs"][i][0], max_outputs[i][0])
+                            measurement_json[node_name]["outputs"][i][0],
+                            max_outputs[i][0])
                 if max_weight is not None:
                     for i in range(0, len(max_weight)):
                         max_weight[i][0] = max(
-                            measurement_json[node_name]["params"]["weight"][i][0], max_weight[i][0])
+                            measurement_json[node_name]["params"]["weight"][i]
+                            [0], max_weight[i][0])
 
         # update the maximum in the unified json
         if scales:
@@ -110,17 +123,21 @@ def unify_measurements(
             if max_outputs is not None:
                 unified_json["Nodes"][node_name]["outputs"] = max_outputs
             if max_weight is not None:
-                unified_json["Nodes"][node_name]["params"]["weight"] = max_weight
+                unified_json["Nodes"][node_name]["params"][
+                    "weight"] = max_weight
         else:
             for i in range(0, len(max_inputs)):
                 for j in range(0, len(max_inputs[i])):
-                    unified_json["Nodes"][node_name]["inputs"][i][j][0] = max_inputs[i][j][0]
+                    unified_json["Nodes"][node_name]["inputs"][i][j][
+                        0] = max_inputs[i][j][0]
             if max_outputs is not None:
                 for i in range(0, len(max_outputs)):
-                    unified_json["Nodes"][node_name]["outputs"][i][0] = max_outputs[i][0]
+                    unified_json["Nodes"][node_name]["outputs"][i][
+                        0] = max_outputs[i][0]
             if max_weight is not None:
                 for i in range(0, len(max_weight)):
-                    unified_json["Nodes"][node_name]["params"]["weight"][i][0] = max_weight[i][0]
+                    unified_json["Nodes"][node_name]["params"]["weight"][i][
+                        0] = max_weight[i][0]
     global_rank = None
     local_rank = group_index if groups_num != 1 else -1
     mode = ""
@@ -131,35 +148,43 @@ def unify_measurements(
     nodes = unified_json["Nodes"]
 
     # create unified npz file from the unified json
-    unified_npz_path = os.path.join(
-        output_path, unified_json_name.replace(".json", ".npz"))
+    unified_npz_path = os.path.join(output_path,
+                                    unified_json_name.replace(".json", ".npz"))
     for layer, dlayer in nodes.items():
         layers[layer] = {}
         layers[layer]["inputs"] = [np.array(x) for x in dlayer["inputs"]]
         if dlayer.get("outputs") is not None:
             layers[layer]["outputs"] = np.array(dlayer["outputs"])
-        if dlayer.get("params") is not None and dlayer["params"].get("weight") is not None:
+        if dlayer.get("params") is not None and dlayer["params"].get(
+                "weight") is not None:
             layers[layer]["params"] = {}
             layers[layer]["params"]["weight"] = np.array(
                 dlayer["params"]["weight"])
-    df = {"GlobalRank": global_rank, "LocalRank": local_rank,
-          "Mode": mode, "Nodes": layers}
+    df = {
+        "GlobalRank": global_rank,
+        "LocalRank": local_rank,
+        "Mode": mode,
+        "Nodes": layers
+    }
     with open(unified_npz_path, "w"):
         np.savez(unified_npz_path, df)
 
 
 def parse_args(args):
     parser = argparse.ArgumentParser(
-        description="Run the measurements parser", formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
+        description="Run the measurements parser",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        "-m", "--measurements", type=str, help="path to the directory of the measurements that will be unified"
-    )
+        "-m",
+        "--measurements",
+        type=str,
+        help="path to the directory of the measurements that will be unified")
     parser.add_argument(
         "-g",
         "--groups",
         type=str,
-        help="Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
+        help=
+        "Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
                         - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
     )
     parser.add_argument(
@@ -167,7 +192,8 @@ def parse_args(args):
         "--out",
         type=str,
         default=os.getcwd(),
-        help="path to the directory where the unified measurements will be written",
+        help=
+        "path to the directory where the unified measurements will be written",
     )
     return parser.parse_args(args)
 
@@ -175,8 +201,12 @@ def parse_args(args):
 def prepare_group_list(grouping_string):
     group_seperator = '--'
     card_seperator = ','
-    grouping_string = grouping_string.replace(" ", "").strip(group_seperator).strip(card_seperator)
-    group_list=[group.strip(card_seperator).split(card_seperator) for group in grouping_string.split(group_seperator)]  
+    grouping_string = grouping_string.replace(
+        " ", "").strip(group_seperator).strip(card_seperator)
+    group_list = [
+        group.strip(card_seperator).split(card_seperator)
+        for group in grouping_string.split(group_seperator)
+    ]
     print("Card grouping list >> {}".format(group_list))
     return group_list
 
@@ -197,19 +227,25 @@ def main(args):
                 num_jsons_scales += 1
             elif "mod_list" not in path:
                 num_jsons_drange += 1
-    assert (
-        os.path.isdir(measurements_path)
-        and (num_jsons_drange % len(groups)) == 0
-        and (num_jsons_scales % len(groups)) == 0
-    )
+    assert (os.path.isdir(measurements_path)
+            and (num_jsons_drange % len(groups)) == 0
+            and (num_jsons_scales % len(groups)) == 0)
 
     for group_index, group in enumerate(groups):
-        unify_measurements(
-            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False
-        )
-        unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True
-        )
+        unify_measurements(group,
+                           measurements_path,
+                           output_path,
+                           num_jsons_drange,
+                           len(groups),
+                           group_index,
+                           scales=False)
+        unify_measurements(group,
+                           measurements_path,
+                           output_path,
+                           num_jsons_scales,
+                           len(groups),
+                           group_index,
+                           scales=True)
 
     print("finished measurement unifier script")
 

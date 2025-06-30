@@ -4,17 +4,15 @@ This example shows how to use vLLM for running offline inference with
 multi-image input on vision language models for text generation,
 using the chat template defined by the model.
 """
-import os
-from argparse import Namespace
 
 from vllm.utils import FlexibleArgumentParser
-from vllm.engine.arg_utils import AsyncEngineArgs, EngineArgs
+from vllm.engine.arg_utils import AsyncEngineArgs
 
 from lm_eval import tasks, evaluator
 from lm_eval.models.vllm_vlms import VLLM_VLM
 
-
 IMAGE_LIMIT = 1
+
 
 def run_generate():
     config_template_bf16 = {
@@ -33,8 +31,7 @@ def run_generate():
         },
     }
     config_template_fp8 = {
-        **config_template_bf16,
-        "vllm_kwargs": {
+        **config_template_bf16, "vllm_kwargs": {
             **config_template_bf16["vllm_kwargs"],
             "quantization": args.quantization,
             "kv_cache_dtype": args.kv_cache_dtype,
@@ -51,8 +48,10 @@ def run_generate():
             **config_template_fp8["vllm_kwargs"],
             "max_num_seqs": 32,
             "use_padding_aware_scheduling": True,
-            "max_num_prefill_seqs": 1,  # TODO: remove when higher prefill batch size will be supported
-            "disable_log_stats": True,  # TODO: investigate error when running with log stats
+            "max_num_prefill_seqs":
+            1,  # TODO: remove when higher prefill batch size will be supported
+            "disable_log_stats":
+            True,  # TODO: investigate error when running with log stats
         },
     }
     lm_instance_cfg = {
@@ -70,7 +69,7 @@ def run_generate():
         },
     }
     lm = VLLM_VLM(**lm_instance_cfg["vllm_kwargs"],
-                        **lm_instance_cfg["lm_eval_kwargs"])
+                  **lm_instance_cfg["lm_eval_kwargs"])
 
     task_name = "mmmu_val"
     task_manager = tasks.TaskManager(include_path="./meta-configs")
@@ -81,11 +80,7 @@ def run_generate():
         "apply_chat_template": True,
     }
 
-    results = evaluator.evaluate(
-        lm=lm,                            
-        task_dict=task_dict,
-        **eval_kwargs
-    )
+    results = evaluator.evaluate(lm=lm, task_dict=task_dict, **eval_kwargs)
     return results
 
 

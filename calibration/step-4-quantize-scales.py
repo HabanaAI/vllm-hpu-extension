@@ -5,9 +5,9 @@ import vllm
 import torch
 import argparse
 import os
+
 os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
-
 
 if __name__ == "__main__":
 
@@ -16,9 +16,16 @@ if __name__ == "__main__":
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
-    parser.add_argument("--expert-parallel", action="store_true", default=False)
-    parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
-                        help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
+    parser.add_argument("--expert-parallel",
+                        action="store_true",
+                        default=False)
+    parser.add_argument(
+        "--distributed-executor-backend",
+        choices=["mp", "ray"],
+        default="mp",
+        help=
+        "For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend"
+    )
 
     args = parser.parse_args()
 

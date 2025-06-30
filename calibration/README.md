@@ -15,7 +15,7 @@ The calibration procedure works with any dataset that contains following fields:
 To run the ```calibrate_model.sh``` script, follow the steps below:
 
 1. Build and install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm).
-2. Clone the vllm-hpu-extension repository and move to the ```calibration``` subdirectory: 
+2. Clone the vllm-hpu-extension repository and move to the ```calibration``` subdirectory:
 
 ```bash
 cd /root
@@ -34,7 +34,7 @@ cd vllm-hpu-extension/calibration
 ./calibrate_model.sh -m facebook/opt-125m -d dataset-processed.pkl -o inc/
 ```
 
-> [!WARNING] 
+> [!WARNING]
 > Measurements are device-dependent, so you can't use scales collected on Gaudi3 on Gaudi2 accelerators. This behavior can cause accuracy issues.
 
 > [!TIP]
@@ -47,11 +47,11 @@ cd vllm-hpu-extension/calibration
 
 An inference with FP8 precision models using vLLM has been described in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#quantization-fp8-inference-and-model-calibration-process) file.
 
-# Multi-node FP8 Calibration 
+# Multi-node FP8 Calibration
 
 Following section details the procedure for calibrating models that do not fit into a single Gaudi node. For illustration we have used the Llama 3.1 405B model running in Tensor Parallelism(TP)-16 mode spanning two Gaudi2 nodes.<br>
 
-> [!NOTE] 
+> [!NOTE]
 > Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
 
 
@@ -104,13 +104,13 @@ ray status
 ```
 Running the above command will create calibration measurement files in the specified output directory, organized into model-specific subdirectories.
 
-> [!NOTE] 
+> [!NOTE]
 > The current calibration procedure works correctly only when the multi-node configuration has more than 8 cards.
 
 
 #### Step 4: (Optional) Measurement unification
 
-This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales. For example, you can perform FP8 calibration on the Llama 3.1 405B model using 2x Gaudi2 nodes with Tensor Parallelism (TP) set to 16, and then use the unification script to reduce the TP to 8. This can be achieved in two ways: 
+This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales. For example, you can perform FP8 calibration on the Llama 3.1 405B model using 2x Gaudi2 nodes with Tensor Parallelism (TP) set to 16, and then use the unification script to reduce the TP to 8. This can be achieved in two ways:
 1. Add `-g` optional parameter to `calibration_model.sh` script, e.g.
 ```bash
 ./calibrate_model.sh -m meta-llama/Llama-3.1-405B-Instruct -d <path-to-dataset>/open_orca_gpt4_tokenized_llama.calibration_1000.pkl -o <nfs-path-to-calibration-output>/fp8_output -l 4096 -t 16 -b 128 -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"
@@ -144,5 +144,5 @@ export QUANT_CONFIG='<nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-
 vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtype fp8_inc --weights-load-device cpu --tensor-parallel-size 8 --max-model-len 2048
 ```
 
-> [!NOTE] 
+> [!NOTE]
 > Detailed information about serving with vLLM (including multi-node serving) you can find in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md) within vllm-fork repo.
