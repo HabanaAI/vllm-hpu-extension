@@ -65,6 +65,6 @@ def get_features():
         Value('merged_prefill', False),
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
-        Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING')
+        Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
     ]
     return split_values_and_flags(features)
