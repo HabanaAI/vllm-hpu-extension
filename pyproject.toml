@@ -73,6 +73,8 @@ skip_gitignore = true
 
 [tool.pymarkdown]
 plugins.md004.style = "sublist" # ul-style
+plugins.md029.enabled = false 
+plugins.md031.enabled = false  
 plugins.md013.enabled = false # line-length
 plugins.md041.enabled = false # first-line-h1
 plugins.md033.enabled = false # inline-html

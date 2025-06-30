@@ -54,8 +54,7 @@ Following section details the procedure for calibrating models that do not fit i
 > [!NOTE]
 > Following steps are to be executed within a [Gaudi Pytorch container](https://docs.habana.ai/en/latest/Installation_Guide/Additional_Installation/Docker_Installation.html#use-intel-gaudi-containers)
 
-
-#### Step 1: Pre-requisites
+## Step 1: Pre-requisites
 
 - Install latest [vllm-fork](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md#build-and-install-vllm)
 - Ensure that all nodes in the multi-node setup are connected to an NFS mount (Network File System).
@@ -83,8 +82,7 @@ export HCCL_SOCKET_IFNAME=eth0
 export QUANT_CONFIG="<nfs-path-to-config>/quant_config_buffer.json"
 ```
 
-
-#### Step 2: Start a Ray cluster to accommodate the required TP size.
+### Step 2: Start a Ray cluster to accommodate the required TP size.
 
 ```bash
 # Start Ray on head node
@@ -107,7 +105,6 @@ Running the above command will create calibration measurement files in the speci
 > [!NOTE]
 > The current calibration procedure works correctly only when the multi-node configuration has more than 8 cards.
 
-
 #### Step 4: (Optional) Measurement unification
 
 This is an optional step and is used to reduce the target tensor parallelism level by unifying the measurement scales. For example, you can perform FP8 calibration on the Llama 3.1 405B model using 2x Gaudi2 nodes with Tensor Parallelism (TP) set to 16, and then use the unification script to reduce the TP to 8. This can be achieved in two ways:
@@ -119,9 +116,9 @@ This is an optional step and is used to reduce the target tensor parallelism lev
 ```bash
 python3 step-5-unify_measurements.py -g "0,8--1,9--2,10--3,11--4,12--5,13--6,14--7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
--  `-g`, i.e. **card grouping** to use during unification. Card indices separated by commas and groups separated by double dashes.
--  `-m`, i.e. **calibration output path** containing the measurement files.
--  `-o`, i.e. **unification output directory** where unification output will be written.
+- `-g`, i.e. **card grouping** to use during unification. Card indices separated by commas and groups separated by double dashes.
+- `-m`, i.e. **calibration output path** containing the measurement files.
+- `-o`, i.e. **unification output directory** where unification output will be written.
 
 > [!TIP]
 > It is a good practice to store unification results in the source directory. This allows you to run the vLLM server with FP8 precision and different TP values without modifying the directory specified in the `QUANT_CONFIG` environment variable.
@@ -135,7 +132,6 @@ python3 step-5-unify_measurements.py -g "0,8,1,9--2,10,3,11--4,12,5,13--6,14,7,1
 ```bash
 python3 step-5-unify_measurements.py -g "0,8,1,9,2,10,3,11--4,12,5,13,6,14,7,15"  -m <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/ -o <nfs-path-to-calibration-output>/fp8_output/llama-3.1-405b-instruct/g2/
 ```
-
 
 #### Step 5: Serving the FP8 quantized model
 
