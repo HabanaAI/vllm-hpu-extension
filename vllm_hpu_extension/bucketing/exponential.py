@@ -233,7 +233,7 @@ def generate_prompt_buckets(bs_bucket_config,
                             max_model_len=None):
     _, _, bmax, _ = seq_bucket_config
     batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
-    seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
+    seq_bucket_config = warmup_range_with_limit(seq_bucket_config, long_context=True)
 
     if prefix_caching:
         buckets_3d = []
@@ -326,7 +326,7 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
 
 
-def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
+def warmup_range_with_limit(config: Tuple[int, int, int, int], long_context=False, fill=True):
     """ 
     NOTE(kzawora): we'll use exponential spacing for buckets in which scaled 
     power will return bmin for first bucket iteration, and bmax for last 
@@ -408,4 +408,26 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
             buckets.add(new_bucket)
         else:
             buckets.add(bucket)
+
+    if long_context:
+        tmp_step = bmax / num_buckets
+        for i in range(1, num_buckets+1):
+            power_unpadded = i * tmp_step
+
+            if i == num_buckets and get_config().use_contiguous_pa:
+                bucket = bmax
+            else:
+                bucket = math.ceil(power_unpadded / bstep) * bstep
+            if fill and bucket in buckets:
+                available_buckets = linear_buckets.difference(buckets)
+                if len(available_buckets) == 0:
+                    break  # there are no more unique buckets, let's exit now
+                new_bucket = min(available_buckets,
+                             key=lambda x: abs(x - power_unpadded))
+                if new_bucket not in buckets:
+                    buckets.add(new_bucket)
+            else:
+                if bucket not in buckets:
+                    buckets.add(bucket)
+
     return list(sorted(buckets))
