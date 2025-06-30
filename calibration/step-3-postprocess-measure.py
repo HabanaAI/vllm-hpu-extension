@@ -11,7 +11,7 @@ import numpy as np
 
 def fix_cache_inputs(json_data, args):
     layer_indexes = set([
-        int(key.split('.')[2]) for key in json_data['Nodes'].keys()
+        int(key.split('.')[2]) for key in json_data['Nodes']
         if key.startswith('model.layers.')
     ])
     for layer_index in range(len(layer_indexes)):
@@ -27,10 +27,16 @@ def fix_cache_inputs(json_data, args):
             attn_name = "mla_attn"
             k_cache_name = "latent_cache_k"
 
-        matmul_av_key = f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av'
-        v_cache_key = f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{v_cache_name}'
-        matmul_qk_key = f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_qk'
-        k_cache_key = f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{k_cache_name}'
+        matmul_av_key = (
+            f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_av')
+        v_cache_key = (
+            f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{v_cache_name}'
+        )
+        matmul_qk_key = (
+            f'model.layers.{layer_index}.self_attn.{attn_name}.impl.matmul_qk')
+        k_cache_key = (
+            f'model.layers.{layer_index}.self_attn.{attn_name}.impl.{k_cache_name}'
+        )
 
         matmul_av_input = json_data['Nodes'].get(matmul_av_key, {}).get(
             'inputs', [None, None])[1]
@@ -102,46 +108,46 @@ def main(args):
     for measurement in measurements_paths_ranges + measurements_paths_scales:
         fixed_json_path = os.path.join(output_path,
                                        f"{measurement.split(os.sep)[-1]}")
-        with open(fixed_json_path, "w") as fixed_json_file:
-            with open(os.path.join(measurements_path,
-                                   measurement)) as json_file:
-                data_to_fix = json.load(json_file)
-                fixed_data = fix_cache_inputs(data_to_fix, args)
-                json.dump(fixed_data, fixed_json_file)
-                print("")
-                print("measurement=", measurement, flush=True)
-                print("measurements_paths_scales=",
-                      measurements_paths_scales,
-                      flush=True)
-                if measurement in measurements_paths_ranges + measurements_paths_scales:
-                    global_rank = fixed_data["GlobalRank"]
-                    local_rank = fixed_data["LocalRank"]
-                    mode = fixed_data["Mode"]
-                    nodes = fixed_data["Nodes"]
-                    layers = {}
-                    fixed_npz_path = fixed_json_path.replace(".json", ".npz")
-                    for layer, dlayer in nodes.items():
-                        layers[layer] = {}
-                        layers[layer]["inputs"] = [
-                            np.array(x) for x in dlayer["inputs"]
+        with open(fixed_json_path, "w") as fixed_json_file, \
+             open(os.path.join(measurements_path, measurement)) as json_file:
+            data_to_fix = json.load(json_file)
+            fixed_data = fix_cache_inputs(data_to_fix, args)
+            json.dump(fixed_data, fixed_json_file)
+            print("")
+            print("measurement=", measurement, flush=True)
+            print("measurements_paths_scales=",
+                  measurements_paths_scales,
+                  flush=True)
+            if measurement in (measurements_paths_ranges +
+                               measurements_paths_scales):
+                global_rank = fixed_data["GlobalRank"]
+                local_rank = fixed_data["LocalRank"]
+                mode = fixed_data["Mode"]
+                nodes = fixed_data["Nodes"]
+                layers = {}
+                fixed_npz_path = fixed_json_path.replace(".json", ".npz")
+                for layer, dlayer in nodes.items():
+                    layers[layer] = {}
+                    layers[layer]["inputs"] = [
+                        np.array(x) for x in dlayer["inputs"]
+                    ]
+                    if dlayer.get("outputs") is not None:
+                        layers[layer]["outputs"] = [
+                            np.array(x) for x in dlayer["outputs"]
                         ]
-                        if dlayer.get("outputs") is not None:
-                            layers[layer]["outputs"] = [
-                                np.array(x) for x in dlayer["outputs"]
-                            ]
-                        if dlayer.get("params") is not None and dlayer[
-                                "params"].get("weight") is not None:
-                            layers[layer]["params"] = {}
-                            layers[layer]["params"]["weight"] = np.array(
-                                dlayer["params"]["weight"])
-                    df = {
-                        "GlobalRank": global_rank,
-                        "LocalRank": local_rank,
-                        "Mode": mode,
-                        "Nodes": layers
-                    }
-                    with open(fixed_npz_path, "w"):
-                        np.savez(fixed_npz_path, df)
+                    if dlayer.get("params") is not None and dlayer[
+                            "params"].get("weight") is not None:
+                        layers[layer]["params"] = {}
+                        layers[layer]["params"]["weight"] = np.array(
+                            dlayer["params"]["weight"])
+                df = {
+                    "GlobalRank": global_rank,
+                    "LocalRank": local_rank,
+                    "Mode": mode,
+                    "Nodes": layers
+                }
+                with open(fixed_npz_path, "w"):
+                    np.savez(fixed_npz_path, df)
 
     print("finished fix_measurements script")
 

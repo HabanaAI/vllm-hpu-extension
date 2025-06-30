@@ -23,9 +23,8 @@ if __name__ == "__main__":
         "--distributed-executor-backend",
         choices=["mp", "ray"],
         default="mp",
-        help=
-        "For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend"
-    )
+        help=("For single node calibration use the default multiprocessing "
+              "backend. For multi-node calibration use ray backend"))
 
     args = parser.parse_args()
 

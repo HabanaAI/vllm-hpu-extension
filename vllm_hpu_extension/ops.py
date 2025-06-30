@@ -7,6 +7,7 @@
 from typing import Optional
 from collections.abc import Callable
 
+import os
 import habana_frameworks.torch as htorch
 import torch
 import torch.nn.functional as F
@@ -21,7 +22,6 @@ FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
 if is_hpu_gaudi2:
     FP8_MAX = torch.finfo(torch.float8_e4m3fnuz).max
 
-import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
 MAX_EXPERTS_PER_SLICE = int(os.environ.get("MAX_EXPERTS_PER_SLICE", -1))
 
@@ -57,7 +57,8 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
-    # We can return to native dtype after we renormalize and calculate the adjustments
+    # We can return to native dtype after we renormalize and calculate
+    # the adjustments
 
     # Normalize the attention scores and cast attn to native dtype
     block_max = attn.amax(dim=-1, keepdim=True)
@@ -95,7 +96,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
         group_sum_adjusted = group_sum_adjusted.view(*adjustment_target_shape)
         block_adjustment = block_adjustment.view(*adjustment_target_shape)
 
-        # For stability in case some of the sums have been zeroed out during block aggretation
+        # For stability in case some of the sums have been zeroed out during
+        # block aggretation
         group_sum_adjusted = torch.maximum(group_sum_adjusted, sum_adjusted)
         # Post processing for the attention scores
         rescale = block_adjustment.div(group_sum_adjusted)
@@ -121,7 +123,7 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
     elif kv_lora_rank is not None:
         value = key[..., :kv_lora_rank]
     else:
-        assert False, "value_cache is None and kv_lora_rank is None"
+        raise AssertionError("value_cache is None and kv_lora_rank is None")
 
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
@@ -312,10 +314,7 @@ def _fsdpa_prompt_attention(query: torch.Tensor,
     query = query.transpose(1, 2)
     key = key.transpose(1, 2)
     value = value.transpose(1, 2)
-    if get_config().fp32_softmax:
-        softmax_mode = 'fp32'
-    else:
-        softmax_mode = 'fast'
+    softmax_mode = 'fp32' if get_config().fp32_softmax else 'fast'
     recompute_mode = True
     assert attn_bias is not None or valid_seq_lengths is not None, \
         'Either attn_bias or valid_seq_lengths must be != None'
@@ -751,9 +750,13 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
         return layer
 
     layer.weight = torch.nn.Parameter(weight, requires_grad=False)
-    orig_M = torch.nn.Parameter(torch.tensor(orig_M, dtype=torch.int32),
+    orig_M = torch.nn.Parameter(torch.tensor(orig_M,
+                                             dtype=torch.int32,
+                                             device=weight.device),
                                 requires_grad=False)
-    orig_N = torch.nn.Parameter(torch.tensor(orig_N, dtype=torch.int32),
+    orig_N = torch.nn.Parameter(torch.tensor(orig_N,
+                                             dtype=torch.int32,
+                                             device=weight.device),
                                 requires_grad=False)
     layer.register_parameter("orig_M", orig_M)
     layer.register_parameter("orig_N", orig_N)
@@ -872,10 +875,14 @@ class MoeFP8Matmul(torch.nn.Module):
         raise NotImplementedError()
 
     def dequant_block_fp8_weight(self, layer: "MoeFP8Matmul") -> torch.Tensor:
-        # This function is called by INC during either the measurement or quantization phase.
-        # - In the quantization phase, INC requantizes the BF16 weight to FP8 and updates the weight.
-        # - In the measurement phase, INC only measures the BF16 weight without updating it.
-        # Tracking the BF16 weight can lead to Out of Memory (OoM) issues, so we avoid storing it.
+        # This function is called by INC during either the measurement or
+        # quantization phase.
+        # - In the quantization phase, INC requantizes the BF16 weight to FP8
+        # and updates the weight.
+        # - In the measurement phase, INC only measures the BF16 weight without
+        # updating it.
+        # Tracking the BF16 weight can lead to Out of Memory (OoM) issues, so
+        # we avoid storing it.
         # If the weight has already been updated, we return it directly.
         if hasattr(layer, "updated_fp8_weight") and layer.updated_fp8_weight:
             return layer.weight
@@ -1063,7 +1070,7 @@ def scaled_fp8_quant(
         use_per_token_if_dynamic: Whether to do per_tensor or per_token
             in the dynamic quantization case.
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The output tensor in FP8 and
+        tuple[torch.Tensor, torch.Tensor]: The output tensor in FP8 and
             scaling factor.
     """
     if num_token_padding:
@@ -1074,17 +1081,18 @@ def scaled_fp8_quant(
     else:
         output = torch.empty_like(input, dtype=torch.float8_e4m3fn)
     if scale is None:
-        raise "dynamic scaled_fp8_quant not implemented for HPU"
+        raise AssertionError(
+            "dynamic scaled_fp8_quant not implemented for HPU")
         # TODO: calculate scale to match gaudi2 240 range instead of 448
-        if use_per_token_if_dynamic:
-            scale = torch.empty((input.numel() // input.shape[-1], 1),
-                                device=input.device,
-                                dtype=torch.float32)
-            torch.ops._C.dynamic_per_token_scaled_fp8_quant(
-                output, input, scale, scale_ub)
-        else:
-            scale = torch.zeros(1, device=input.device, dtype=torch.float32)
-            torch.ops._C.dynamic_scaled_fp8_quant(output, input, scale)
+        # if use_per_token_if_dynamic:
+        #     scale = torch.empty((input.numel() // input.shape[-1], 1),
+        #                         device=input.device,
+        #                         dtype=torch.float32)
+        #     torch.ops._C.dynamic_per_token_scaled_fp8_quant(
+        #         output, input, scale, scale_ub)
+        # else:
+        #     scale = torch.zeros(1, device=input.device, dtype=torch.float32)
+        #     torch.ops._C.dynamic_scaled_fp8_quant(output, input, scale)
     else:
         output = torch.ops.hpu.cast_to_fp8_v2(input,
                                               1 / scale,

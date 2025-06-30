@@ -30,9 +30,8 @@ def generate_responses(llm, input_batch, args):
 
     for response in responses:
         if args.verbose:
-            print(
-                f"Prompt: {response.prompt};\nAnswer: {response.outputs[0].text}\n"
-            )
+            print(f"Prompt: {response.prompt};\n"
+                  f"Answer: {response.outputs[0].text}\n")
         total_input_tokens += len(response.prompt_token_ids)
         total_generated_tokens += len(response.outputs[0].token_ids)
 
@@ -56,9 +55,8 @@ if __name__ == "__main__":
         "--distributed-executor-backend",
         choices=["mp", "ray"],
         default="mp",
-        help=
-        "For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend"
-    )
+        help=("For single node calibration use the default multiprocessing "
+              "backend. For multi-node calibration use ray backend"))
 
     args = parser.parse_args()
 
@@ -83,8 +81,9 @@ if __name__ == "__main__":
 
     input_batch = []
     dataset_len = len(calibration_ds)
-    batch_num = dataset_len // args.batch_size if dataset_len % args.batch_size == 0 else (
-        dataset_len // args.batch_size) + 1
+    batch_num = (dataset_len // args.batch_size if dataset_len %
+                 args.batch_size == 0 else
+                 (dataset_len // args.batch_size) + 1)
     batch_done = 0
     for i, (_, row) in enumerate(calibration_ds.iterrows()):
         input_batch.append(row["input"])
@@ -94,7 +93,9 @@ if __name__ == "__main__":
             t_end = time.perf_counter()
             batch_done += 1
             print(
-                f"Batch finished: {i}/{calibration_ds.shape[0]} samples done; ETA: {int((t_end - t_start) * (batch_num - batch_done) // 60)} min"
+                f"Batch finished: {i}/{calibration_ds.shape[0]} samples done; "
+                f"ETA: "
+                f"{int((t_end - t_start) * (batch_num - batch_done) // 60)} min"
             )
             input_batch = []
     generate_responses(llm, input_batch, args)

@@ -36,7 +36,7 @@ def with_mark_steps(fn):
 class Matmul(torch.nn.Module):
 
     def __init__(self):
-        super(Matmul, self).__init__()
+        super().__init__()
 
     def forward(self, x, y):
         return torch.matmul(x, y)
@@ -54,7 +54,7 @@ class Softmax(torch.nn.Module):
 class VLLMKVCache(torch.nn.Module):
 
     def __init__(self):
-        super(VLLMKVCache, self).__init__()
+        super().__init__()
         self.use_contiguous_pa = get_config().use_contiguous_pa
 
     def forward(self, input, cache, slot_mapping):
@@ -74,7 +74,7 @@ class VLLMKVCache(torch.nn.Module):
 class VLLMFP8KVCache(VLLMKVCache):
 
     def __init__(self, input_scale=1.0):
-        super(VLLMKVCache, self).__init__()
+        super().__init__()
         self.use_contiguous_pa = get_config().use_contiguous_pa
         self.input_scale = input_scale
         self.output_scale = 1.0 / self.input_scale

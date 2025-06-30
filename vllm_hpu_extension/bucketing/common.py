@@ -5,18 +5,23 @@ from weakref import WeakValueDictionary
 
 class WeakSingleton(type):
     """
-    A metaclass that creates a WeakSingleton instance. This ensures that only one instance of the class exists.
-    WeakSingleton doesn't hold a strong reference to the instance, allowing it to be garbage collected when no longer in use.
+    A metaclass that creates a WeakSingleton instance. This ensures that only 
+    one instance of the class exists.
+    WeakSingleton doesn't hold a strong reference to the instance, allowing it 
+    to be garbage collected when no longer in use.
 
     Attributes:
-        _instances (Dict[type, object]): A dictionary to store the single instance of each class.
-        _instances_argspec (Dict[type, object]): A dictionary to store the argument specifications of each instance.
+        _instances (dict[type, object]): A dictionary to store the single 
+        instance of each class.
+        _instances_argspec (dict[type, object]): A dictionary to store the 
+        argument specifications of each instance.
 
     Methods:
         __call__(cls, *args, **kwargs):
-            Creates or returns the single instance of the class. If the instance already exists, it checks that the 
-            arguments used to create the instance are the same as the ones provided. Raises an assertion error if 
-            the arguments differ.
+            Creates or returns the single instance of the class. If the 
+            instance already exists, it checks that the arguments used to 
+            create the instance are the same as the ones provided. Raises 
+            an assertion error if the arguments differ.
     """
     # NOTE(kzawora): The instances are stored in a weakref dictionary,
     # which allows the instances to be garbage collected when they are
@@ -34,8 +39,9 @@ class WeakSingleton(type):
             instance = super().__call__(*args, **kwargs)
             cls._instances[cls] = instance
             cls._instances_argspec[cls] = argspec
-        assert cls._instances_argspec[
-            cls] == argspec, "Singleton instance already initialized with different arguments"
+        assert cls._instances_argspec[cls] == argspec, (
+            "Singleton instance already initialized "
+            "with different arguments")
         return cls._instances[cls]
 
 

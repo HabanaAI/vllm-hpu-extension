@@ -38,7 +38,7 @@ def main(args):
             padding_side="left",
             use_fast=False,
         )
-    except:
+    except Exception:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             args.model,
             model_max_length=args.max_model_length,
@@ -77,7 +77,8 @@ def main(args):
                 tokenize=False,
                 truncation=True)
         except ValueError:
-            # Case when given model don't need any chat-template and can process raw string without any system tokens, e.g. facebook/opt-125m
+            # Case when given model don't need any chat-template and can process
+            # raw string without any system tokens, e.g. facebook/opt-125m
             tmp_input = f"{system_prompt}. {question}"
         inputs.append(tmp_input)
 
@@ -102,7 +103,7 @@ if __name__ == "__main__":
         type=str,
         default="",
         help=
-        "If not provided, the default chat-template from the model will be used."
+        "If not provided, the default chat-template from the model will be used"
     )
 
     args = parser.parse_args()

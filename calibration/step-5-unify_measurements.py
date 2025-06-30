@@ -46,9 +46,8 @@ def unify_measurements(measurement_group,
         group_name += measurement
 
     if len(measurements_paths) == 0:
-        print(
-            "Error: invalid measurement paths. No *.json files or no *mod_list.json files."
-        )
+        print("Error: invalid measurement paths. No *.json files or no "
+              "*mod_list.json files.")
         return
 
     # save all the jsons content in the given measurement group
@@ -57,7 +56,8 @@ def unify_measurements(measurement_group,
         with open(measurement_path) as f:
             js = json.load(f)
             measurements_jsons.append(js["Nodes"])
-    # create a name for the unified json that will be created for this measurement group
+    # create a name for the unified json that will be created
+    # for this measurement group
     unified_json_name = (find_measurement_path(
         measurement_group[0], measurements_dir_path, scales,
         groups_size).split("/")[-1].replace(
@@ -84,7 +84,8 @@ def unify_measurements(measurement_group,
                 "weight") is not None:
             max_weight = node_values["params"]["weight"]
 
-        # iterate over all the measurment group and take the maximum for each tensor and its channel
+        # iterate over all the measurment group and take the maximum
+        # for each tensor and its channel
         if scales:
             for measurement_json in measurements_jsons:
                 for i in range(0, len(max_inputs)):
@@ -183,9 +184,10 @@ def parse_args(args):
         "-g",
         "--groups",
         type=str,
-        help=
-        "Groups of cards we want to unify. Card indices seperated by commas and groups seperated by double dash '--' \
-                        - e.g. 0,1--2,3--4,5--6,7 card 0 measurement will be unified with card 1 measurement and so on",
+        help=("Groups of cards we want to unify. Card indices separated by "
+              "commas and groups separated by double dash '--' - e.g. "
+              "0,1--2,3--4,5--6,7 card 0 measurement will be unified "
+              "with card 1 measurement and so on"),
     )
     parser.add_argument(
         "-o",

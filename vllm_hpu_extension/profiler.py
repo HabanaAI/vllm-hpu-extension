@@ -13,7 +13,7 @@ from typing import Any
 import psutil
 import torch
 import uuid
-from habana_frameworks.torch import torch
+import habana_frameworks.torch  # noqa: F401
 
 from vllm_hpu_extension.utils import is_fake_hpu
 from .logger import logger
@@ -61,7 +61,8 @@ class HabanaHighLevelProfiler:
                                      os.getenv('RANK', '0')) == 0
         self.pid = os.getpid()
         if self.enabled:
-            self.vllm_instance_id = vllm_instance_id if vllm_instance_id is not None \
+            self.vllm_instance_id = vllm_instance_id if vllm_instance_id \
+                is not None \
                 else f"vllm-instance-{self.pid}-{str(uuid.uuid4().hex)}"
             msg = f'Profiler enabled for: {self.vllm_instance_id}'
             logger().info(msg)

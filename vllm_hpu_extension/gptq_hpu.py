@@ -241,8 +241,8 @@ class GPTQHPULinearMethod(LinearMethodBase):
             ]
         else:
             g_idx_trivial = [0] * columns
-        g_idx_trivial = torch.tensor(g_idx_trivial, dtype=torch.int32)
-        assert torch.equal(layer.g_idx, g_idx_trivial.to(
+        g_idx_trivial_tensor = torch.tensor(g_idx_trivial, dtype=torch.int32)
+        assert torch.equal(layer.g_idx, g_idx_trivial_tensor.to(
             'hpu')), "Non-trivial tensor g_idx is not supported"
 
         # for torch.compile
@@ -292,8 +292,8 @@ class GPTQHPULinearMethod(LinearMethodBase):
 
         zeros = zeros + 1
         zeros = torch.bitwise_and(zeros, (2**bits) - 1).to(
-            layer.scales.dtype
-        )  # NOTE: It appears that casting here after the `zeros = zeros + 1` is important.
+            layer.scales.dtype)  # NOTE: It appears that casting here after
+        # the `zeros = zeros + 1` is important.
         zeros = zeros.reshape(-1, zeros.shape[1] * zeros.shape[2])
         return zeros
 

@@ -32,8 +32,7 @@ def _get_build(_):
     output = subprocess.run("pip show habana-torch-plugin",
                             shell=True,
                             text=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                            capture_output=True)
     version_re = re.compile(r'Version:\s*(?P<version>.*)')
     match = version_re.search(output.stdout)
     if output.returncode == 0 and match:

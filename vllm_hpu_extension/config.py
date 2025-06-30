@@ -31,7 +31,8 @@ class Config:
 
     def get(self, key: str):
         """Get key from internal structure, triggering calculation if needed"""
-        assert key in self._data, f'Unknown run-time configuration parameter: {key}!'
+        assert key in self._data, (
+            f'Unknown run-time configuration parameter: {key}!')
         value = self._data.get(key)
         if callable(value):
             value = value(self)
@@ -117,7 +118,8 @@ def VersionRange(*specifiers: list[str]) -> ValueFn:
 
 
 def choice(*options: list[Any]) -> Callable[Any, Any]:
-    """Validates if input is one of the available choices and returns it unchanged"""
+    """Validates if input is one of the available choices 
+        and returns it unchanged"""
 
     def choice_impl(x):
         assert x in options, f'{x} is not in allowed options: {options}!'
@@ -132,7 +134,8 @@ def boolean(x: str) -> Callable[str, bool]:
 
 
 class Env:
-    """A callable that fetches values from env variables, applying conversions if necessary"""
+    """A callable that fetches values from env variables, applying 
+    conversions if necessary"""
 
     def __init__(self, name: str, value_type: Callable[Any, Any]):
         self.name = name
@@ -145,12 +148,13 @@ class Env:
                 return self.value_type(value)
             except Exception as e:
                 msg = f'{self.name}: exception during construction: {e}'
-                raise RuntimeError(msg)
+                raise RuntimeError(msg) from e
         return None
 
 
 class Value:
-    """A callable that returns the value calculated through its dependencies or overriden by an associated experimental flag"""
+    """A callable that returns the value calculated through its dependencies 
+    or overriden by an associated experimental flag"""
 
     def __init__(self,
                  name: str,
@@ -168,7 +172,8 @@ class Value:
         return Env(self.env_var, self.env_var_type)
 
     def __call__(self, config):
-        """ Return value from experimental flag if provided by user or calculate it based on dependencies"""
+        """ Return value from experimental flag if provided by user 
+        or calculate it based on dependencies"""
         if (override := config.get(self.env_var)) is not None:
             return override
         if callable(self.dependencies):

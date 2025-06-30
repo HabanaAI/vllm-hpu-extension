@@ -6,7 +6,8 @@
 ###############################################################################
 
 from vllm_hpu_extension.environment import get_environment
-from vllm_hpu_extension.features import get_features, get_user_flags, get_experimental_flags
+from vllm_hpu_extension.features import (get_features, get_user_flags,
+                                         get_experimental_flags)
 from vllm_hpu_extension.config import Config
 from vllm_hpu_extension.logger import logger
 
@@ -55,12 +56,12 @@ def get_config():
         header = f"{asterisks} Warning! {asterisks}"
         footer = '*' * len(header)
         logger().warning(header)
+        msg = ("Following environment variables are considered experimental: "
+               f"{', '.join(experimental_flag_names)}")
+        logger().warning(msg)
         logger().warning(
-            f"Following environment variables are considered experimental: {', '.join(experimental_flag_names)}"
-        )
-        logger().warning(
-            "In future releases using those flags without VLLM_ENABLE_EXPERIMENTAL_FLAGS will trigger a fatal error."
-        )
+            "In future releases using those flags without "
+            "VLLM_ENABLE_EXPERIMENTAL_FLAGS will trigger a fatal error.")
         logger().warning(footer)
 
     dump('Environment', environment_values)

@@ -7,7 +7,9 @@
 
 import os
 import pytest
-from vllm_hpu_extension.config import VersionRange, Config, Kernel, Env, boolean, All, Not, Eq, Enabled, FirstEnabled, choice
+from vllm_hpu_extension.config import (VersionRange, Config, Kernel, Env,
+                                       boolean, All, Not, Eq, Enabled,
+                                       FirstEnabled, choice)
 
 
 def with_cfg(fn):

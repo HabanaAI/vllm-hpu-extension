@@ -4,6 +4,7 @@
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
+import contextlib
 import torch
 import habana_frameworks.torch.utils.experimental as htexp
 
@@ -53,27 +54,28 @@ MAX_RANGE = {
     torch.finfo(torch.bfloat16).max,
     torch.float8_e4m3fn:
     torch.finfo(torch.float8_e4m3fn).max,
-    # float8_e4m3fn data type is 8-bit floating point consist of Exponent: 4, Mantissa: 3, bias: 7. It's supported by Gaudi3.
+    # float8_e4m3fn data type is 8-bit floating point consist of
+    # Exponent: 4, Mantissa: 3, bias: 7.
+    # It's supported by Gaudi3.
     torch.float8_e5m2:
     torch.finfo(torch.float8_e5m2).max
-    # float8_e5m2 data type is 8-bit floating point consist of Exponent: 5, Mantissa: 2, bias: 15. IEEE 754, with NaN and inf.
+    # float8_e5m2 data type is 8-bit floating point consist of
+    # Exponent: 5, Mantissa: 2, bias: 15. IEEE 754, with NaN and inf.
 }
 
-try:
+with contextlib.suppress(AttributeError):
     MAX_RANGE[torch.float8_e4m3fnuz] = torch.finfo(torch.float8_e4m3fnuz).max
-    # float8_e4m3fnuz data type is 8-bit floating point consist of Exponent: 4, Mantissa: 3, bias: 8 with 1 sign bit. It's supported by Gaudi2.
-except AttributeError:
-    pass
+    # float8_e4m3fnuz data type is 8-bit floating point consist of
+    # Exponent: 4, Mantissa: 3, bias: 8 with 1 sign bit.
+    # It's supported by Gaudi2.
 
 
 def get_fullscale(dtype, device, exp_bias=None):
     default_exp_bias = get_default_exp_bias(dtype)
     fullscale = 1
     if device == "GAUDI2" and dtype == torch.float8_e4m3fn:
-        try:
+        with contextlib.suppress(AttributeError):
             fullscale = MAX_RANGE[torch.float8_e4m3fnuz]
-        except AttributeError:
-            pass
     else:
         fullscale = MAX_RANGE[dtype]
     exp_bias = default_exp_bias if exp_bias is None else exp_bias

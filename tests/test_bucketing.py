@@ -8,7 +8,8 @@
 import pytest
 
 import vllm_hpu_extension.bucketing.linear as linear
-from vllm_hpu_extension.bucketing.exponential import HPUExponentialBucketingContext
+from vllm_hpu_extension.bucketing.exponential \
+    import HPUExponentialBucketingContext
 
 
 @pytest.fixture
@@ -88,7 +89,7 @@ def test_singleton_same_args(bucketing_cls, reset_singleton):
     [linear.HPUBucketingContext, HPUExponentialBucketingContext],
     indirect=True)
 def test_singleton_different_args(bucketing_cls, reset_singleton):
-    context1 = bucketing_cls(
+    bucketing_cls(
         max_num_seqs=128,
         max_num_prefill_seqs=32,
         block_size=128,
@@ -97,8 +98,8 @@ def test_singleton_different_args(bucketing_cls, reset_singleton):
         max_prompt_seq=1024,
         use_merged_prefill=False,
     )
-    with pytest.raises(AssertionError) as e_info:
-        context2 = bucketing_cls(
+    with pytest.raises(AssertionError):
+        bucketing_cls(
             max_num_seqs=256,
             max_num_prefill_seqs=16,
             block_size=128,
@@ -114,8 +115,8 @@ def test_singleton_different_args(bucketing_cls, reset_singleton):
     [linear.HPUBucketingContext, HPUExponentialBucketingContext],
     indirect=True)
 def test_singleton_get_instance_no_init(bucketing_cls, reset_singleton):
-    with pytest.raises(AssertionError) as e_info:
-        context = bucketing_cls.get_instance()
+    with pytest.raises(AssertionError):
+        bucketing_cls.get_instance()
 
 
 def test_singleton_get_instance():
