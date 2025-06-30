@@ -25,7 +25,7 @@ def find_measurement_path(measurement, measurements_dir_path, scales, group_size
                 return os.path.join(measurements_dir_path, measurment_file)
 
 
-def is_moe(node_name):
+def is_fused_moe_op(node_name):
     return True if "moe" in node_name.lower() and ".w13_list" not in node_name and ".w2_list" not in node_name else False
 
 
@@ -130,7 +130,7 @@ def unify_measurements(
                     continue
 
                 # for moe op, keep max of the first, retain rest from other measurements
-                if use_ep and is_moe(node_name) and idx > 0:
+                if use_ep and is_fused_moe_op(node_name) and idx > 0:
                     # input 0 of moe is hidden_states, we should get the max value across ranks during unification
                     # input 1 ~ local_expert_num is the intermidiate_amax of each expert, we should extend them during unification
                     max_inputs[0] = max(
@@ -164,7 +164,7 @@ def unify_measurements(
                         max_inputs[i][j][0] = max(
                             measurement_json[node_name]["inputs"][i][j][0], max_inputs[i][j][0])
                 if max_outputs is not None:
-                    if use_ep and is_moe(node_name) and idx > 0:
+                    if use_ep and is_fused_moe_op(node_name) and idx > 0:
                         max_outputs[0][0] = max(
                             measurement_json[node_name]["outputs"][0][0], max_outputs[0][0])
                         max_outputs.extend(measurement_json[node_name]["outputs"][1:])
