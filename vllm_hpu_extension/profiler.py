@@ -16,7 +16,7 @@ import uuid
 from habana_frameworks.torch import torch
 
 from vllm_hpu_extension.utils import is_fake_hpu
-from .utils import logger
+from .logger import logger
 
 class FileWriter(threading.Thread):
 

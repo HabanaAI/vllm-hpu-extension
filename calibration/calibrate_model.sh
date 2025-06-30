@@ -22,6 +22,7 @@ usage() {
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
     echo "  -r    - rank of unified measurements"
     echo "  -u    - unify original measurement results based on expert parallelism rules (default: False)"
+    echo "  -e    - set this flag to enable enforce_eager execution"
     echo
 }
 
@@ -42,6 +43,8 @@ create_measure_config() {
 
     if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    elif [[ $model_name_lower =~ ^deepseek ]]; then
+        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     fi
@@ -56,6 +59,8 @@ create_quant_config() {
     #note(kwisniewski98): mixtral models has attention masked to not cause regression in accuracy
     if [[ $model_name_lower =~ ^mixtral ]]; then
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    elif [[ $model_name_lower =~ ^deepseek ]]; then
+        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"scalar\", \"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     else
         tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
     fi
@@ -74,12 +79,18 @@ extract_last_folder_name() {
 
 cleanup_tmp
 
-EXTRA_FLAGS=""
+EXTRA_FLAGS_STEP_1=""
+EXTRA_FLAGS_STEP_2=""
+EXTRA_FLAGS_STEP_3=""
+EXTRA_FLAGS_STEP_4=""
 BATCH_SIZE=32
 TP_SIZE=1
 MULTI_NODE_SETUP=false
+
 USE_EP=""
-while getopts "m:b:l:t:d:h:o:r:u" OPT; do
+ENFORCE_EAGER=false
+
+while getopts "m:b:l:t:d:h:o:r:u:e" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -102,9 +113,12 @@ while getopts "m:b:l:t:d:h:o:r:u" OPT; do
         r )
             RANK="$OPTARG"
             ;;
-	u )
-	    USE_EP="--use_ep"
-	    ;;
+	      u )
+	          USE_EP="--use_ep"
+	          ;;
+        e ) 
+            ENFORCE_EAGER=true
+            ;;
         h )
             usage
             ;;
@@ -123,6 +137,7 @@ fi
 
 # Store the provided MODEL_PATH name in a variable
 MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
+model_name_lower=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
 
 echo "Step 0 - detecting used device type [g2, g3]"
 DEVICE_TYPE=$(python3 step-0-detect-device.py) || (echo "Detecting device process failed" && exit 1)
@@ -165,15 +180,22 @@ if [[ $TP_SIZE > 1 ]]; then
 fi
 
 if [[ $MODEL_PATH_NAME == llama.*2.* ]]; then
-    EXTRA_FLAGS+="--chat-template template/llama-2-chat.jinja "
+    EXTRA_FLAGS_STEP_1+="--chat-template template/llama-2-chat.jinja "
 elif  [[ "$MODEL_PATH" == *"Mixtral-8x7B"* ]]; then
-    EXTRA_FLAGS+="--chat-template template/mistral_mixtral.jinja "
+    EXTRA_FLAGS_STEP_1+="--chat-template template/mistral_mixtral.jinja "
 fi
 
 if [[ -n $LIMIT ]]; then
-    EXTRA_FLAGS+="--max-dataset-samples $LIMIT "
+    EXTRA_FLAGS_STEP_1+="--max-dataset-samples $LIMIT "
 fi
 
+if  [[ "$model_name_lower" == *"deepseek"* ]]; then
+    EXTRA_FLAGS_STEP_2+="--block-quant --expert-parallel "
+    EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
+    EXTRA_FLAGS_STEP_3+="--deepseek "
+    EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
+    EXTRA_FLAGS_STEP_4+="--block-quant --expert-parallel "
+fi
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
     sleep 2
@@ -181,23 +203,28 @@ else
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
 fi
 
+if $ENFORCE_EAGER; then
+    EXTRA_FLAGS_STEP_2+="--enforce-eager "
+    EXTRA_FLAGS_STEP_4+="--enforce-eager "
+fi
+
 echo ""
 echo "1/4 Preparing calibration dataset"
-python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
+python3 step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS_STEP_1 || (echo "Error in step 1" && exit 1)
 echo "Step 1/4 done"
 
 echo ""
 echo "2/4 Measuring scales"
 if $MULTI_NODE_SETUP; then
-    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray || (echo "Error in step 2" && exit 1)
+    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray  $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
 else
-    python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE || (echo "Error in step 2" && exit 1)
+    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
 fi
 echo "Step 2/4 done"
 
 echo ""
 echo "3/4 Postprocessing scales"
-python3 step-3-postprocess_measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/ || (echo "Error in step 3" && exit 1)
+python3 step-3-postprocess-measure.py -m $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/ -o inc_tmp/$MODEL_NAME/$DEVICE_TYPE/  $EXTRA_FLAGS_STEP_3 || (echo "Error in step 3" && exit 1)
 cp inc_tmp/$MODEL_NAME/$DEVICE_TYPE/* $FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
 echo "Step 3/4 done"
 
@@ -211,10 +238,10 @@ fi
 
 echo ""
 echo "4/4 Quantize scales"
-if $MULTI_NODE_RUN; then
-    python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray || (echo "Error in step 4" && exit 1)
+if $MULTI_NODE_SETUP; then
+    env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
 else
-    python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE || (echo "Error in step 4" && exit 1)
+    env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
 fi
 
 if [[ -n $RANK ]]; then

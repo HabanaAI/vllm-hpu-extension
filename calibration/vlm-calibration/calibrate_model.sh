@@ -15,7 +15,7 @@ usage() {
     echo "usage: ${0} <options>"
     echo
     echo "  -m    - [required] huggingface stub or local directory of the MODEL_PATH"
-    echo "  -d    - [required] path to source dataset (details in README)"
+    echo "  -d    - [optional] path to source dataset (details in README). If not provided, the dataset will be downloaded from HuggingFace."
     echo "  -o    - [required] path to output directory for fp8 measurements"
     echo "  -b    - batch size to run the measurements at (default: 32)"
     echo "  -l    - limit number of samples in calibration dataset"
@@ -68,6 +68,11 @@ extract_last_folder_name() {
 
 cleanup_tmp
 
+# jump to the script directory
+cd "$(dirname "$0")"
+echo "downloading requirements..."
+pip install -r requirements.txt 
+
 EXTRA_FLAGS=""
 BATCH_SIZE=32
 TP_SIZE=1
@@ -109,10 +114,32 @@ while getopts "m:b:l:t:d:h:o:g:e:" OPT; do
 done
 
 if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" ]]; then
-    echo "Model stub, output path for fp8 measurements must be provided."
+    echo "Model stub and output path for fp8 measurements must be provided."
     usage
     exit 1
 fi
+
+if [[ -z "$DATASET_PATH" ]]; then
+    echo "Local calibration dataset path not provided. Will download it from HuggingFace."
+else
+    echo "Using local calibration dataset path: $DATASET_PATH"
+    if [[ -d "$DATASET_PATH/hub/datasets--MMMU--MMMU" && -d "$DATASET_PATH/datasets/MMMU___mmmu" ]]; then
+        export HF_HOME="/root/.cache/huggingface"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_HOME"
+        mkdir -p $HF_HOME "$HF_HOME/hub" "$HF_HOME/datasets"
+        cp -rf "$DATASET_PATH/hub/datasets--MMMU--MMMU" "$HF_HOME/hub"
+        cp -rf "$DATASET_PATH/datasets/MMMU___mmmu" "$HF_HOME/datasets"
+    elif [[ -d "$DATASET_PATH/MMMU___mmmu" ]]; then
+        export HF_DATASETS_CACHE="/root/.cache/huggingface/datasets"
+        echo "copying local calibration dataset $DATASET_PATH to $HF_DATASETS_CACHE"
+        mkdir -p $HF_DATASETS_CACHE
+        cp -rf "$DATASET_PATH/MMMU___mmmu" $HF_DATASETS_CACHE
+    else
+        echo "Your provided dataset path doesn't contain MMMU dataset. Please refer to README for details."
+        exit 1
+    fi
+fi
+
 
 if [[ $eager_mode == "on" ]]; then
     EXTRA_FLAGS+="--enforce-eager "
@@ -123,7 +150,7 @@ MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
 
 echo ""
 echo "Step 1/3 - detecting used device type [g2, g3]"
-DEVICE_TYPE=$(python3 detect-device.py) || (echo "Detecting device process failed" && exit 1)
+DEVICE_TYPE=$(python3 ../step-0-detect-device.py) || (echo "Detecting device process failed" && exit 1)
 DEVICE_TYPE="g$DEVICE_TYPE"
 echo "Detected device type: $DEVICE_TYPE"
 echo "Step 1 done"
@@ -141,6 +168,7 @@ create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
+export VLLM_SKIP_WARMUP=true
 max_model_len=8192
 
 
@@ -189,7 +217,7 @@ if [[ -n $CARD_GROUPS ]]; then
     echo ""
     echo "Unify scales"
     QUANT_DIR=$FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
-    python3 unify_measurements.py -g "$CARD_GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
+    python3 ../step-5-unify_measurements.py -g "$CARD_GROUPS" -m $QUANT_DIR -o $QUANT_DIR || (echo "Error in step 5" && exit 1)
     echo "Unify scales done"
 fi
 cleanup_tmp

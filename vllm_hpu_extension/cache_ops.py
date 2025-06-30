@@ -1,21 +1,13 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2024-2025 Habana Labs, Ltd. an Intel Company
 #
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-import math
-
 import habana_frameworks.torch as htorch
 import torch
 
-
-def insert_or_update_cache(input, cache, block_indices, block_offsets):
-    if block_offsets is None:
-        cache.index_copy_(0, block_indices, input)
-    else:
-        cache.index_put_((block_indices, block_offsets), input)
 
 def swap_blocks(src, dst, block_mapping):
     if block_mapping.numel() == 0:
