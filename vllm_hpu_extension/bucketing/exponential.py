@@ -6,9 +6,9 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Set, Tuple
 
+from vllm_hpu_extension.logger import logger as logger
 from vllm_hpu_extension.runtime import get_config
 
-logger = logging.getLogger(__name__)
 
 
 class ExponentialBucketingStrategy():
@@ -18,7 +18,7 @@ class ExponentialBucketingStrategy():
         prefix_caching = get_config().prefix_caching
         default_max_prompt_seq = 1024
         if max_model_len is None:
-            logger.warning(f"max_model_len is not set. Using default value = {default_max_prompt_seq}. This may cause issues.")
+            logger().warning(f"max_model_len is not set. Using default value = {default_max_prompt_seq}. This may cause issues.")
         max_prompt_seq = max_model_len or default_max_prompt_seq
 
         prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
@@ -31,12 +31,12 @@ class ExponentialBucketingStrategy():
             step=block_size, max=max_prompt_seq)
 
         if use_merged_prefill:
-            logger.info("Merged prefill warmup is not implemented for exponential bucketing yet")
+            logger().info("Merged prefill warmup is not implemented for exponential bucketing yet")
 
         msg = ("Prompt bucket config (min, step, max_warmup, limit) "
                f"bs:{prompt_bs_bucket_cfg}, "
                f"seq:{prompt_seq_bucket_cfg}")
-        logger.info(msg)
+        logger().info(msg)
 
         prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
@@ -56,7 +56,7 @@ class ExponentialBucketingStrategy():
         prefix_caching = get_config().prefix_caching
         default_max_decode_seq = 2048
         if max_model_len is None:
-            logger.warning(f"max_model_len is not set. Using default value = {default_max_decode_seq}. This may cause issues.")
+            logger().warning(f"max_model_len is not set. Using default value = {default_max_decode_seq}. This may cause issues.")
         max_decode_seq = max_model_len or default_max_decode_seq
         max_blocks = max(
             block_size,
@@ -96,10 +96,9 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     for p, e, v, d in zip(params, env_vars, values, default_values):
         prefix = '[non-modifiable] ' if p in hidden_params else ''
         suffix = '' if p in hidden_params else ' (default: %d)' % d
-        logger_call = logger.debug if p in hidden_params else logger.info
+        logger_call = logger().debug if p in hidden_params else logger().info
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
-
 
 def get_buckets_single_dim(buckets, dim):
     return [b[dim] for b in buckets]
@@ -157,7 +156,7 @@ def generate_prompt_buckets(bs_bucket_config,
                 "budget. Please increase max_num_batched_tokens or decrease "
                 "bucket minimum. Ignoring max_num_batched_tokens at risk of "
                 "out-of-memory errors.")
-            logger.warning(msg)
+            logger().warning(msg)
             return list(
                 sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0]))), []
 

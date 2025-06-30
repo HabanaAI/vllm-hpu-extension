@@ -1,13 +1,12 @@
 import itertools
-import logging
 import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+from vllm_hpu_extension.logger import logger as logger
 from vllm_hpu_extension.runtime import get_config
 
-logger = logging.getLogger(__name__)
 
 
 class LinearBucketingStrategy:
@@ -17,7 +16,7 @@ class LinearBucketingStrategy:
         prefix_caching = get_config().prefix_caching
         default_max_prompt_seq = 1024
         if max_model_len is None:
-            logger.warning(f"max_model_len is not set. Using default value ={default_max_prompt_seq}. This may cause issues.")
+            logger().warning(f"max_model_len is not set. Using default value ={default_max_prompt_seq}. This may cause issues.")
 
         max_prompt_seq = max_model_len or default_max_prompt_seq
 
@@ -58,7 +57,7 @@ class LinearBucketingStrategy:
         prefix_caching = get_config().prefix_caching
         default_max_decode_seq = 2048
         if max_model_len is None:
-            logger.warning(f"max_model_len is not set. Using default value ={default_max_decode_seq}. This may cause issues.")
+            logger().warning(f"max_model_len is not set. Using default value ={default_max_decode_seq}. This may cause issues.")
 
         max_decode_seq = max_model_len or default_max_decode_seq
         max_blocks = max(
@@ -94,7 +93,7 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         int(os.environ.get(e, d)) for e, d in zip(env_vars, default_values)
     ]
     for e, v, d in zip(env_vars, values, default_values):
-        logger.info(f'{e}={v} (default:{d})')
+        logger().info(f'{e}={v} (default:{d})')
     return values
 
 
@@ -176,7 +175,7 @@ def generate_prompt_buckets(bs_bucket_config,
                 "budget. Please increase max_num_batched_tokens or decrease "
                 "bucket minimum. Ignoring max_num_batched_tokens at risk of "
                 "out-of-memory errors.")
-            logger.info(msg)
+            logger().info(msg)
             return list(
                 sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0]))), []
 
