@@ -31,7 +31,7 @@ def copy_blocks(key_caches, value_caches, block_mapping):
     src = block_mapping[0]
     dst = block_mapping[1]
 
-    for key_cache, value_cache in zip(key_caches, value_caches):
+    for key_cache, value_cache in zip(key_caches, value_caches, strict=False):
         key_cache.index_copy_(0, dst, key_cache.index_select(0, src))
         value_cache.index_copy_(0, dst, value_cache.index_select(0, src))
 

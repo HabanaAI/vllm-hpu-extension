@@ -3,11 +3,9 @@
 ###############################################################################
 import argparse
 import os
-import pathlib
 
 import pandas as pd
 import transformers
-
 
 os.environ["EXPERIMENTAL_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
@@ -26,7 +24,7 @@ def get_ds(args):
 
 def load_chat_template(chat_template_path: str) -> str:
 
-    with open(chat_template_path, "r") as f:
+    with open(chat_template_path) as f:
         return f.read()
 
 
@@ -38,14 +36,15 @@ def main(args):
             args.model,
             model_max_length=args.max_model_length,
             padding_side="left",
-            use_fast=False,)
-    except:
+            use_fast=False,
+        )
+    except Exception:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             args.model,
             model_max_length=args.max_model_length,
             padding_side="left",
-            use_fast=True,)
-
+            use_fast=True,
+        )
 
     chat_template = load_chat_template(
         args.chat_template) if args.chat_template else None
@@ -56,16 +55,30 @@ def main(args):
         question = row["question"]
         system_prompt = row["system_prompt"]
         if "mixtral" in args.model or "Mixtral" in args.model:
-            tmp_conversation = [{"role": "user", "content": question},
-                {"role": "assistant", "content": system_prompt}]
+            tmp_conversation = [{
+                "role": "user",
+                "content": question
+            }, {
+                "role": "assistant",
+                "content": system_prompt
+            }]
         else:
-            tmp_conversation = [{"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}]
+            tmp_conversation = [{
+                "role": "system",
+                "content": system_prompt
+            }, {
+                "role": "user",
+                "content": question
+            }]
         try:
             tmp_input = tokenizer.apply_chat_template(
-                tmp_conversation, chat_template=chat_template, tokenize=False, truncation=True)
+                tmp_conversation,
+                chat_template=chat_template,
+                tokenize=False,
+                truncation=True)
         except ValueError:
-            # Case when given model don't need any chat-template and can process raw string without any system tokens, e.g. facebook/opt-125m
+            # Case when given model don't need any chat-template and can process
+            # raw string without any system tokens, e.g. facebook/opt-125m
             tmp_input = f"{system_prompt}. {question}"
         inputs.append(tmp_input)
 
@@ -85,8 +98,13 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output_name", type=str, required=True)
     parser.add_argument("--max-model-length", type=int, default=1024)
     parser.add_argument("--max-dataset-samples", type=int, default=0)
-    parser.add_argument("--chat-template", type=str, default="",
-                        help="If not provided, the default chat-template from the model will be used.")
+    parser.add_argument(
+        "--chat-template",
+        type=str,
+        default="",
+        help=
+        "If not provided, the default chat-template from the model will be used"
+    )
 
     args = parser.parse_args()
 
