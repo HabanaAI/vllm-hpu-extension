@@ -33,15 +33,31 @@ def is_moe_experts(node_name):
     return True if "moe" in node_name.lower() and (".w13_list" in node_name or ".w2_list" in node_name) else False
 
 
-def analyze_expert_name(node_name):
+def get_expert_id(node_name):
     parts = node_name.split(".")
     assert parts[-1].isdigit()
     expert_id = int(parts[-1])
+    return expert_id
+
+
+def get_expert_prefix(node_name):
+    parts = node_name.split(".")
+    assert parts[-1].isdigit()
     prefix = ".".join(parts[:-1])
-    return prefix, expert_id
+    return prefix
+
+
+def get_local_expert_num(data):
+    expert_id = -1
+    for mod_name in unified_json["Nodes"]:
+        if is_moe_experts(mod_name):
+            idx = get_expert_id(mod_name)
+            expert_id = max(expert_id, idx)
+    return expert_id + 1
+
 
 def unify_measurements(
-    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False, use_ep=True
+    measurement_group, measurements_dir_path, output_path, groups_size, groups_num, group_index, scales=False, use_ep=False
 ):
     measurements_paths = []
     group_name = ""
@@ -84,8 +100,8 @@ def unify_measurements(
         unified_json["LocalRank"] = group_index if groups_num != 1 else -1
 
     moe_experts_data = {}
-    # expert_num is used only when use_ep is True
-    expert_num = max([analyze_expert_name(i)[1] for i in unified_json["Nodes"] if is_moe_experts(i)]) + 1 if use_ep else -1
+    # expert_num is original local_expert_num, it is used only when use_ep is True
+    expert_num = get_local_expert_num(unified_json["Nodes"]) if use_ep else -1
 
     # iterate all unified json nodes
     for node_name, node_values in unified_json["Nodes"].items():
@@ -105,7 +121,9 @@ def unify_measurements(
                     if node_name not in moe_experts_data:
                         moe_experts_data[node_name] = node_values
                     else:
-                        prefix, local_expert_id = analyze_expert_name(node_name)
+                        prefix, local_expert_id = get_expert_prefix(node_name), get_expert_id(node_name)
+                        # take original total_rank=8, total_expert_num=128, local_expert_num=16 and expert string.MoeOp.w13_list.11 on rank 3 as an example
+                        # if target total_rank=4, then new local_expert_num=32, new expert is string.MoeOp.w13_list.27(16*1+11) on rank 1
                         new_node_name = ".".join((prefix, str(expert_num * idx + local_expert_id)))
                         assert new_node_name not in moe_experts_data
                         moe_experts_data[new_node_name] = measurement_json[node_name]
@@ -113,6 +131,8 @@ def unify_measurements(
 
                 # for moe op, keep max of the first, retain rest from other measurements
                 if use_ep and is_moe(node_name) and idx > 0:
+                    # input 0 of moe is hidden_states, we should get the max value across ranks during unification
+                    # input 1 ~ local_expert_num is the intermidiate_amax of each expert, we should extend them during unification
                     max_inputs[0] = max(
                         measurement_json[node_name]["inputs"][0], max_inputs[0])
                     max_inputs.extend(measurement_json[node_name]["inputs"][1:])
@@ -133,7 +153,7 @@ def unify_measurements(
                     if node_name not in moe_experts_data:
                         moe_experts_data[node_name] = node_values
                     else:
-                        prefix, local_expert_id = analyze_expert_name(node_name)
+                        prefix, local_expert_id = get_expert_prefix(node_name), get_expert_id(node_name)
                         new_node_name = ".".join((prefix, str(expert_num * idx + local_expert_id)))
                         assert new_node_name not in moe_experts_data
                         moe_experts_data[new_node_name] = measurement_json[node_name]
@@ -226,7 +246,7 @@ def parse_args(args):
     )
     parser.add_argument(
         "-u",
-        "--use_ep",
+        "--use_expert_paral",
         action="store_true",
         help="unify original measurement results based on expert parallelism rules",
     )
@@ -236,10 +256,11 @@ def parse_args(args):
 def prepare_group_list(measurements_path, rank):
     measure_files = glob.glob(os.path.join(measurements_path, "*_mod_list.json"))
     if len(measure_files) > 0:
+        # take original rank=8 as an example, target file name: string_0_8_mod_list.json
         matched = re.match(r"^(\w+)_(\d+)_(\d+)_(\w+)_(\w+)\.json$", os.path.basename(measure_files[0]))
         if matched:
             total_rank = int(matched.group(3))
-            assert total_rank % rank == 0
+            assert (rank < total_rank) and (total_rank % rank) == 0, f"Original total_rank {total_rank} should be larger than your target rank {rank} and be divisible by it"
             group_size = total_rank // rank
             group_list = [[str(i * group_size + j) for j in range(group_size)] for i in range(rank)]
             print("Card grouping list >> {}".format(group_list))
@@ -273,10 +294,10 @@ def main(args):
 
     for group_index, group in enumerate(groups):
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_ep
+            group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_expert_paral
         )
         unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_ep
+            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_expert_paral
         )
 
     print("finished measurement unifier script")
