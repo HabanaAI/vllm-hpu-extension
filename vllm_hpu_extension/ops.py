@@ -714,8 +714,8 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
         return layer
 
     layer.weight = torch.nn.Parameter(weight, requires_grad=False)
-    orig_M = torch.nn.Parameter(torch.tensor(orig_M, dtype=torch.int32), requires_grad=False)
-    orig_N = torch.nn.Parameter(torch.tensor(orig_N, dtype=torch.int32), requires_grad=False)
+    orig_M = torch.nn.Parameter(torch.tensor(orig_M, dtype=torch.int32, device=weight.device), requires_grad=False)
+    orig_N = torch.nn.Parameter(torch.tensor(orig_N, dtype=torch.int32, device=weight.device), requires_grad=False)
     layer.register_parameter("orig_M", orig_M)
     layer.register_parameter("orig_N", orig_N)
     htorch.core.mark_step()
