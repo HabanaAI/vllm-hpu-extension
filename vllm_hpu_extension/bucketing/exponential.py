@@ -103,7 +103,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
             self.max_model_len)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
-               f"prompt buckets [bs, seq]: "
+               f"prompt buckets [bs, query, ctx]: "
                f"{list(sorted(self.global_state.prompt_buckets))}")
         logger().info(msg)
 
@@ -117,7 +117,7 @@ class HPUExponentialBucketingContext(metaclass=WeakSingleton):
             self.global_state.decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks, self.max_model_len, self.block_size)
         logger().info(f"Generated {len(self.global_state.decode_buckets)} "
-              f"decode buckets [bs, total_blocks]: "
+              f"decode buckets [bs, query, total_blocks]: "
               f"{list(sorted(self.global_state.decode_buckets))}")
 
     def get_max_prompt_shape(self):
