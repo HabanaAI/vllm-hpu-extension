@@ -34,14 +34,14 @@ def convert_files(input_path, output_path):
                 tensor = tensor_file.get_tensor(k)
                 if "proj" in k:
                     if k.endswith("weight"):
-                        tensor = (tensor.float() * 240.0 / 448.0).to(
+                        tensor = (tensor.float() * 0.5).to(
                             torch.float8_e4m3fn
                         )
                     elif k.endswith("weight_scale_inv") or k.endswith(
                         "input_scale_inv"
                     ):
                         # "scale_inv" in deepseek-r1 is actually "scale"
-                        tensor = tensor.float() * 448.0 / 240.0
+                        tensor = tensor.float() * 2
                     else:
                         raise NotImplementedError(f"Cannot covert {k}")
                 else:

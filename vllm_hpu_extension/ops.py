@@ -13,7 +13,6 @@ import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.runtime import get_config
 import habana_frameworks.torch.utils.experimental as htexp
-from vllm_hpu_extension.logger import logger
 
 is_hpu_gaudi2 = htexp._get_device_type(
     ) == htexp.synDeviceType.synDeviceGaudi2
@@ -699,17 +698,10 @@ def dynamic_quant(data, single_scale = False):
     return data_fp8, scale.float()
 
 
-def fp8_check_nan(tensor: torch.Tensor):
-    """Check if tensor will contain NaNs on Gaudi2."""
-    if not is_hpu_gaudi2 or tensor.dtype != torch.float8_e4m3fn:
-        return False
-    if tensor.device == torch.device("cpu"):
-        return torch.any(tensor.view(torch.uint8) & (0b10000111))
-    else:
-        return torch.isnan(tensor).any().item()
-
-
 def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
+    if torch.isnan(layer.weight.data).any():
+        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
+        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
         layer.weight_scale_inv.data,
@@ -740,9 +732,9 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
 
 
 def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
-    # Check for NaN in w13_weight.data
     if torch.isnan(layer.w13_weight.data).any():
-        raise ValueError("NaN detected in layer.w13_weight.data")
+        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
+        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
     if force_channel_fp8:
         # convert to channel-wise fp8
         w13_weight, w13_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
@@ -781,6 +773,7 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
         )
     htorch.core.mark_step()
     return layer
+
 
 def fp8_channel_moe_prepare_weights(layer):
     for index in range(layer.moe_op.num_experts):
