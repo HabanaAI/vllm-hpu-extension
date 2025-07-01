@@ -53,10 +53,8 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
 
-    use_new_softmax = os.environ.get("VLLM_HPU_NEW_SOFTMAX", "0") == "1"
-
     # Normalize the attention scores and cast attn to native dtype
-    if use_new_softmax:
+    if get_config().fused_block_softmax:
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)

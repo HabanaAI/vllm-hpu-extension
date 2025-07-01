@@ -55,6 +55,7 @@ def get_features():
         Value('fused_block_softmax_adjustment', All(Hardware('gaudi3'),
                                                     Kernel(block_softmax_adjustment),
                                                     Not(ModelType('qwen2')))),
+        Value('fused_block_softmax', False, env_var='VLLM_FUSED_BLOCK_SOFTMAX',),
         Value('flex_impl', False, env_var='VLLM_PROMPT_USE_FLEX_ATTENTION'),
         Value('fsdpa_impl', All(Kernel(fsdpa),
                                 Not(ModelType('mllama'))), env_var='VLLM_PROMPT_USE_FUSEDSDPA'),
