@@ -72,7 +72,7 @@ while getopts "m:b:l:t:d:h:o:" OPT; do
             MODEL_PATH="$OPTARG"
             ;;
         d )
-            DATASET_PATH="$OPTARG"
+            DATASET_PATH_OR_NAME="$OPTARG"
             ;;
         b )
             BATCH_SIZE="$OPTARG"
@@ -96,7 +96,7 @@ while getopts "m:b:l:t:d:h:o:" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
+if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH_OR_NAME" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
     exit 1
@@ -135,6 +135,15 @@ if [[ -n $LIMIT ]]; then
     EXTRA_FLAGS+="--max-dataset-samples $LIMIT "
 fi
 
+SKIP_STEP_1=false
+if [[ $DATASET_PATH_OR_NAME == *.pkl ]]; then
+    SKIP_STEP_1=false
+else
+    echo "DATASET_PATH_OR_NAME is not a .pkl file, will prepare calibration dataset based on it."
+    SKIP_STEP_1=true
+fi
+
+
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
     EXTRA_FLAGS_STEP_2="--block-quant --expert-parallel"
     EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
@@ -142,6 +151,14 @@ if  [[ "$model_name_lower" == *"deepseek"* ]]; then
     EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_4="--block-quant --expert-parallel"
 fi
+
+# Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
+if $SKIP_STEP_1; then
+    EXTRA_FLAGS_STEP_2+="--max-dataset-samples 512 --batch-size 1 --max-tokens 32 "
+    EXTRA_FLAGS_STEP_2+="--auto-process-dataset --sample-len 1024 --max-model-len 2048 "
+    EXTRA_FLAGS_STEP_2+="--dataset ${DATASET_PATH_OR_NAME} "
+fi
+
 if $MULTI_NODE_SETUP; then
     cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
     sleep 2
@@ -149,11 +166,15 @@ else
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
 fi
 
-echo ""
-echo "1/4 Preparing calibration dataset"
-export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
-python step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
-echo "Step 1/4 done"
+if $SKIP_STEP_1; then
+    echo "Skipping step 1 - prepare calibration dataset with dataset ${DATASET_PATH_OR_NAME}"
+else
+    echo ""
+    echo "1/4 Preparing calibration dataset"
+    export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
+python step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH_OR_NAME -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
+    echo "Step 1/4 done"
+fi
 
 echo ""
 echo "2/4 Measuring scales"
