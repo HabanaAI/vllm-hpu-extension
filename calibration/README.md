@@ -26,6 +26,7 @@ To run the ```calibrate_model.sh``` script, follow the steps below:
 cd /root
 git clone https://github.com/HabanaAI/vllm-hpu-extension.git
 cd vllm-hpu-extension/calibration
+pip install -r requirements.txt
 ```
 3. Download the dataset.
 > [!NOTE]
