@@ -1,4 +1,5 @@
 import os
+import bisect
 from typing import Dict
 import inspect
 from dataclasses import dataclass, field
@@ -69,7 +70,7 @@ class HPUBucketingManager():
 
             self.decode_buckets, self.decode_ctx_cfg, self.decode_bs_cfg = \
                             strategy.get_decode_buckets(
-                            max_num_seqs = self.max_num_seqs, 
+                            max_num_seqs = self.max_num_seqs,
                             block_size = self.block_size, 
                             max_num_batched_tokens = self.max_num_batched_tokens,
                             max_model_len = self.max_model_len, 
@@ -136,15 +137,6 @@ def get_bucketing_manager():
 
 
 def find_equal_or_closest_greater_config(sorted_list, target_tuple):
-    l, r = 0, len(sorted_list) - 1
-    result = None
+    result = bisect.bisect_left(sorted_list, target_tuple)
+    return sorted_list[result] if result < len(sorted_list) else None
 
-    while l <= r:
-        m = (l + r) // 2
-        if sorted_list[m] < target_tuple:
-            l = m + 1
-        else:
-            result = sorted_list[m]
-            r = m - 1
-
-    return result
