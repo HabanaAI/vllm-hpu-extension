@@ -92,7 +92,7 @@ class HPUBucketingManager():
         logger().info(msg)
 
         msg = (f"Generated {len(buckets)} "
-               f"{phase} buckets [bs, seq]: "
+               f"{phase} buckets [bs, query, num_blocks]: "
                f"{list(buckets)}")
         logger().info(msg)
 
@@ -101,7 +101,7 @@ class HPUBucketingManager():
             found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
-                                 "was not previously warmed up")
+                                 " was not previously warmed up")
                 new_bucket = (batch_size, seq_len, ctx)
                 self.prompt_buckets.append(new_bucket)
                 return new_bucket
@@ -113,7 +113,7 @@ class HPUBucketingManager():
             found_bucket = find_equal_or_closest_greater_config(self.decode_buckets, (batch_size, 1, num_blocks))
             if found_bucket is None:
                 logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
-                                 "was not previously warmed up")
+                                 " was not previously warmed up")
                 new_bucket = (batch_size, 1, num_blocks)
                 self.decode_buckets.append(new_bucket)
                 return new_bucket
