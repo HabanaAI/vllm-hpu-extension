@@ -41,6 +41,11 @@ class LinearBucketingStrategy:
                   f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
                   f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
 
+        msg = ("Prompt bucket config (min, step, max_warmup) "
+               f"bs:{prompt_bs_bucket_cfg}, "
+               f"seq:{prompt_seq_bucket_cfg}")
+        logger().info(msg)
+
         prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
             prompt_bs_bucket_cfg,
@@ -70,6 +75,11 @@ class LinearBucketingStrategy:
         decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=block_size,
             step=block_size, max=max_blocks)
+
+        msg = ("Decode bucket config (min, step, max_warmup) "
+               f"bs:{decode_bs_bucket_cfg}, "
+               f"blocks:{decode_block_bucket_cfg}")
+        logger().info(msg)
 
         decode_buckets = generate_decode_buckets(
             decode_bs_bucket_cfg,
