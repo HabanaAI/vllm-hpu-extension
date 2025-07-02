@@ -85,12 +85,6 @@ class HPUBucketingManager():
         phase = 'prompt' if is_prompt else 'decode'
         buckets = self.prompt_buckets if is_prompt else self.decode_buckets
         bs_config = self.prompt_bs_cfg if is_prompt else self.decode_bs_cfg
-        msg = (f"{phase.capitalize()} bucket config (min, step, max_warmup) "
-               f"bs:{bs_config}, "
-               f"{'seq' if is_prompt else 'blocks'}:"
-               f"{self.prompt_seq_cfg if is_prompt else self.decode_ctx_cfg}")
-        logger().info(msg)
-
         msg = (f"Generated {len(buckets)} "
                f"{phase} buckets [bs, query, num_blocks]: "
                f"{list(buckets)}")
