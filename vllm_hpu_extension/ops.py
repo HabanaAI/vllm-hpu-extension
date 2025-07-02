@@ -68,7 +68,8 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                          block_sums.to(block_max.dtype),
                                                          block_groups,
-                                                         batch_size).to(attn.dtype)
+                                                         batch_size,
+                                                         block_max.shape).to(attn.dtype)
     else:
         block_max = block_max.squeeze((-1, -2))
         block_sums = block_sums.squeeze((-1, -2))
@@ -127,6 +128,11 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
+    
+    if get_config().fp32_softmax:
+        attn = attn.float()
+        htcore.mark_step()
+    
     attn = attn + block_bias
     attn = pipelined_pa(attn,
                         value,
