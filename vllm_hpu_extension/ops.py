@@ -58,8 +58,6 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
-
-        attn = matmul_av_op(attn, value)
     else:
         if block_bias is not None:
             if attn.dtype != block_bias.dtype:
@@ -71,10 +69,11 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
-        attn = matmul_av_op(attn, value)
-    out_shape = [attn.shape[0], attn.shape[1], attn.shape[2], 1, 1]
+
+    attn = matmul_av_op(attn, value)
 
     if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
+        out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                         block_sums.to(block_max.dtype),
                                                         block_groups,
@@ -139,7 +138,6 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    attn = attn + block_bias
     attn = pipelined_pa(attn,
                         value,
                         block_bias,
