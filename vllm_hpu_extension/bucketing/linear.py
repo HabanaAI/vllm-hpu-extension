@@ -1,14 +1,13 @@
 import itertools
-import logging
 import operator
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
 from .common import WeakSingleton
 
+from vllm_hpu_extension.logger import logger as logger
 from vllm_hpu_extension.runtime import get_config
 
-logger = logging.getLogger(__name__)
 
 @dataclass
 class HPUBucketingGlobalState(metaclass=WeakSingleton):
@@ -56,9 +55,9 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         default_max_prompt_seq = 1024
         default_max_decode_seq = 2048
         if self.max_model_len is None and self.max_prompt_seq is None:
-            logger.warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
+            logger().warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
         if self.max_model_len is None and self.max_decode_seq is None:
-            logger.warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
+            logger().warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
 
         max_prompt_seq = next((item for item in [self.max_prompt_seq, self.max_model_len] if item is not None), default_max_prompt_seq)
         max_decode_seq = next((item for item in [self.max_decode_seq, self.max_model_len] if item is not None), default_max_decode_seq)
@@ -96,12 +95,12 @@ class HPUBucketingContext(metaclass=WeakSingleton):
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
                f"seq:{self.global_state.prompt_seq_bucket_cfg}")
-        logger.info(msg)
+        logger().info(msg)
 
         msg = ("Decode bucket config (min, step, max_warmup) "
                f"bs:{self.global_state.decode_bs_bucket_cfg}, "
                f"block:{self.global_state.decode_block_bucket_cfg}")
-        logger.info(msg)
+        logger().info(msg)
 
     def generate_prompt_buckets(self):
         self.global_state.prompt_buckets, prompt_omitted_buckets = \
@@ -113,24 +112,24 @@ class HPUBucketingContext(metaclass=WeakSingleton):
             self.max_num_batched_tokens)
 
         msg = (f"Generated {len(self.global_state.prompt_buckets)} "
-               f"prompt buckets [bs, seq]: "
+               f"prompt buckets [bs, query, ctx]: "
                f"{list(sorted(self.global_state.prompt_buckets))}")
-        logger.info(msg)
+        logger().info(msg)
 
         msg = (f"Omitted {len(prompt_omitted_buckets)} "
                "prompt buckets due to exceeded token budget "
                f"(max_num_batched_tokens={self.max_num_batched_tokens})")
-        logger.info(msg)
+        logger().info(msg)
 
         msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
-        logger.info(msg)
+        logger().info(msg)
 
     def generate_decode_buckets(self, max_blocks):
         self.global_state.decode_buckets = generate_decode_buckets(
             self.global_state.decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks)
-        logger.info(f"Generated {len(self.global_state.decode_buckets)} "
-              f"decode buckets [bs, total_blocks]: "
+        logger().info(f"Generated {len(self.global_state.decode_buckets)} "
+              f"decode buckets [bs, query, total_blocks]: "
               f"{list(sorted(self.global_state.decode_buckets))}")
 
     def get_max_prompt_shape(self):
@@ -202,7 +201,7 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         int(os.environ.get(e, d)) for e, d in zip(env_vars, default_values)
     ]
     for e, v, d in zip(env_vars, values, default_values):
-        logger.info(f'{e}={v} (default:{d})')
+        logger().info(f'{e}={v} (default:{d})')
     return values
 
 
@@ -284,7 +283,7 @@ def generate_prompt_buckets(bs_bucket_config,
                 "budget. Please increase max_num_batched_tokens or decrease "
                 "bucket minimum. Ignoring max_num_batched_tokens at risk of "
                 "out-of-memory errors.")
-            logger.info(msg)
+            logger().info(msg)
             return list(
                 sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0]))), []
 

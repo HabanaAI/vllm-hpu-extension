@@ -52,7 +52,8 @@ def get_features():
     features = [
         Value('fp32_alibi_biases', True, env_var='VLLM_ALIBI_USE_FLOAT32_BIASES'),
         Value('fp32_softmax', ModelType('qwen2')),
-        Value('fused_block_softmax_adjustment', All(Hardware('gaudi3'),
+        Value('fused_block_softmax_adjustment', All(VersionRange(">=1.22.0.494"),
+                                                    Hardware('gaudi3'),
                                                     Kernel(block_softmax_adjustment),
                                                     Not(ModelType('qwen2')))),
         Value('fused_block_softmax', False),
