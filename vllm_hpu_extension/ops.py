@@ -65,12 +65,11 @@ def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
     attn = matmul_av_op(attn, value)
 
     if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
-        out_shape = block_max.shape
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                          block_sums.to(block_max.dtype),
                                                          block_groups,
                                                          batch_size,
-                                                         out_shape).to(attn.dtype)
+                                                         block_max.shape).to(attn.dtype)
     else:
         block_max = block_max.squeeze((-1, -2))
         block_sums = block_sums.squeeze((-1, -2))
