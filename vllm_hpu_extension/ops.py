@@ -128,6 +128,11 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
+    
+    if get_config().fp32_softmax:
+        attn = attn.float()
+        htcore.mark_step()
+    
     attn = attn + block_bias
     attn = pipelined_pa(attn,
                         value,
