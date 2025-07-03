@@ -196,10 +196,11 @@ def generate_prompt_buckets(bs_bucket_config,
 
     filtered_buckets = buckets
     if max_num_batched_tokens is not None:
-        # Remove buckets exceeding batch token budget
+        # Remove buckets exceeding batch token budget except for the BS=1 case for long sequences
         filtered_buckets = list(
             filter(
-                lambda bucket: bucket[0] * bucket[1] <= max_num_batched_tokens,
+                lambda bucket: bucket[0] == 1
+                or bucket[0] * bucket[1] <= max_num_batched_tokens,
                 buckets))
 
         if len(filtered_buckets) == 0:
