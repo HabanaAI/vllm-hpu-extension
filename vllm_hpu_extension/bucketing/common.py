@@ -90,8 +90,9 @@ class HPUBucketingManager():
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
                                  " was not previously warmed up")
                 new_bucket = (batch_size, seq_len, ctx)
+                self.prompt_buckets.append(new_bucket)
                 self.prompt_buckets = \
-                    sorted(self.prompt_buckets.append(new_bucket))
+                    sorted(self.prompt_buckets)
                 return new_bucket
             return found_bucket
         return (batch_size, seq_len, ctx)
@@ -103,8 +104,9 @@ class HPUBucketingManager():
                 logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
                                  " was not previously warmed up")
                 new_bucket = (batch_size, 1, num_blocks)
+                self.decode_buckets.append(new_bucket)
                 self.decode_buckets = \
-                    sorted(self.decode_buckets.append(new_bucket))
+                    sorted(self.decode_buckets)
                 return new_bucket
             return found_bucket
         return (batch_size, 1, num_blocks)
