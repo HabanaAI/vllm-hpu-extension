@@ -13,10 +13,6 @@ class HPUBucketingManager():
     _instance = None
     prompt_buckets: List[Tuple[int, int, int]] = []
     decode_buckets: List[Tuple[int, int, int]] = []
-    prompt_seq_cfg: Tuple[int, int, int]
-    prompt_bs_cfg: Tuple[int, int, int]
-    decode_ctx_cfg: Tuple[int, int, int]
-    decode_bs_cfg: Tuple[int, int, int]
     initialized = False
 
     def __new__(cls, *args, **kwargs):
@@ -36,7 +32,7 @@ class HPUBucketingManager():
 
     def get_bucketing_strategy(self):
         strategy = None
-        # TODO - we can use different startegies for decode and prompt
+        # TODO - we can use different strategies for decode and prompt
         use_exponential_bucketing = get_config().VLLM_EXPONENTIAL_BUCKETING
         
         if use_exponential_bucketing:
@@ -52,8 +48,7 @@ class HPUBucketingManager():
         if self.initialized:
             strategy = self.get_bucketing_strategy()
 
-            self.prompt_buckets, self.prompt_seq_cfg, self.prompt_bs_cfg = \
-                            strategy.get_prompt_buckets(
+            self.prompt_buckets = strategy.get_prompt_buckets(
                             max_num_prefill_seqs = self.max_num_prefill_seqs,
                             block_size = self.block_size,
                             max_num_batched_tokens = self.max_num_batched_tokens,
@@ -68,8 +63,7 @@ class HPUBucketingManager():
         if self.initialized:
             strategy = self.get_bucketing_strategy()
 
-            self.decode_buckets, self.decode_ctx_cfg, self.decode_bs_cfg = \
-                            strategy.get_decode_buckets(
+            self.decode_buckets = strategy.get_decode_buckets(
                             max_num_seqs = self.max_num_seqs,
                             block_size = self.block_size, 
                             max_num_batched_tokens = self.max_num_batched_tokens,
@@ -84,7 +78,6 @@ class HPUBucketingManager():
     def log_generate_info(self, is_prompt):
         phase = 'prompt' if is_prompt else 'decode'
         buckets = self.prompt_buckets if is_prompt else self.decode_buckets
-        bs_config = self.prompt_bs_cfg if is_prompt else self.decode_bs_cfg
         msg = (f"Generated {len(buckets)} "
                f"{phase} buckets [bs, query, num_blocks]: "
                f"{list(buckets)}")
@@ -97,7 +90,8 @@ class HPUBucketingManager():
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
                                  " was not previously warmed up")
                 new_bucket = (batch_size, seq_len, ctx)
-                self.prompt_buckets.append(new_bucket)
+                self.prompt_buckets = \
+                    sorted(self.prompt_buckets.append(new_bucket))
                 return new_bucket
             return found_bucket
         return (batch_size, seq_len, ctx)
@@ -109,13 +103,14 @@ class HPUBucketingManager():
                 logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
                                  " was not previously warmed up")
                 new_bucket = (batch_size, 1, num_blocks)
-                self.decode_buckets.append(new_bucket)
+                self.decode_buckets = \
+                    sorted(self.decode_buckets.append(new_bucket))
                 return new_bucket
             return found_bucket
         return (batch_size, 1, num_blocks)
 
     def get_max_prompt_shape(self):
-        return self.prompt_seq_cfg[-1]
+        return max(b[1] for b in self.prompt_buckets)
 
     @classmethod
     def get_instance(cls):

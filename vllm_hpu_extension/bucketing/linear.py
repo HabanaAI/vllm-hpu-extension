@@ -33,10 +33,11 @@ class LinearBucketingStrategy:
             prompt_seq_bucket_cfg = (seq_min, seq_step, min(max_bs * seq_max, max_num_batched_tokens))
             new_prompt_bs_bucket_cfg = prompt_bs_bucket_cfg
             new_prompt_seq_bucket_cfg = prompt_seq_bucket_cfg
-            print('Merged prefill is enabled!\n'
+            msg = ('Merged prefill is enabled!\n'
                   'Overriding prompt bucketing settings!\n'
                   f'prompt bs cfg: {prev_prompt_bs_bucket_cfg} -> {new_prompt_bs_bucket_cfg}\n'
                   f'prompt seq cfg: {prev_prompt_seq_bucket_cfg} -> {new_prompt_seq_bucket_cfg}\n')
+            logger().info(msg)
 
         msg = ("Prompt bucket config (min, step, max_warmup) "
                f"bs:{prompt_bs_bucket_cfg}, "
@@ -51,7 +52,7 @@ class LinearBucketingStrategy:
             prefix_caching,
             max_num_batched_tokens)
 
-        return sorted(prompt_buckets), prompt_seq_bucket_cfg, prompt_bs_bucket_cfg
+        return sorted(prompt_buckets)
 
     def get_decode_buckets(self, max_num_seqs, block_size, 
                            max_num_batched_tokens, max_model_len, 
@@ -79,7 +80,7 @@ class LinearBucketingStrategy:
             decode_bs_bucket_cfg,
             decode_block_bucket_cfg, num_max_blocks)
 
-        return sorted(decode_buckets), decode_block_bucket_cfg, decode_bs_bucket_cfg
+        return sorted(decode_buckets)
 
 
 def read_bucket_settings(phase: str, dim: str, **defaults):

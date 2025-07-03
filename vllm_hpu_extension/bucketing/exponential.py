@@ -44,14 +44,14 @@ class ExponentialBucketingStrategy():
             max_num_batched_tokens,
             max_model_len)
 
-        return sorted(prompt_buckets), prompt_seq_bucket_cfg, prompt_bs_bucket_cfg
+        return sorted(prompt_buckets)
 
 
     def get_decode_buckets(self, max_num_seqs, block_size, 
                            max_num_batched_tokens, max_model_len,
                            num_max_blocks):
         prefix_caching = get_config().prefix_caching
-        max_decode_seq = max_model_len
+        max_decode_seq = num_max_blocks
         max_blocks = max(
             block_size,
             max_num_seqs * max_decode_seq // block_size)
@@ -69,7 +69,7 @@ class ExponentialBucketingStrategy():
             decode_bs_bucket_cfg, decode_block_bucket_cfg,
             num_max_blocks, max_model_len, block_size)
 
-        return sorted(decode_buckets), decode_block_bucket_cfg, decode_bs_bucket_cfg
+        return sorted(decode_buckets)
 
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
@@ -93,9 +93,6 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         logger_call = logger().debug if p in hidden_params else logger().info
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
-
-def get_buckets_single_dim(buckets, dim):
-    return [b[dim] for b in buckets]
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
