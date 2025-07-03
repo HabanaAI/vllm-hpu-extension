@@ -59,10 +59,7 @@ class LinearBucketingStrategy:
                            num_max_blocks):
         prefix_caching = get_config().prefix_caching
         
-        max_decode_seq = max_model_len
-        max_blocks = max(
-            block_size,
-            max_num_seqs * max_decode_seq // block_size)
+        max_blocks = num_max_blocks
 
         decode_bs_bucket_cfg = read_bucket_settings(
             'decode', 'bs', min=1, step=32,

@@ -51,10 +51,7 @@ class ExponentialBucketingStrategy():
                            max_num_batched_tokens, max_model_len,
                            num_max_blocks):
         prefix_caching = get_config().prefix_caching
-        max_decode_seq = num_max_blocks
-        max_blocks = max(
-            block_size,
-            max_num_seqs * max_decode_seq // block_size)
+        max_blocks = num_max_blocks
 
         decode_bs_limit = math.ceil(math.log2(max_num_seqs)) + 1
         decode_bs_bucket_cfg = read_bucket_settings(
