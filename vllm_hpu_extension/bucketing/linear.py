@@ -14,11 +14,8 @@ class LinearBucketingStrategy:
                            max_num_batched_tokens, max_model_len):
         use_merged_prefill = get_config().merged_prefill
         prefix_caching = get_config().prefix_caching
-        default_max_prompt_seq = 1024
-        if max_model_len is None:
-            logger().warning(f"max_model_len is not set. Using default value ={default_max_prompt_seq}. This may cause issues.")
 
-        max_prompt_seq = max_model_len or default_max_prompt_seq
+        max_prompt_seq = max_model_len
 
         prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=32,
@@ -60,11 +57,8 @@ class LinearBucketingStrategy:
                            max_num_batched_tokens, max_model_len, 
                            num_max_blocks):
         prefix_caching = get_config().prefix_caching
-        default_max_decode_seq = 2048
-        if max_model_len is None:
-            logger().warning(f"max_model_len is not set. Using default value ={default_max_decode_seq}. This may cause issues.")
-
-        max_decode_seq = max_model_len or default_max_decode_seq
+        
+        max_decode_seq = max_model_len
         max_blocks = max(
             block_size,
             max_num_seqs * max_decode_seq // block_size)
