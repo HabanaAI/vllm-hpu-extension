@@ -112,7 +112,8 @@ class HPUBucketingManager():
         return (batch_size, 1, num_blocks)
 
     def get_max_prompt_shape(self):
-        return max(b[1] for b in self.prompt_buckets)
+        return max(b[1] for b in self.prompt_buckets) \
+               if len(self.prompt_buckets) > 0 else self.max_model_len
 
     @classmethod
     def get_instance(cls):
