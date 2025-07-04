@@ -98,7 +98,7 @@ def generate_prompt_buckets(bs_bucket_config,
                             max_num_batched_tokens=None,
                             max_model_len=None):
     _, _, bmax, _ = seq_bucket_config
-    batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
+    batch_size_buckets = warmup_bs_range(bs_bucket_config)
     seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
 
     if prefix_caching:
@@ -190,6 +190,15 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
             
     buckets.extend(list(valid_blocks))
     return list(sorted(buckets, key=lambda b: (b[0] * b[1], b[1], b[0])))
+
+
+def warmup_bs_range(config: Tuple[int, int, int, int], fill=True):
+    bmin, bstep, bmax, num_buckets = config
+    buckets = []
+    value = math.floor(math.log2(bmax))
+    for i in range(value + 1):
+        buckets.append(int(math.pow(2, i)))
+    return list(sorted(buckets))
 
 
 def warmup_range_with_limit(config: Tuple[int, int, int, int], fill=True):
