@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 from typing import Callable, Optional, Tuple, List
-
 import habana_frameworks.torch as htorch
 import torch
 import torch.nn.functional as F
@@ -49,31 +48,48 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_groups, block_mapping, batch_size,
+def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
 
     # Normalize the attention scores and cast attn to native dtype
-    block_max = attn.amax(dim=-1, keepdim=True)
-    adjustment_target_shape = block_max.shape
-    attn = attn.sub(block_max)
-    attn = attn.exp()
-    if attn.dtype == torch.float32:
-        attn = attn.to(value.dtype)
-    block_sums = attn.sum(dim=-1, keepdim=True)
+    if get_config().fused_block_softmax:
+        attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
+        if attn.dtype == torch.float32:
+            attn = attn.to(value.dtype)
+    else:
+        if block_bias is not None:
+            if attn.dtype != block_bias.dtype:
+                block_bias = block_bias.to(dtype=attn.dtype)
+            attn.add_(block_bias)
+        block_max = attn.amax(dim=-1, keepdim=True)
+        attn = attn.sub(block_max)
+        attn = attn.exp()
+        if attn.dtype == torch.float32:
+            attn = attn.to(value.dtype)
+        block_sums = attn.sum(dim=-1, keepdim=True)
+
     attn = matmul_av_op(attn, value)
 
     if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
+        out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
-                                                         block_sums.to(block_max.dtype),
-                                                         block_groups,
-                                                         batch_size,
-                                                         block_max.shape).to(attn.dtype)
+                                                        block_sums.to(block_max.dtype),
+                                                        block_groups,
+                                                        batch_size,
+                                                        out_shape).to(attn.dtype)
     else:
-        block_max = block_max.squeeze((-1, -2))
-        block_sums = block_sums.squeeze((-1, -2))
-
+        squeeze_dims = (-1, -2)
+        if get_config().fused_block_softmax:
+            # With block_softmax the tensors are 2D instead of 5D
+            target_5d_shape = [attn.shape[0], 1, 1, 1, attn.shape[-1]]
+            block_max = block_max.reshape(target_5d_shape)
+            block_sums = block_sums.reshape(target_5d_shape)
+            squeeze_dims = (1, 2, 3)
+        adjustment_target_shape = block_max.shape
+        block_max = block_max.squeeze(squeeze_dims)
+        block_sums = block_sums.squeeze(squeeze_dims)
         # Calculate maximum of blocks that belong to the same sequences
         # and cast adjustments to native dtype
         group_max = grouped_max(block_max, batch_size, block_groups)
@@ -128,14 +144,13 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
         key = key.transpose(2, 3)
 
     attn = matmul_qk_op(query, key)
-    
     if get_config().fp32_softmax:
         attn = attn.float()
         htcore.mark_step()
-    
-    attn = attn + block_bias
+
     attn = pipelined_pa(attn,
                         value,
+                        block_bias,
                         block_groups,
                         block_mapping,
                         batch_size=batch_size,
@@ -182,12 +197,8 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         if attn.dtype != position_bias.dtype:
             attn = attn.to(dtype=position_bias.dtype)
         attn.add_(position_bias.unsqueeze(-2))
-    if block_bias is not None:
-        if attn.dtype != block_bias.dtype:
-            block_bias = block_bias.to(dtype=attn.dtype)
-        attn.add_(block_bias)
 
-    attn = pipelined_pa(attn, value, block_groups, block_mapping,
+    attn = pipelined_pa(attn, value, block_bias, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
