@@ -141,6 +141,7 @@ class FP8Matmul(torch.nn.Module):
         return output
 
 from vllm_hpu_extension.kernels import fsdpa
+
 class ModuleFusedSDPA(torch.nn.Module):
     def __init__(self):
         super().__init__()
