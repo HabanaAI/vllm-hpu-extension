@@ -1,5 +1,6 @@
 import os
 import bisect
+import math
 from typing import Dict
 import inspect
 from dataclasses import dataclass, field
@@ -88,8 +89,12 @@ class HPUBucketingManager():
             found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
-                                 " was not previously warmed up")
+                                 " was not prepared")
+                batch_size = 2 ** math.ceil(math.log2(batch_size))
+                seq_len = math.ceil(seq_len / self.block_size) * self.block_size
+                ctx = math.ceil(ctx / 2) * 2
                 new_bucket = (batch_size, seq_len, ctx)
+                print("Added: ", new_bucket)
                 self.prompt_buckets.append(new_bucket)
                 self.prompt_buckets = \
                     sorted(self.prompt_buckets)
@@ -102,7 +107,9 @@ class HPUBucketingManager():
             found_bucket = find_equal_or_closest_greater_config(self.decode_buckets, (batch_size, 1, num_blocks))
             if found_bucket is None:
                 logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
-                                 " was not previously warmed up")
+                                 " was not prepared")
+                batch_size = 2 ** math.ceil(math.log2(batch_size))
+                num_blocks = math.ceil(num_blocks / 2) * 2
                 new_bucket = (batch_size, 1, num_blocks)
                 self.decode_buckets.append(new_bucket)
                 self.decode_buckets = \
@@ -128,7 +135,15 @@ def get_bucketing_manager():
     return instance 
 
 
+def is_greater_or_equal(tuple1, tuple2):
+    return tuple1[0] >= tuple2[0] and tuple1[1] >= tuple2[1] \
+           and tuple1[2] >= tuple2[2]
+
+
 def find_equal_or_closest_greater_config(sorted_list, target_tuple):
-    result = bisect.bisect_left(sorted_list, target_tuple)
-    return sorted_list[result] if result < len(sorted_list) else None
+    idx = bisect.bisect_left(sorted_list, target_tuple)
+    for i in range(idx, len(sorted_list)):
+        if is_greater_or_equal(sorted_list[i], target_tuple):
+            return sorted_list[i]
+    return None
 
