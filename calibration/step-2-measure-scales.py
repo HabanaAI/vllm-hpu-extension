@@ -174,13 +174,13 @@ if __name__ == "__main__":
             input_batch.append(row["input"])
             if i and i % args.batch_size == 0:
                 t_start = time.perf_counter()
-                generate_responses(llm, input_batch, args)
+                generate_responses(llm, sampling_params, input_batch, args)
                 t_end = time.perf_counter()
                 batch_done += 1
                 print(
                     f"Batch finished: {i}/{calibration_ds.shape[0]} samples done; ETA: {int((t_end - t_start) * (batch_num - batch_done) // 60)} min")
                 input_batch = []
-        generate_responses(llm, input_batch, args)
+        generate_responses(llm, sampling_params, input_batch, args)
         print(
             f"Last batch finished: {i + 1}/{calibration_ds.shape[0]} samples done")
     else:
