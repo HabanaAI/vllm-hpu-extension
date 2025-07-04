@@ -80,10 +80,16 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
                                                         batch_size,
                                                         out_shape).to(attn.dtype)
     else:
+        squeeze_dims = (-1, -2)
+        if get_config().fused_block_softmax:
+            # With block_softmax the tensors are 2D instead of 5D
+            target_5d_shape = [attn.shape[0], 1, 1, 1, attn.shape[-1]]
+            block_max = block_max.reshape(target_5d_shape)
+            block_sums = block_sums.reshape(target_5d_shape)
+            squeeze_dims = (1, 2, 3)
         adjustment_target_shape = block_max.shape
-        block_max = block_max.squeeze((-1, -2))
-        block_sums = block_sums.squeeze((-1, -2))
-        
+        block_max = block_max.squeeze(squeeze_dims)
+        block_sums = block_sums.squeeze(squeeze_dims)
         # Calculate maximum of blocks that belong to the same sequences
         # and cast adjustments to native dtype
         group_max = grouped_max(block_max, batch_size, block_groups)
