@@ -94,7 +94,6 @@ class HPUBucketingManager():
                 seq_len = math.ceil(seq_len / self.block_size) * self.block_size
                 ctx = math.ceil(ctx / 2) * 2
                 new_bucket = (batch_size, seq_len, ctx)
-                print("Added: ", new_bucket)
                 self.prompt_buckets.append(new_bucket)
                 self.prompt_buckets = \
                     sorted(self.prompt_buckets)
