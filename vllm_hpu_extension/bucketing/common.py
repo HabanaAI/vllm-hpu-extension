@@ -88,15 +88,14 @@ class HPUBucketingManager():
         if self.initialized:
             found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
+                new_batch_size = 2 ** math.ceil(math.log2(batch_size))
+                new_seq_len = math.ceil(seq_len / self.block_size) * self.block_size
+                new_ctx = math.ceil(ctx / 2) * 2
+                new_bucket = (new_batch_size, new_seq_len, new_ctx)
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
-                                 " was not prepared")
-                batch_size = 2 ** math.ceil(math.log2(batch_size))
-                seq_len = math.ceil(seq_len / self.block_size) * self.block_size
-                ctx = math.ceil(ctx / 2) * 2
-                new_bucket = (batch_size, seq_len, ctx)
+                                 f" was not prepared. Adding new bucket: {new_bucket}")
                 self.prompt_buckets.append(new_bucket)
-                self.prompt_buckets = \
-                    sorted(self.prompt_buckets)
+                self.prompt_buckets.sort()
                 return new_bucket
             return found_bucket
         return (batch_size, seq_len, ctx)
@@ -105,14 +104,13 @@ class HPUBucketingManager():
         if self.initialized:
             found_bucket = find_equal_or_closest_greater_config(self.decode_buckets, (batch_size, 1, num_blocks))
             if found_bucket is None:
+                new_batch_size = 2 ** math.ceil(math.log2(batch_size))
+                new_num_blocks = math.ceil(num_blocks / 2) * 2
+                new_bucket = (new_batch_size, 1, new_num_blocks)
                 logger().warning(f"Decode bucket for {batch_size, 1, num_blocks}"
-                                 " was not prepared")
-                batch_size = 2 ** math.ceil(math.log2(batch_size))
-                num_blocks = math.ceil(num_blocks / 2) * 2
-                new_bucket = (batch_size, 1, num_blocks)
+                                 f" was not prepared. Adding new bucket: {new_bucket}")
                 self.decode_buckets.append(new_bucket)
-                self.decode_buckets = \
-                    sorted(self.decode_buckets)
+                self.decode_buckets.sort()
                 return new_bucket
             return found_bucket
         return (batch_size, 1, num_blocks)
