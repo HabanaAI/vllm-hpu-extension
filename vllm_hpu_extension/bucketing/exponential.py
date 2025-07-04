@@ -5,180 +5,69 @@ import os
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Set, Tuple
-from .common import WeakSingleton
 
 from vllm_hpu_extension.logger import logger as logger
 from vllm_hpu_extension.runtime import get_config
 
 
-@dataclass
-class HPUExponentialBucketingGlobalState(metaclass=WeakSingleton):
-    prompt_bs_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
-    decode_bs_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
-    prompt_seq_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
-    decode_block_bucket_cfg: Tuple[int, int, int, int] = field(init=False)
-    prompt_buckets: List[Tuple[int, int]] = field(init=False)
-    decode_buckets: List[Tuple[int, int]] = field(init=False)
 
+class ExponentialBucketingStrategy():
+    def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
+                           max_num_batched_tokens, max_model_len):
+        use_merged_prefill = get_config().merged_prefill
+        prefix_caching = get_config().prefix_caching
+        max_prompt_seq = max_model_len
 
-class HPUExponentialBucketingContext(metaclass=WeakSingleton):
-    global_state = HPUExponentialBucketingGlobalState()
-
-    def __init__(self, max_num_seqs, max_num_prefill_seqs, block_size,
-                 max_num_batched_tokens, use_merged_prefill, prefix_caching,
-                 max_model_len, max_prompt_seq=None, max_decode_seq=None):
-        """
-        Initializes the bucketing parameters for sequence padding.
-
-        Args:
-            max_num_seqs (int): The maximum number of sequences.
-            max_num_prefill_seqs (int): The maximum number of prefill sequences.
-            block_size (int): The size cache block.
-            max_num_batched_tokens (int): The maximum number of batched tokens.
-            max_model_len (int, optional): The maximum length of the model. This serves as the default value for max_prompt_seq and max_decode_seq. Defaults to None.
-            max_prompt_seq (int, optional): The maximum length of the prompt sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
-            max_decode_seq (int, optional): The maximum length of the decode sequence. Defaults to max_model_len. Must be less than or equal to max_model_len.
-        """
-        self.max_num_seqs = max_num_seqs
-        self.max_num_prefill_seqs = max_num_prefill_seqs
-        self.block_size = block_size
-        self.max_num_batched_tokens = max_num_batched_tokens
-        self.num_hpu_blocks = None
-        self.max_model_len = max_model_len
-        self.max_prompt_seq = max_prompt_seq
-        self.max_decode_seq = max_decode_seq
-        self.prefix_caching = prefix_caching
-        self._setup_buckets()
-        self.generate_prompt_buckets()
-
-    def _setup_buckets(self) -> None:
-        default_max_prompt_seq = 1024
-        default_max_decode_seq = 2048
-        if self.max_model_len is None and self.max_prompt_seq is None:
-            logger().warning(f"max_model_len and max_prompt_seq are not set. Using default value max_prompt_seq={default_max_prompt_seq}. This may cause issues.")
-        if self.max_model_len is None and self.max_decode_seq is None:
-            logger().warning(f"max_model_len and max_decode_seq are not set. Using default value max_decode_seq={default_max_decode_seq}. This may cause issues.")
-
-        max_prompt_seq = next((item for item in [self.max_prompt_seq, self.max_model_len] if item is not None), default_max_prompt_seq)
-        max_decode_seq = next((item for item in [self.max_decode_seq, self.max_model_len] if item is not None), default_max_decode_seq)
-        max_blocks = max(
-            self.block_size,
-            self.max_num_seqs * max_decode_seq // self.block_size)
-
-        prompt_bs_limit = math.ceil(math.log2(self.max_num_prefill_seqs)) + 1
-        self.global_state.prompt_bs_bucket_cfg = read_bucket_settings(
+        prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
+        prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=1, limit=prompt_bs_limit,
-            max=self.max_num_prefill_seqs)
-        decode_bs_limit = math.ceil(math.log2(self.max_num_seqs)) + 1
-        self.global_state.decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=1, limit=decode_bs_limit,
-            max=self.max_num_seqs)
+            max=max_num_prefill_seqs)
         max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
-        self.global_state.prompt_seq_bucket_cfg = read_bucket_settings(
-            'prompt', 'seq', min=self.block_size, limit=max_prompt_seq_limit,
-            step=self.block_size, max=max_prompt_seq)
-        max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
-        self.global_state.decode_block_bucket_cfg = read_bucket_settings(
-            'decode', 'block', min=self.block_size, limit=max_decode_block_limit,
-            step=self.block_size, max=max_blocks)
-            
+        prompt_seq_bucket_cfg = read_bucket_settings(
+            'prompt', 'seq', min=block_size, limit=max_prompt_seq_limit,
+            step=block_size, max=max_prompt_seq)
+
+        if use_merged_prefill:
+            logger().info("Merged prefill warmup is not implemented for exponential bucketing yet")
+
         msg = ("Prompt bucket config (min, step, max_warmup, limit) "
-               f"bs:{self.global_state.prompt_bs_bucket_cfg}, "
-               f"seq:{self.global_state.prompt_seq_bucket_cfg}")
+               f"bs:{prompt_bs_bucket_cfg}, "
+               f"seq:{prompt_seq_bucket_cfg}")
         logger().info(msg)
 
-        msg = ("Decode bucket config (min, step, max_warmup, limit) "
-               f"bs:{self.global_state.decode_bs_bucket_cfg}, "
-               f"block:{self.global_state.decode_block_bucket_cfg}")
-        logger().info(msg)
-
-    def generate_prompt_buckets(self):
-        self.global_state.prompt_buckets, prompt_omitted_buckets = \
+        prompt_buckets, prompt_omitted_buckets = \
             generate_prompt_buckets(
-            self.global_state.prompt_bs_bucket_cfg,
-            self.global_state.prompt_seq_bucket_cfg,
-            self.block_size,
-            self.prefix_caching,
-            self.max_num_batched_tokens,
-            self.max_model_len)
+            prompt_bs_bucket_cfg,
+            prompt_seq_bucket_cfg,
+            block_size,
+            prefix_caching,
+            max_num_batched_tokens,
+            max_model_len)
 
-        msg = (f"Generated {len(self.global_state.prompt_buckets)} "
-               f"prompt buckets [bs, query, ctx]: "
-               f"{list(sorted(self.global_state.prompt_buckets))}")
-        logger().info(msg)
+        return sorted(prompt_buckets)
 
-        msg = (f"Omitted {len(prompt_omitted_buckets)} "
-               "prompt buckets due to exceeded token budget "
-               f"(max_num_batched_tokens={self.max_num_batched_tokens})")
-        logger().info(msg)
 
-    def generate_decode_buckets(self, max_blocks):
-        self.global_state.decode_buckets = generate_decode_buckets(
-            self.global_state.decode_bs_bucket_cfg,
-            self.global_state.decode_block_bucket_cfg, max_blocks, self.max_model_len, self.block_size)
-        logger().info(f"Generated {len(self.global_state.decode_buckets)} "
-              f"decode buckets [bs, query, total_blocks]: "
-              f"{list(sorted(self.global_state.decode_buckets))}")
+    def get_decode_buckets(self, max_num_seqs, block_size, 
+                           max_num_batched_tokens, max_model_len,
+                           num_max_blocks):
+        prefix_caching = get_config().prefix_caching
+        max_blocks = num_max_blocks
 
-    def get_max_prompt_shape(self):
-        return (self.global_state.prompt_bs_bucket_cfg[-2],
-                self.global_state.prompt_seq_bucket_cfg[-2])
+        decode_bs_limit = math.ceil(math.log2(max_num_seqs)) + 1
+        decode_bs_bucket_cfg = read_bucket_settings(
+            'decode', 'bs', min=1, step=1, limit=decode_bs_limit,
+            max=max_num_seqs)
+        max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
+        decode_block_bucket_cfg = read_bucket_settings(
+            'decode', 'block', min=block_size, limit=max_decode_block_limit,
+            step=block_size, max=max_blocks)
 
-    def get_padded_prompt_batch_size(self, batch_size):
-        return find_bucket(self.prompt_buckets, batch_size, 0)
+        decode_buckets = generate_decode_buckets(
+            decode_bs_bucket_cfg, decode_block_bucket_cfg,
+            num_max_blocks, max_model_len, block_size)
 
-    def get_padded_decode_batch_size(self, batch_size):
-        return find_bucket(self.decode_buckets, batch_size, 0)
+        return sorted(decode_buckets)
 
-    def get_padded_prompt_seq_len(self, seq_len):
-        return find_bucket(self.prompt_buckets, seq_len, 1)
-
-    def get_padded_decode_num_blocks(self, num_blocks):
-        assert self.num_hpu_blocks is not None, "num_hpu_blocks is not set"
-        bucket_size = find_bucket(self.decode_buckets, num_blocks, 2)
-        return min(bucket_size, self.num_hpu_blocks)
-
-    def get_padded_batch_size(self, batch_size, is_prompt):
-        if is_prompt:
-            return self.get_padded_prompt_batch_size(batch_size)
-        return self.get_padded_decode_batch_size(batch_size)
-
-    def get_padded_seq_or_block(self, seq_or_block, is_prompt):
-        if is_prompt:
-            return self.get_padded_prompt_seq_len(seq_or_block)
-        return self.get_padded_decode_num_blocks(seq_or_block)
-
-    def get_closest_prompt_bucket(self, target):
-        return get_closest_bucket(self.prompt_buckets, target)
-
-    def get_closest_decode_bucket(self, target):
-        return get_closest_bucket(self.decode_buckets, target)
-
-    @property
-    def prompt_buckets(self):
-        return self.global_state.prompt_buckets
-
-    @property
-    def decode_buckets(self):
-        # decode_buckets should've been generated during warmup,
-        # but in case of unit_tests warmup method is not called at all
-        if hasattr(self.global_state, 'decode_buckets'):
-            return self.global_state.decode_buckets
-        return []
-
-    @classmethod
-    def get_instance(cls):
-        """
-        Retrieve the singleton instance of the class.
-
-        Returns:
-            The singleton instance of the class.
-
-        Raises:
-            AssertionError: If the class has not been initialized and no instance exists.
-        """
-        assert cls in cls._instances, "Singleton instance not initialized"
-        return type(cls)._instances[cls]
 
 def read_bucket_settings(phase: str, dim: str, **defaults):
     """Read bucketing configuration from env variables.
@@ -201,29 +90,6 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
         logger_call = logger().debug if p in hidden_params else logger().info
         logger_call(f'{prefix}{e}={v}{suffix}')
     return values
-
-
-def find_bucket(buckets, value, dim=None):
-    if dim is not None:
-        buckets = get_buckets_single_dim(buckets, dim)
-    try:
-        return next(p for p in sorted(buckets) if p >= value)
-    except StopIteration:
-        logger().warning(f"Couldn't find a bucket for value: {value} in {buckets} dim:{dim}")
-        return value
-
-
-def get_buckets_single_dim(buckets, dim):
-    return [b[dim] for b in buckets]
-
-def get_closest_bucket(buckets, target):
-    # euclidean distances of all buckets to target
-    distances = [np.linalg.norm(b-target) for b in buckets] 
-    # indices of buckets sorted in ascending order by their distance to target
-    sorted_indices = sorted(range(len(distances)), key=lambda k: distances[k]) 
-    # whether the bucket can be actually used by the target
-    is_valid_bucket = [b[0] >= target[0] and b[1] >= target[1] for b in buckets]
-    return next(buckets[idx] for idx in sorted_indices if is_valid_bucket)
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
