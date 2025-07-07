@@ -34,7 +34,9 @@ class HPUBucketingManager():
     def get_bucketing_strategy(self):
         strategy = None
         # TODO - we can use different strategies for decode and prompt
-        use_exponential_bucketing = get_config().VLLM_EXPONENTIAL_BUCKETING
+        use_exponential_bucketing = True if \
+                get_config().VLLM_EXPONENTIAL_BUCKETING == None else \
+                get_config().VLLM_EXPONENTIAL_BUCKETING
         
         if use_exponential_bucketing:
             from vllm_hpu_extension.bucketing.exponential import (
