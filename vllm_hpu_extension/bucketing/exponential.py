@@ -20,7 +20,7 @@ class ExponentialBucketingStrategy():
 
         prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
         prompt_bs_bucket_cfg = read_bucket_settings(
-            'prompt', 'bs', min=1, step=1, limit=prompt_bs_limit,
+            'prompt', 'bs', min=1, step=2, limit=prompt_bs_limit,
             max=max_num_prefill_seqs)
         max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
         prompt_seq_bucket_cfg = read_bucket_settings(
@@ -55,7 +55,7 @@ class ExponentialBucketingStrategy():
 
         decode_bs_limit = math.ceil(math.log2(max_num_seqs)) + 1
         decode_bs_bucket_cfg = read_bucket_settings(
-            'decode', 'bs', min=1, step=1, limit=decode_bs_limit,
+            'decode', 'bs', min=1, step=2, limit=decode_bs_limit,
             max=max_num_seqs)
         max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
         decode_block_bucket_cfg = read_bucket_settings(
