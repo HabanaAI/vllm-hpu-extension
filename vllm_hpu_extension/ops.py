@@ -24,6 +24,7 @@ if is_hpu_gaudi2:
 import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
 MAX_EXPERTS_PER_SLICE = int(os.environ.get("MAX_EXPERTS_PER_SLICE", -1))
+CHUNKED_PROMPT_LENGTH = 8192
 
 def get_inc_quant_method(layer):
     return layer
@@ -289,6 +290,36 @@ def _naive_prompt_attention(
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
 
+def _chunked_fsdpa_prompt_attention( query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        scale: float,
+        fsdpa_op,
+        is_causal: bool,
+        softmax_mode: str,
+        attn_bias: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    q_block_size = CHUNKED_PROMPT_LENGTH
+    q_len = query.size(-2)
+    q_tiles = (q_len // q_block_size) if (q_len % q_block_size == 0) else math.ceil(q_len / q_block_size)
+    q_padding = q_tiles * q_block_size - q_len
+    query = F.pad(query, (0, 0, 0, q_padding), "constant", 0)
+    if q_padding > 0 and attn_bias is not None:
+        attn_bias = F.pad(attn_bias, (0, 0, 0, q_padding), "constant", -10000.0)
+    row_o_list = []
+    for i in range(q_tiles):
+        s, e = i * q_block_size, (i + 1) * q_block_size
+        row_q = query[:, :, s:e, :]
+        row_mask = attn_bias[:, :, s:e, :]
+        attn_output_partial = fsdpa_op(
+            row_q, key, value, row_mask, 0.0, is_causal,
+            scale, softmax_mode, True, None)
+        row_o_list.append(attn_output_partial)
+    attn_output = torch.cat(row_o_list, dim=-2)
+    if q_padding > 0:
+        attn_output = attn_output[:, :, :-q_padding, :]
+    return attn_output
+
 
 def _fsdpa_prompt_attention(
         query: torch.Tensor,
@@ -315,9 +346,13 @@ def _fsdpa_prompt_attention(
         # TODO: causal + attn_bias is not yet supported
         is_causal = False
         valid_seq_lengths = None
-    attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
-                            scale, softmax_mode, recompute_mode,
-                            valid_seq_lengths, 'right')
+    if query.size(-2) > CHUNKED_PROMPT_LENGTH:
+        attn_weights = _chunked_fsdpa_prompt_attention(query, key, value, scale, \
+            fsdpa_op, is_causal, softmax_mode, attn_bias)
+    else:
+        attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
+                                scale, softmax_mode, recompute_mode,
+                                valid_seq_lengths, 'right')
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
 
