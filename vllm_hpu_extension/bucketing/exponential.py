@@ -19,11 +19,11 @@ class ExponentialBucketingStrategy():
         max_prompt_seq = max_model_len
 
         prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
-        prompt_bs_bucket_cfg = read_bucket_settings(
+        prompt_bs_bucket_cfg = verify_bucket_settings(
             'prompt', 'bs', min=1, step=2, limit=prompt_bs_limit,
             max=max_num_prefill_seqs)
         max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
-        prompt_seq_bucket_cfg = read_bucket_settings(
+        prompt_seq_bucket_cfg = verify_bucket_settings(
             'prompt', 'seq', min=block_size, limit=max_prompt_seq_limit,
             step=block_size, max=max_prompt_seq)
 
@@ -54,11 +54,11 @@ class ExponentialBucketingStrategy():
         max_blocks = num_max_blocks
 
         decode_bs_limit = math.ceil(math.log2(max_num_seqs)) + 1
-        decode_bs_bucket_cfg = read_bucket_settings(
+        decode_bs_bucket_cfg = verify_bucket_settings(
             'decode', 'bs', min=1, step=2, limit=decode_bs_limit,
             max=max_num_seqs)
         max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
-        decode_block_bucket_cfg = read_bucket_settings(
+        decode_block_bucket_cfg = verify_bucket_settings(
             'decode', 'block', min=block_size, limit=max_decode_block_limit,
             step=block_size, max=max_blocks)
 
@@ -74,13 +74,9 @@ class ExponentialBucketingStrategy():
         return sorted(decode_buckets)
 
 
-def read_bucket_settings(phase: str, dim: str, **defaults):
-    """Read bucketing configuration from env variables.
-
-    phase is either 'prompt' or 'decode'
-    dim is either 'bs', 'seq' or 'block'
-    param is either 'min', 'step' or 'max'
-    example env variable: VLLM_DECODE_BS_BUCKET_STEP=128
+def verify_bucket_settings(phase: str, dim: str, **defaults):
+    """Verify bucketing configuration from env variables.
+    If flag is set, print a warning and use a default values.
     """
     params = ['min', 'step', 'max', 'limit']
     env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
