@@ -62,6 +62,11 @@ class ExponentialBucketingStrategy():
             'decode', 'block', min=block_size, limit=max_decode_block_limit,
             step=block_size, max=max_blocks)
 
+        msg = ("Decode bucket config (min, step, max_warmup, limit) "
+               f"bs:{decode_bs_bucket_cfg}, "
+               f"block:{decode_block_bucket_cfg}")
+        logger().info(msg)
+
         decode_buckets = generate_decode_buckets(
             decode_bs_bucket_cfg, decode_block_bucket_cfg,
             num_max_blocks, max_model_len, block_size)
@@ -78,18 +83,12 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     example env variable: VLLM_DECODE_BS_BUCKET_STEP=128
     """
     params = ['min', 'step', 'max', 'limit']
-    hidden_params = ['min', 'step', 'max']
     env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
     default_values = [defaults[p] for p in params]
-    values = [
-        int(d if p in hidden_params else os.environ.get(e, d)) for p, e, d in zip(params, env_vars, default_values)
-    ]
-    for p, e, v, d in zip(params, env_vars, values, default_values):
-        prefix = '[non-modifiable] ' if p in hidden_params else ''
-        suffix = '' if p in hidden_params else ' (default: %d)' % d
-        logger_call = logger().debug if p in hidden_params else logger().info
-        logger_call(f'{prefix}{e}={v}{suffix}')
-    return values
+    for e in env_vars:
+        if getattr(get_config(), e) is not None:
+            logger().warning(f"Using Exponential Strategy - Your configuration {e}={getattr(get_config(), e)} will be overwritten!")
+    return default_values
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
