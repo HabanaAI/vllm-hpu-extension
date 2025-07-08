@@ -52,9 +52,8 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
-
     # Normalize the attention scores and cast attn to native dtype
-    if get_config().fused_block_softmax:
+    if get_config().fused_block_softmax and get_config().fused_block_softmax_adjustment:
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
@@ -69,10 +68,8 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
-
     attn = matmul_av_op(attn, value)
-
-    if get_config().fused_block_softmax_adjustment and block_max.dtype != torch.float16:
+    if get_config().fused_block_softmax_adjustment:
         out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                         block_sums.to(block_max.dtype),
@@ -80,16 +77,9 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
                                                         batch_size,
                                                         out_shape).to(attn.dtype)
     else:
-        squeeze_dims = (-1, -2)
-        if get_config().fused_block_softmax:
-            # With block_softmax the tensors are 2D instead of 5D
-            target_5d_shape = [attn.shape[0], 1, 1, 1, attn.shape[-1]]
-            block_max = block_max.reshape(target_5d_shape)
-            block_sums = block_sums.reshape(target_5d_shape)
-            squeeze_dims = (1, 2, 3)
         adjustment_target_shape = block_max.shape
-        block_max = block_max.squeeze(squeeze_dims)
-        block_sums = block_sums.squeeze(squeeze_dims)
+        block_max = block_max.squeeze((-1, -2))
+        block_sums = block_sums.squeeze((-1, -2))
         # Calculate maximum of blocks that belong to the same sequences
         # and cast adjustments to native dtype
         group_max = grouped_max(block_max, batch_size, block_groups)
