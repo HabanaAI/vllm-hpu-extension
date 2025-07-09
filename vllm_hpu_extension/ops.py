@@ -73,10 +73,10 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
     if get_config().fused_block_softmax_adjustment:
         out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
-                                                        block_sums.to(block_max.dtype),
-                                                        block_groups,
-                                                        batch_size,
-                                                        out_shape).to(attn.dtype)
+                                                         block_sums.to(block_max.dtype),
+                                                         block_groups,
+                                                         batch_size,
+                                                         out_shape).to(attn.dtype)
     else:
         adjustment_target_shape = block_max.shape
         block_max = block_max.squeeze((-1, -2))
