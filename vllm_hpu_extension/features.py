@@ -49,6 +49,7 @@ def get_experimental_flags():
 
 def get_features():
     supported_attn_impls = ['flex_impl', 'fsdpa_impl', 'naive_impl']
+    bucketing_strategies = ['exponential_bucketing', 'linear_bucketing']
     features = [
         Value('fp32_alibi_biases', True, env_var='VLLM_ALIBI_USE_FLOAT32_BIASES'),
         Value('fp32_softmax', ModelType('qwen2')),
@@ -66,5 +67,8 @@ def get_features():
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
+        Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'), 
+        Value('linear_bucketing', True),
+        Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
     ]
     return split_values_and_flags(features)
