@@ -53,7 +53,8 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
     # Normalize the attention scores and cast attn to native dtype
-    if get_config().fused_block_softmax and get_config().fused_block_softmax_adjustment:
+    # TODO: w/a with 5D req as the block_softmax kernel does not support 4D attn tensor, which is used in e.g. Granite-3B
+    if get_config().fused_block_softmax and get_config().fused_block_softmax_adjustment and attn.dim() == 5:
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
