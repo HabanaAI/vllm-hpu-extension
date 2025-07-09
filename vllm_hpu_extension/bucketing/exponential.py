@@ -12,20 +12,33 @@ from vllm_hpu_extension.runtime import get_config
 
 
 class ExponentialBucketingStrategy():
+    def check_for_user_flags(self, phase):
+        dim = ['bs', 'seq'] if phase == 'prompt' else ['bs', 'block']
+        params = ['min', 'step', 'max', 'limit']
+        env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for dim in dim for p in params]
+        user_flags = []
+        for e in env_vars:
+            if getattr(get_config(), e) is not None:
+                user_flags.append(e)
+        if len(user_flags) > 0:
+            logger().warning("*******************************************************")
+            for flag in user_flags:
+                logger().warning(f"Using Exponential Strategy - Your configuration {flag}={getattr(get_config(), flag)} will be overwritten!")
+            logger().warning("*******************************************************")
+        
+
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
                            max_num_batched_tokens, max_model_len):
+        self.check_for_user_flags('prompt')
         use_merged_prefill = get_config().merged_prefill
         prefix_caching = get_config().prefix_caching
         max_prompt_seq = max_model_len
 
+        # cfgs shape: [min, step, max, limit]
         prompt_bs_limit = math.ceil(math.log2(max_num_prefill_seqs)) + 1
-        prompt_bs_bucket_cfg = verify_bucket_settings(
-            'prompt', 'bs', min=1, step=2, limit=prompt_bs_limit,
-            max=max_num_prefill_seqs)
+        prompt_bs_bucket_cfg = [1, 2, max_num_prefill_seqs, prompt_bs_limit]
         max_prompt_seq_limit = math.ceil(math.log2(max_prompt_seq)) + 1
-        prompt_seq_bucket_cfg = verify_bucket_settings(
-            'prompt', 'seq', min=block_size, limit=max_prompt_seq_limit,
-            step=block_size, max=max_prompt_seq)
+        prompt_seq_bucket_cfg = [block_size, block_size, max_prompt_seq, max_prompt_seq_limit]
 
         if use_merged_prefill:
             logger().info("Merged prefill warmup is not implemented for exponential bucketing yet")
@@ -50,17 +63,15 @@ class ExponentialBucketingStrategy():
     def get_decode_buckets(self, max_num_seqs, block_size, 
                            max_num_batched_tokens, max_model_len,
                            num_max_blocks):
+        self.check_for_user_flags('decode')
         prefix_caching = get_config().prefix_caching
         max_blocks = num_max_blocks
 
+        # cfgs shape: [min, step, max, limit]
         decode_bs_limit = math.ceil(math.log2(max_num_seqs)) + 1
-        decode_bs_bucket_cfg = verify_bucket_settings(
-            'decode', 'bs', min=1, step=2, limit=decode_bs_limit,
-            max=max_num_seqs)
+        decode_bs_bucket_cfg = [1, 2, max_num_seqs, decode_bs_limit]
         max_decode_block_limit = math.ceil(math.log2(max_blocks)) + 1
-        decode_block_bucket_cfg = verify_bucket_settings(
-            'decode', 'block', min=block_size, limit=max_decode_block_limit,
-            step=block_size, max=max_blocks)
+        decode_block_bucket_cfg = [block_size, block_size, max_blocks, max_decode_block_limit]
 
         msg = ("Decode bucket config (min, step, max_warmup, limit) "
                f"bs:{decode_bs_bucket_cfg}, "
@@ -73,18 +84,6 @@ class ExponentialBucketingStrategy():
 
         return sorted(decode_buckets)
 
-
-def verify_bucket_settings(phase: str, dim: str, **defaults):
-    """Verify bucketing configuration from env variables.
-    If flag is set, print a warning and use a default values.
-    """
-    params = ['min', 'step', 'max', 'limit']
-    env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
-    default_values = [defaults[p] for p in params]
-    for e in env_vars:
-        if getattr(get_config(), e) is not None:
-            logger().warning(f"Using Exponential Strategy - Your configuration {e}={getattr(get_config(), e)} will be overwritten!")
-    return default_values
 
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
