@@ -62,14 +62,14 @@ def get_features():
         Value('fsdpa_impl', All(Kernel(fsdpa),
                                 Not(ModelType('mllama'))), env_var='VLLM_PROMPT_USE_FUSEDSDPA'),
         Value('naive_impl', True),
-        Value('prompt_attn_impl', FirstEnabled(*supported_attn_impls), env_var_type=choice(*supported_attn_impls)),
+        Value('prompt_attn_impl', FirstEnabled(*supported_attn_impls), env_var_type=str, check=choice(*supported_attn_impls)),
         Value('skip_warmup', False),
         Value('merged_prefill', False),
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
-        Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'), 
+        Value('exponential_bucketing', True),
         Value('linear_bucketing', True),
-        Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
+        Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=str, check=choice(*bucketing_strategies)),
     ]
     return split_values_and_flags(features)
