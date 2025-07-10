@@ -103,7 +103,7 @@ def get_dataset(args):
     return prompts, prompt_token_ids, gt
 
 
-def generate_responses(llm, sampling_params, input_batch, args, prompt_token_ids=None):
+def generate_responses(llm, input_batch, args, sampling_params=None, prompt_token_ids=None):
     responses = llm.generate(
         input_batch, sampling_params, prompt_token_ids=prompt_token_ids, use_tqdm=True
     )
@@ -186,10 +186,10 @@ if __name__ == "__main__":
     else:
         prompts, prompt_token_ids, gt = get_dataset(args)
         generate_responses(
-            llm,
-            sampling_params,
+            llm=llm,
             input_batch=None,
             args=args,
+            sampling_params=sampling_params,
             prompt_token_ids=prompt_token_ids,
         )
     llm.llm_engine.model_executor.shutdown()
