@@ -6,6 +6,7 @@
 ###############################################################################
 
 import os
+import pytest
 from vllm_hpu_extension.config import VersionRange, Config, Kernel, Env, boolean, All, Not, Eq, Enabled, FirstEnabled
 from vllm_hpu_extension.validation import choice, regex
 
@@ -150,17 +151,20 @@ def test_combinators__not():
 def test_combinators__eq():
     assert Eq('foo', 'bar')(Config(foo='bar')) is True
     assert Eq('foo', 'bar')(Config(foo='dingo')) is False
-    assert Eq('foo', 'bar')(Config(dingo='bar')) is False
-
+    with pytest.raises(AssertionError):
+        assert Eq('foo', 'bar')(Config(dingo='bar'))
 
 def test_combinators__active():
-    assert Enabled('foo')(Config()) is False
+    with pytest.raises(AssertionError):
+        assert Enabled('foo')(Config()) is False
     assert Enabled('foo')(Config(foo=False)) is False
     assert Enabled('foo')(Config(foo=True)) is True
 
 
 def test_combinators__first_active():
-    assert FirstEnabled('foo', 'bar')(Config()) is None
+    with pytest.raises(AssertionError):
+        assert FirstEnabled('foo', 'bar')(Config())
+    assert FirstEnabled('foo', 'bar')(Config(foo=True)) == 'foo'
     assert FirstEnabled('foo', 'bar')(Config(foo=False, bar=False)) is None
     assert FirstEnabled('foo', 'bar')(Config(foo=False, bar=True)) == 'bar'
     assert FirstEnabled('foo', 'bar')(Config(foo=True, bar=False)) == 'foo'
