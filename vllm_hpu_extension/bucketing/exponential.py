@@ -100,8 +100,18 @@ def generate_prompt_buckets(bs_bucket_config,
         for bs in batch_size_buckets:
             for b in seq_bucket_config:
                 max_blocks_range = (bmax - b) // block_size
-                for i in range(0, max_blocks_range + 1):
-                    buckets_3d.append((bs, b, i))
+                if max_blocks_range == 0:
+                    buckets_3d.append((bs, b, 0))
+                    continue
+                else:
+                    num_buckets_3d = math.ceil(math.log2(max_blocks_range)) + 1
+
+                for i in range(num_buckets_3d):
+                    power_unpadded = 1 * np.float_power(
+                        max_blocks_range, (1 / float(num_buckets_3d - 1)) * i)
+                    new_bucket = math.ceil(power_unpadded)
+                    buckets_3d.append((bs, b, new_bucket))
+
         buckets = buckets_3d
     else:
         buckets = list(
