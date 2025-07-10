@@ -174,7 +174,10 @@ def test_combinators__first_active():
 def test_choice():
     assert choice('a', 'b')('a') is None
     assert choice('a', 'b')('b') is None
-    assert choice('a', 'b')('c') is not None
+    error = choice('a', 'b')('c')
+    assert error is not None
+    assert 'a, b' in error
+    assert 'c' in error
 
 
 def test_regex_empty_string():
