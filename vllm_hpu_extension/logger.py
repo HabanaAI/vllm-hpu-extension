@@ -16,3 +16,15 @@ def logger():
     except ImportError:
         import logging
         return logging.getLogger("vllm")
+
+    
+def init_debug_logger(area):
+    from vllm_hpu_extension.runtime import get_config
+    if area in get_config().VLLM_DEBUG:
+        def enabled_dbg_logger(msg):
+            logger().warning(f'[debug/{area}] {msg}')
+        return enabled_dbg_logger
+    else:
+        def disabled_dbg_logger(_):
+            pass
+        return disabled_dbg_logger

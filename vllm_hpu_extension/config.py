@@ -111,7 +111,7 @@ def VersionRange(*specifiers: List[str]) -> ValueFn:
     return lambda cfg: any(Version(cfg.build) in s for s in specifiers)
 
 
-def choice(*options: List[Any]) -> Callable[Any, Any]:
+def choice(*options: List[Any]) -> Callable[[Any], Any]:
     """Validates if input is one of the available choices and returns it unchanged"""
     def choice_impl(x):
         assert x in options, f'{x} is not in allowed options: {options}!'
@@ -119,17 +119,26 @@ def choice(*options: List[Any]) -> Callable[Any, Any]:
     return choice_impl
 
 
-def boolean(x: str) -> Callable[str, bool]:
+def boolean(x: str) -> bool:
     """Converts string representation of a bool to its value"""
     return x.lower() in ['true', 't', '1', 'yes', 'y', 'on']
 
+def list_of_ints(x: str) -> list[int]:
+    """Converts a comma seperated string representation of a list of ints"""
+    return [int(v) for v in x.split(',')]
+    
+def list_of_strs(x: str) -> list[str]:
+    """Converts a comma seperated string representation of a list of strings"""
+    return [v for v in x.split(',')]
 
 class Env:
     """A callable that fetches values from env variables, applying conversions if necessary"""
 
-    def __init__(self, name: str, value_type: Callable[Any, Any]):
+    def __init__(self, name: str, value_type: Callable[[str], Any], default=None):
         self.name = name
         self.value_type = value_type
+        self.default = default
+        self.hidden = False
 
     def __call__(self, _):
         value = os.environ.get(self.name)
@@ -139,7 +148,10 @@ class Env:
             except Exception as e:
                 msg = f'{self.name}: exception during construction: {e}'
                 raise RuntimeError(msg)
-        return None
+        else:
+            value = self.default
+            self.hidden = True
+        return value
 
 
 class Value:
