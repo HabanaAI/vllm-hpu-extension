@@ -168,7 +168,8 @@ def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
     buckets = []
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
     tmp_blocks_bucket_config = blocks_bucket_config
-    tmp_blocks_bucket_config = (*tmp_blocks_bucket_config[:2], max_blocks, tmp_blocks_bucket_config[-1])
+    if get_config().use_contiguous_pa:
+        tmp_blocks_bucket_config = (*tmp_blocks_bucket_config[:2], max_blocks, tmp_blocks_bucket_config[-1])
     block_buckets = warmup_range_with_limit(tmp_blocks_bucket_config)
     last_bucket = max_blocks
     valid_blocks = set()
