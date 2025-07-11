@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, Env, Disabled, Engine, choice, boolean, to_dict, split_values_and_flags
+from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, Env, Disabled, Engine, choice, boolean, list_of_ints, list_of_strs, to_dict, split_values_and_flags
 from vllm_hpu_extension.kernels import fsdpa, block_softmax_adjustment
 
 
@@ -43,11 +43,11 @@ def get_experimental_flags():
         Env('VLLM_PT_PROFILE', str),
         Env('VLLM_PROFILE_PROMPT', str),
         Env('VLLM_PROFILE_DECODE', str),
-        Env('VLLM_PROFILE_STEPS', str),
-        Env('VLLM_DEFRAG_DEBUG', boolean, False),
+        Env('VLLM_PROFILE_STEPS', list_of_ints),
         Env('VLLM_DEFRAG_THRESHOLD', int, 32),
         Env('VLLM_DEFRAG_WITH_GRAPHS', boolean, False),
         Env('VLLM_MERGED_KV', boolean, False),
+        Env('VLLM_DEBUG', list_of_strs, []),
     ]
     return to_dict(flags)
 
