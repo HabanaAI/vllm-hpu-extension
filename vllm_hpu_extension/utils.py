@@ -10,6 +10,7 @@ from functools import lru_cache, wraps
 
 import habana_frameworks.torch as htorch
 import torch
+import itertools
 
 from vllm_hpu_extension.runtime import get_config
 

@@ -47,6 +47,7 @@ def get_experimental_flags():
         Env('VLLM_DEFRAG_DEBUG', boolean, False),
         Env('VLLM_DEFRAG_THRESHOLD', int, 32),
         Env('VLLM_DEFRAG_WITH_GRAPHS', boolean, False),
+        Env('VLLM_MERGED_KV', boolean, False),
     ]
     return to_dict(flags)
 
