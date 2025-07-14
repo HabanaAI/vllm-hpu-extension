@@ -145,11 +145,12 @@ if __name__ == "__main__":
     llm = vllm.LLM(
         model=args.model,
         dtype=torch.bfloat16,
-        quantization='fp8" if args.block_quant else "inc',
+        quantization='fp8' if args.block_quant else 'inc',
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
-        max_model_len=args.max_model_len
+        max_model_len=args.max_model_len,
         enable_expert_parallel=args.expert_parallel,
+        trust_remote_code=True,
     )
 
     sampling_params = vllm.SamplingParams(

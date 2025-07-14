@@ -96,6 +96,16 @@ while getopts "m:b:l:t:d:h:o:" OPT; do
     esac
 done
 
+cleanup_tmp() {
+	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
+		echo "Clearing temporary directory"
+		rm -rf nc_workspace
+		rm -rf inc_tmp
+	else
+		echo "Skipping temporary directory removal"
+	fi
+}
+
 if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH_OR_NAME" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
@@ -145,11 +155,11 @@ fi
 
 
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
-    EXTRA_FLAGS_STEP_2="--block-quant --expert-parallel"
-    EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
+    EXTRA_FLAGS_STEP_2="--block-quant --expert-parallel "
+    EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0 "
     EXTRA_FLAGS_STEP_3="--deepseek "
-    EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
-    EXTRA_FLAGS_STEP_4="--block-quant --expert-parallel"
+    EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0 "
+    EXTRA_FLAGS_STEP_4="--block-quant --expert-parallel "
 fi
 
 # Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
@@ -159,12 +169,7 @@ if $SKIP_STEP_1; then
     EXTRA_FLAGS_STEP_2+="--dataset ${DATASET_PATH_OR_NAME} "
 fi
 
-if $MULTI_NODE_SETUP; then
-    cat $FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json > $QUANT_CONFIG
-    sleep 2
-else
-    export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
-fi
+export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
 
 if $SKIP_STEP_1; then
     echo "Skipping step 1 - prepare calibration dataset with dataset ${DATASET_PATH_OR_NAME}"
@@ -172,17 +177,13 @@ else
     echo ""
     echo "1/4 Preparing calibration dataset"
     export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_measure_$DEVICE_TYPE.json
-python step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH_OR_NAME -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
+    python step-1-prepare-calibration-dataset.py -m $MODEL_PATH -d $DATASET_PATH_OR_NAME -o $MODEL_NAME $EXTRA_FLAGS || (echo "Error in step 1" && exit 1)
     echo "Step 1/4 done"
 fi
 
 echo ""
 echo "2/4 Measuring scales"
-if $MULTI_NODE_SETUP; then
-    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE --distributed-executor-backend ray  $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
-else
-    env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE $EXTRA_FLAGS_STEP_2 || (echo "Error in step 2" && exit 1)
-fi
+env $EXTRA_ENVS_STEP_2 python3 step-2-measure-scales.py -m $MODEL_PATH --tensor-parallel-size $TP_SIZE -d $MODEL_NAME-calibration-dataset.pkl --batch-size $BATCH_SIZE $EXTRA_FLAGS_STEP_2 $EXTRA_FLAGS || (echo "Error in step 2" && exit 1)
 echo "Step 2/4 done"
 
 echo ""
@@ -193,11 +194,8 @@ echo "Step 3/4 done"
 
 echo ""
 echo "4/4 Quantize scales"
-if $MULTI_NODE_RUN; then
-    env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE --distributed-executor-backend ray $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
-else
-    env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
-fi
+export QUANT_CONFIG=$FP8_DIR/$MODEL_NAME/maxabs_quant_$DEVICE_TYPE.json
+env $EXTRA_ENVS_STEP_4 python3 step-4-quantize-scales.py --model $MODEL_PATH --tensor-parallel-size $TP_SIZE $EXTRA_FLAGS_STEP_4 || (echo "Error in step 4" && exit 1)
 
 if [[ -n $CARD_GROUPS ]]; then
     echo ""

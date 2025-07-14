@@ -29,7 +29,6 @@ if __name__ == "__main__":
         max_num_prefill_seqs=1,
         max_model_len=128,
         trust_remote_code=True,
-        distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,
     )
 
