@@ -17,6 +17,7 @@ if __name__ == "__main__":
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
+    parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
     parser.add_argument("--distributed-executor-backend", choices=["mp", "ray"], default="mp", 
                         help="For single node calibration use the default multiprocessing backend. For multi-node calibration use ray backend")
 
@@ -29,11 +30,13 @@ if __name__ == "__main__":
         dtype=torch.bfloat16,
         quantization="fp8" if args.block_quant else "inc",
         kv_cache_dtype="fp8_inc",
-        max_num_prefill_seqs=1,
+        max_num_prefill_seqs=args.max_num_prefill_seqs,
         max_model_len=128,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,
     )
 
-    llm.llm_engine.model_executor.shutdown()
+    # Skip shutdown when VLLM_USE_V1 is set to "1"
+    if not os.environ.get("VLLM_USE_V1") or os.environ.get("VLLM_USE_V1") != "1":
+        llm.llm_engine.model_executor.shutdown()
