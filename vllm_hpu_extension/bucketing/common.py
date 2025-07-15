@@ -30,6 +30,12 @@ class HPUBucketingManager():
         self.num_hpu_blocks = None
         self.max_model_len = max_model_len
         self.initialized = True
+        self.use_window_sdpa = os.getenv("PT_HPU_SDPA_QKV_SLICE_MODE_FWD",
+                                        "false").strip().lower() in ("1",
+                                                                    "true")
+        if self.use_window_sdpa:
+            self.slice_size = int(
+                os.getenv("PT_HPU_QKV_SLICE_SEQ_LEN_THLD", "1024"))
 
     def get_bucketing_strategy(self):
         strategy = None
@@ -90,8 +96,9 @@ class HPUBucketingManager():
         if self.initialized:
             found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
+                block_size = self.slice_size if self.use_window_sdpa else self.block_size
                 new_batch_size = 2 ** math.ceil(math.log2(batch_size))
-                new_seq_len = math.ceil(seq_len / self.block_size) * self.block_size
+                new_seq_len = math.ceil(seq_len / block_size) * block_size
                 new_ctx = math.ceil(ctx / 2) * 2
                 new_bucket = (new_batch_size, new_seq_len, new_ctx)
                 logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
