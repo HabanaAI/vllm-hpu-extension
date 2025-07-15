@@ -288,9 +288,9 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], long_context=Fals
                 break  # there are no more unique buckets, let's exit now
             new_bucket = min(available_buckets,
                              key=lambda x: abs(x - power_unpadded))
-            buckets.add(new_bucket)
+            buckets.add(int(new_bucket))
         else:
-            buckets.add(bucket)
+            buckets.add(int(bucket))
 
     if long_context:
         #tmp_step = bmax / num_buckets
@@ -316,5 +316,5 @@ def warmup_range_with_limit(config: Tuple[int, int, int, int], long_context=Fals
                     buckets.add(bucket)
             '''
             if bucket not in buckets:
-                buckets.add(bucket)
+                buckets.add(int(bucket))
     return list(sorted(buckets))
