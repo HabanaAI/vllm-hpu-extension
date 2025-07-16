@@ -7,9 +7,6 @@
 
 from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, ValueFromList, Env, Disabled, Engine, boolean, to_dict, split_values_and_flags
 from vllm_hpu_extension.kernels import fsdpa, block_softmax_adjustment
-from vllm_hpu_extension.validation import choice
-
-
 def get_user_flags():
     flags = [
         Env('VLLM_USE_V1', boolean),
