@@ -140,11 +140,12 @@ class FP8Matmul(torch.nn.Module):
         )
         return output
 
-from vllm_hpu_extension.kernels import fsdpa
 
 class ModuleFusedSDPA(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, fusedSDPA):
         super().__init__()
+        assert fusedSDPA is not None, f'fusedSDPA kernel is None'
+        self._hpu_kernel_fsdpa = fusedSDPA
 
     def forward(
         self,
@@ -163,7 +164,7 @@ class ModuleFusedSDPA(torch.nn.Module):
     ):
 
         if window_size:
-            return fsdpa().apply(
+            return self._hpu_kernel_fsdpa.apply(
                 query,
                 key,
                 value,
@@ -179,7 +180,7 @@ class ModuleFusedSDPA(torch.nn.Module):
                 False,
                 window_size)
         else:
-            return fsdpa().apply(
+            return self._hpu_kernel_fsdpa.apply(
             query,
             key,
             value,
