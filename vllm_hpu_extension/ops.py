@@ -63,7 +63,10 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     # Normalize the attention scores and cast attn to native dtype
     if 'fused_block_softmax' in enabled_flags() and attn.dim() == 5:
         print('INFO: run with fused_block_softmax ====================')
-        block_bias = torch.zeros_like(attn) # torch.ops.hpu.block_softmax can't take None block_bias
+        attn_shape = attn.shape
+        block_bias = torch.zeros(attn_shape[0], 1, 1, attn_shape[3], attn_shape[4],
+                                 device=attn.device,
+                                 dtype=attn.dtype) # torch.ops.hpu.block_softmax can't take None block_bias
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         # To make block_max and block_sums same output shape with none-fused block softmax
         block_max = block_max.view(block_max.shape[0], 1, block_max.shape[1], 1, 1)
@@ -71,12 +74,13 @@ def pipelined_pa(attn, value, block_groups, block_mapping, block_scales, batch_s
     else:
         print('INFO: run with normal block softmax ====================')
         block_max = attn.amax(dim=-1, keepdim=True)
-        adjustment_target_shape = block_max.shape
         attn = attn.sub(block_max)
         attn = attn.exp()
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
+
+    adjustment_target_shape = block_max.shape
 
     print(f'INFO: {attn.shape=}, {block_max.shape=}, {block_sums.shape=}')
     attn = matmul_av_op(attn, value)
