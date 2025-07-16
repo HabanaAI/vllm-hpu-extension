@@ -52,6 +52,7 @@ def get_config():
     environment_values = filter_defined(detected, environment_values.keys())
     feature_values = filter_defined(detected, feature_values.keys())
 
+    experimental_flags = {k: v for k, v in experimental_flags.items() if k not in user_flags.keys()}
     experimental_flag_names = experimental_flags.keys()
     if len(experimental_flag_names) > 0 and not detected.VLLM_ENABLE_EXPERIMENTAL_FLAGS:
         asterisks = 48 * '*'
