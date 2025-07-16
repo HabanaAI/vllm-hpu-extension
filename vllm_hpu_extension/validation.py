@@ -15,7 +15,7 @@ def choice(*options: Any) -> Checker:
     """Validates if input is one of the available choices"""
     def choice_impl(x):
         if x not in options:
-            return f'{x} is not in allowed options: [{", ".join(options)}]!'
+            return f'{x} is not in allowed options: [{", ".join(map(str, options))}]!'
     return choice_impl
 
 
