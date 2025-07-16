@@ -319,14 +319,16 @@ def _fsdpa_prompt_attention(
         is_causal = False
         valid_seq_lengths = None
 
+    args = [query, key, value, attn_bias, 0.0, is_causal,
+                                scale, softmax_mode, recompute_mode,
+                                valid_seq_lengths, padding_side]
     if window_size is not None:
         #causal window sdpa kernel only supports softmax None
         softmax_mode = 'None'
         padding_side ='left'
+        args.append(window_size)
 
-    attn_weights = fsdpa_op(query, key, value, attn_bias, 0.0, is_causal,
-                            scale, softmax_mode, recompute_mode,
-                            valid_seq_lengths, padding_side, window_size)
+    attn_weights = fsdpa_op(*args)
 
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
