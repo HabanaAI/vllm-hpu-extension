@@ -11,7 +11,7 @@ from packaging.specifiers import SpecifierSet
 
 from vllm_hpu_extension.environment import get_environment
 from vllm_hpu_extension.kernels import fsdpa
-from vllm_hpu_extension.kernels import block_softmax_adjustment
+from vllm_hpu_extension.kernels import block_softmax_adjustment, block_softmax
 
 
 detected = None
@@ -162,10 +162,14 @@ def enabled_flags():
                            & Not(EnvFlag("VLLM_PROMPT_USE_FUSEDSDPA", "false"))
                            & EnvFlag("VLLM_PROMPT_USE_FLEX_ATTENTION", "false")),
         "fused_block_softmax_adjustment": (Not(Hardware("cpu"))
-                                           & VersionRange(">=1.22.0.101")
+                                           & VersionRange(">=1.22.0.494")
                                            & Kernel(block_softmax_adjustment)
                                            & EnvFlag("VLLM_FUSED_BLOCK_SOFTMAX_ADJUSTMENT",
                                                      Not(ModelType('qwen2')) & Hardware("gaudi3"))),
+        "fused_block_softmax": (Not(Hardware("cpu"))
+                                & VersionRange(">=1.22.0.494")
+                                & Kernel(block_softmax)
+                                & EnvFlag("VLLM_FUSED_BLOCK_SOFTMAX", "false")),
     }
     environment = get_environment()
     detected = Flags(supported_flags, environment)
