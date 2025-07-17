@@ -36,7 +36,7 @@ class CacheSwapUtils(torch.nn.Module):
             cache.index_copy_(0, dsts, prev_srcs)
             cache.index_copy_(0, srcs, prev_dsts)
             prev_srcs = None
-            prev_srcs = None
+            prev_dsts = None
         srcs = None
         dsts = None
         htorch.core.mark_step()
