@@ -16,7 +16,7 @@ def for_all(checker: Checker) -> Checker:
     def for_all_impl(values: list) -> Optional[Error]:
         errors = [checker(v) for v in values if checker(v)]
         if errors:
-            return '\n'.join(f"{i + 1}. {error}" for i, error in enumerate(errors))
+            return 'Errors:\n'+ '\n'.join(f"- {e}" for e in errors)
         return None
     return for_all_impl
 
