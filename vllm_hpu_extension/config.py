@@ -144,7 +144,7 @@ class Env:
             except Exception as e:
                 msg = f'{self.name}: exception during construction: {e}'
                 raise RuntimeError(msg)
-        return value
+        return None
 
 
 class Value:
