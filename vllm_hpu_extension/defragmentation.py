@@ -63,8 +63,9 @@ class OnlineDefragmenter:
         self.req_blocks = {}
         self.fwd_mapping_table = []
         self.bwd_mapping_table = []
-        self.enabled = get_config().VLLM_DEFRAG or False
-        self.graphed = get_config().VLLM_DEFRAG_WITH_GRAPHS or (get_config().bridge_mode == 'compile')
+        config = get_config()
+        self.enabled = config.VLLM_DEFRAG or False
+        self.graphed = config.VLLM_DEFRAG_WITH_GRAPHS or (config.bridge_mode == 'compile')
         self.cache_utils: Optional[CacheSwapUtils] = None
         self.debug = init_debug_logger('defrag')
 
@@ -72,10 +73,11 @@ class OnlineDefragmenter:
         """ Initialize defragmenter with required data """
         self.cache_utils = CacheSwapUtils(kv_caches, block_size)
         if self.graphed:
-            if get_config().bridge_mode == 'lazy':
+            config = get_config()
+            if config.bridge_mode == 'lazy':
                 self.cache_utils = htorch.hpu.wrap_in_hpu_graph(
                     self.cache_utils, disable_tensor_cache=True)
-            elif get_config().bridge_mode == 'eager':
+            elif config.bridge_mode == 'eager':
                 self.cache_utils.forward = torch.compile(self.cache_utils.forward,
                                                         backend='hpu_backend',
                                                         fullgraph=True,
