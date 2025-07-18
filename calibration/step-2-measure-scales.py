@@ -126,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--max-dataset-samples", type=int, default=0)
-    parser.add_argument("--max-num-prefill-seqs", type=int, default=1)
+    parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
     parser.add_argument("--block-quant", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument(
@@ -192,4 +192,7 @@ if __name__ == "__main__":
             sampling_params=sampling_params,
             prompt_token_ids=prompt_token_ids,
         )
-    llm.llm_engine.model_executor.shutdown()
+    
+    # Skip shutdown when VLLM_USE_V1 is set to "1"
+    if not os.environ.get("VLLM_USE_V1") or os.environ.get("VLLM_USE_V1") != "1":
+        llm.llm_engine.model_executor.shutdown()
