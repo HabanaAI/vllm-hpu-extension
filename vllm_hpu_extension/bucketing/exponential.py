@@ -96,7 +96,7 @@ def generate_prompt_buckets(bs_bucket_config,
     long_context = False
     if bmax >= 8192:
         long_context = True
-    seq_bucket_config = warmup_range_with_limit(seq_bucket_config, long_context=True)
+    seq_bucket_config = warmup_range_with_limit(seq_bucket_config, long_context=long_context)
 
     if prefix_caching:
         buckets_3d = []
