@@ -54,7 +54,7 @@ def get_config():
     USER_FLAGS = list(user_flags.keys())
     EXPERIMENTAL_FLAGS = list(experimental_flags.keys())
     ENVIRONMENT_VALUES = list(environment_values.keys())
-    FEATURE_VALUES = list(environment_values.keys())
+    FEATURE_VALUES = list(feature_values.keys())
     return RUNTIME_CONFIG
 
 
