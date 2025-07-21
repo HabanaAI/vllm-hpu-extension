@@ -113,11 +113,13 @@ class HPUBucketingManager():
 
     def generate_fallback_bucket(self, batch_size, seq_len, ctx):
         assert self.max_num_batched_tokens is not None
-        assert self.num_hpu_blocks is not None
         new_batch_size = calc_fallback_value(batch_size, self.fallback_bs_base_step)
         new_seq_len = min(calc_fallback_value(seq_len, self.fallback_seq_base_step),
                           self.max_num_batched_tokens)
-        new_ctx = min(calc_fallback_value(ctx, self.fallback_blocks_base_step),
+        if self.num_hpu_blocks is None:
+            new_ctx = 0
+        else:
+            new_ctx = min(calc_fallback_value(ctx, self.fallback_blocks_base_step),
                       self.num_hpu_blocks)
         return (new_batch_size, new_seq_len, new_ctx)
 
