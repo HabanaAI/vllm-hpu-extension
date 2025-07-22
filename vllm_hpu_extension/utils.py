@@ -57,14 +57,14 @@ class VLLMKVCache(torch.nn.Module):
         super(VLLMKVCache, self).__init__()
         self.use_contiguous_pa = get_config().use_contiguous_pa
 
-    def forward(self, input, cache, slot_mapping):
+    def forward(self, input, cache, slot_mapping, scales=None):
         # In cross-attention kv cache forward inputs are None in decode
         # We don't want to store them in the cache in such case
         if input is not None:
             cache.index_copy_(0, slot_mapping, input)
         return cache
 
-    def fetch_from_cache(self, cache, blocks):
+    def fetch_from_cache(self, cache, blocks, scales=None):
         if self.use_contiguous_pa:
             return cache[:blocks.size(0)]
         else:
@@ -81,7 +81,7 @@ class VLLMFP8KVCache(VLLMKVCache):
 
     def quant_input(self, input):
         return torch.ops.hpu.cast_to_fp8_v2(input, self.input_scale, False, False, torch.float8_e4m3fn)[0]
-    
+
     def dequant_output(self, output):
         return torch.ops.hpu.cast_from_fp8(output, self.output_scale, torch.bfloat16)
 
