@@ -12,6 +12,7 @@ import math
 import habana_frameworks.torch.core as htcore
 from vllm_hpu_extension.runtime import get_config
 import habana_frameworks.torch.utils.experimental as htexp
+from vllm_hpu_extension.logger import logger
 
 is_hpu_gaudi2 = htexp._get_device_type(
     ) == htexp.synDeviceType.synDeviceGaudi2
@@ -714,8 +715,10 @@ def dynamic_quant(data, single_scale = False):
 
 def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
     if torch.isnan(layer.weight.data).any():
-        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
-        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
+        logger().warning(
+            "NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or"
+            " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension"
+        )
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
         layer.weight_scale_inv.data,
@@ -747,8 +750,10 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
 
 def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
     if torch.isnan(layer.w13_weight.data).any():
-        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
-        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
+        logger().warning(
+            "NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or"
+            " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension"
+        )
     if force_channel_fp8:
         # convert to channel-wise fp8
         w13_weight, w13_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
