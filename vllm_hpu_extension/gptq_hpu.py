@@ -206,17 +206,6 @@ class GPTQHPULinearMethod(LinearMethodBase):
                 packed_factor=self.quant_config.pack_factor,
                 **qzeros_args)
 
-        else:
-            scales = GroupQuantScaleParameter(output_dim=1,
-                                              input_dim=0,
-                                              **weight_scale_args)
-            qzeros = PackedvLLMParameter(
-                input_dim=0,
-                output_dim=1,
-                packed_dim=1,
-                packed_factor=self.quant_config.pack_factor,
-                **qzeros_args)
-
         layer.register_parameter("qweight", qweight)
         layer.register_parameter("g_idx", g_idx)
         layer.register_parameter("qzeros", qzeros)
