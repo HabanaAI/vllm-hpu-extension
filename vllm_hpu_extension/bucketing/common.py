@@ -56,6 +56,11 @@ class HPUBucketingManager():
         self.fallback_seq_base_step = 32
         self.fallback_blocks_base_step = 32
 
+        self.use_sliding_window = get_config().PT_HPU_SDPA_QKV_SLICE_MODE_FWD
+        if self.use_sliding_window:
+            self.slice_size = get_config().PT_HPU_QKV_SLICE_SEQ_LEN_THLD if \
+                get_config().PT_HPU_QKV_SLICE_SEQ_LEN_THLD is not None else 1024
+
     def get_bucketing_strategy(self):
         strategy = None
         # TODO - we can use different strategies for decode and prompt
@@ -114,7 +119,11 @@ class HPUBucketingManager():
     def generate_fallback_bucket(self, batch_size, seq_len, ctx):
         assert self.max_num_batched_tokens is not None
         new_batch_size = calc_fallback_value(batch_size, self.fallback_bs_base_step)
-        new_seq_len = min(calc_fallback_value(seq_len, self.fallback_seq_base_step),
+        if self.use_sliding_window:
+            print("use sliding", self.slice_size)
+            new_seq_len = math.ceil(seq_len / self.slice_size) * self.slice_size
+        else:
+            new_seq_len = min(calc_fallback_value(seq_len, self.fallback_seq_base_step),
                           self.max_num_batched_tokens)
         if self.num_hpu_blocks is None:
             new_ctx = 0
