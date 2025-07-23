@@ -120,7 +120,6 @@ class HPUBucketingManager():
         assert self.max_num_batched_tokens is not None
         new_batch_size = calc_fallback_value(batch_size, self.fallback_bs_base_step)
         if self.use_sliding_window:
-            print("use sliding", self.slice_size)
             new_seq_len = math.ceil(seq_len / self.slice_size) * self.slice_size
         else:
             new_seq_len = min(calc_fallback_value(seq_len, self.fallback_seq_base_step),
