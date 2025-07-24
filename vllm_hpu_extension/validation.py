@@ -11,6 +11,16 @@ import re
 Error: TypeAlias = str
 Checker: TypeAlias = Callable[[Any], Optional[Error]]
 
+def for_all(checker: Checker) -> Checker:
+    """Validates if all values are valid according to given checker"""
+    def for_all_impl(values: list) -> Optional[Error]:
+        errors = [checker(v) for v in values if checker(v)]
+        if errors:
+            return 'Errors:\n'+ '\n'.join(f"- {e}" for e in errors)
+        return None
+    return for_all_impl
+
+
 def choice(*options: Any) -> Checker:
     """Validates if input is one of the available choices"""
     def choice_impl(x):

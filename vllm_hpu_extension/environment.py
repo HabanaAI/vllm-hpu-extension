@@ -56,12 +56,6 @@ def set_vllm_config(cfg):
         _VLLM_VALUES['model_type'] = cfg.model_config.model_type
     _VLLM_VALUES['prefix_caching'] = cfg.cache_config.enable_prefix_caching
 
-    # t.compile is very picky about what functions we can call inside modules
-    # since this is the last step we can force recompilation of config to
-    # ensure all values are computed before entering the model
-    from vllm_hpu_extension.runtime import get_config
-    get_config().finalize()
-
 
 def _get_vllm_engine_version(_):
     try:
@@ -79,7 +73,7 @@ def _get_pt_bridge_mode(_):
 
 def VllmValue(name, env_var_type):
     global _VLLM_VALUES
-    return Value(name, lambda _: _VLLM_VALUES.get(name, None), env_var_type=env_var_type)
+    return Value(name, lambda _: _VLLM_VALUES[name], env_var_type=env_var_type)
 
 
 def get_environment():
