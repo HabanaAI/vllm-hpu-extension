@@ -48,6 +48,27 @@ def batch2block(tensor, block_mapping, matmul_op=torch.matmul):
 def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
+def group_sum(partial_sum, block_mapping):
+    sums = block2batch(partial_sum, block_mapping)
+    sums = batch2block(sums, block_mapping)
+    return sums
+
+def pipelined_const_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
+                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    # Normalize the attention scores
+    block_max = torch.tensor(10.0, dtype=attn.dtype, device=attn.device)
+    attn.sub_(block_max)
+    attn = attn.exp()
+    # Sum block's sums that belongs to the same sequeneces
+    block_sums = attn.sum(dim=-1).unsqueeze(-1)
+    group_sums = group_sum(block_sums, block_mapping)
+    # For stability in case some of the sums have been zeroed out during block aggretation
+    group_sums.add_(torch.finfo(group_sums.dtype).tiny)
+    group_sums = torch.maximum(block_sums, group_sums)
+    attn = matmul_av_op(attn, value)
+    attn.div_(group_sums)
+    return attn
+
 
 def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
@@ -102,6 +123,12 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
         rescale = block_adjustment.div(group_sum_adjusted)
     attn = attn.mul(rescale)
     return attn
+
+const_norm = os.environ.get('VLLM_SOFTMAX_CONST_NORM', 'false').lower() == 'true'
+if const_norm:
+    pa_impl = pipelined_const_pa
+else:
+    pa_impl = pipelined_pa
 
 def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
                 block_bias, block_groups, block_size, scale, matmul_qk_op,
@@ -189,7 +216,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             attn = attn.to(dtype=position_bias.dtype)
         attn.add_(position_bias.unsqueeze(-2))
 
-    attn = pipelined_pa(attn, value, block_bias, block_groups, block_mapping,
+    attn = pa_impl(attn, value, block_bias, block_groups, block_mapping,
                         batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
