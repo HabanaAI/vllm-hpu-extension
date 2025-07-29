@@ -65,7 +65,7 @@ class OnlineDefragmenter:
         self.bwd_mapping_table = []
         config = get_config()
         self.enabled = config.VLLM_DEFRAG or False
-        self.graphed = config.VLLM_DEFRAG_WITH_GRAPHS or (config.bridge_mode == 'compile')
+        self.graphed = config.VLLM_DEFRAG_WITH_GRAPHS or (config.bridge_mode == 'eager')
         self.cache_utils: Optional[CacheSwapUtils] = None
         self.debug = init_debug_logger('defrag')
 
