@@ -61,7 +61,7 @@ class HPUBucketingManager():
             self.slice_size = get_config().PT_HPU_SDPA_BC_FACTOR if \
                 get_config().PT_HPU_SDPA_BC_FACTOR is not None else 1024
             self.slice_thld = get_config().VLLM_FUSEDSDPA_SLIDE_THLD if \
-                get_config().VLLM_FUSEDSDPA_SLIDE_THLD is not None else 10240
+                get_config().VLLM_FUSEDSDPA_SLIDE_THLD is not None else 8192
 
     def get_bucketing_strategy(self):
         strategy = None
