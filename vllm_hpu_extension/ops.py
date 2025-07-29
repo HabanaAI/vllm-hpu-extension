@@ -448,6 +448,22 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         #self.w2_weight is a tensor of combined w2_list
         self.w2_weight = None
 
+    def _get_extra_kwargs(self, tokens_num: int):
+        if self.enable_moe_chunk:
+            if tokens_num <= 1536:
+                chunk_size = 64
+            elif tokens_num > 1536 and tokens_num <= 4096:
+                chunk_size = 256
+            else:
+                chunk_size = 512
+            kwargs = {
+                "chunk_size": chunk_size,
+                "total_experts": self.num_global_experts,
+            }
+        else:
+            kwargs = {}
+        return kwargs
+
     def forward(self,
                 hidden_states,
                 expert_routing_table,
@@ -467,19 +483,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         # than static MoE. Otherwise static MoE is used.
         if tokens_num > self.dynamic_moe_min_tokens or \
             (self.num_experts <= self.dynamic_moe_max_num_expert_singleHpu):
-            if(self.enable_moe_chunk):
-                if tokens_num <= 1536:
-                    chunk_size = 64
-                elif tokens_num > 1536 and tokens_num <= 4096:
-                    chunk_size = 256
-                else:
-                    chunk_size = 512
-                kwargs = {
-                    "chunk_size": chunk_size,
-                    "total_experts": self.num_global_experts,
-                }
-            else:
-                kwargs = {}
+            kwargs = self._get_extra_kwargs(tokens_num)
             if self.moe_n_slice == 1:
                 return torch.ops.hpu.mixture_of_experts(
                     hidden_states=hidden_states,
@@ -922,6 +926,22 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
                 else self.num_experts // max_expert_per_slice
         self.num_expert_per_group = self.num_experts // self.moe_n_slice
 
+    def _get_extra_kwargs(self, tokens_num: int):
+        if(self.enable_moe_chunk):
+            if tokens_num <= 1536:
+                chunk_size = 64
+            elif tokens_num > 1536 and tokens_num <= 4096:
+                chunk_size = 256
+            else:
+                chunk_size = 512
+            kwargs = {
+                "chunk_size": chunk_size,
+                "total_experts": self.num_global_experts,
+            }
+        else:
+            kwargs = {}
+        return kwargs
+
     def forward(
         self,
         x,
@@ -938,19 +958,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         htorch.core.mark_step()
 
         tokens_num, _ = x.shape
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
-            kwargs = {
-                "chunk_size": chunk_size,
-                "total_experts": self.num_global_experts,
-            }
-        else:
-            kwargs = {}
+        kwargs = self._get_extra_kwargs(tokens_num)
         if self.moe_n_slice == 1:
             return torch.ops.hpu.mixture_of_experts(
                 hidden_states=x,
