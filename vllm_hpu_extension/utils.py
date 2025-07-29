@@ -7,6 +7,7 @@
 
 import os
 from functools import lru_cache, wraps
+from typing import Optional, Any
 
 import habana_frameworks.torch as htorch
 import torch
@@ -187,3 +188,9 @@ def pad_list(input, target_len, val_generator):
     if padding > 0:
         input.extend(itertools.islice(val_generator, padding))
     return input
+
+
+def with_default(value: Optional[Any], default: Any) -> Any:
+    if value is not None:
+        return value
+    return default

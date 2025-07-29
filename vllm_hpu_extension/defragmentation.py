@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm_hpu_extension.utils import pad_list
+from vllm_hpu_extension.utils import pad_list, with_default
 from vllm_hpu_extension.runtime import get_config
 from vllm_hpu_extension.debug import init_debug_logger
 
@@ -64,8 +64,8 @@ class OnlineDefragmenter:
         self.fwd_mapping_table = []
         self.bwd_mapping_table = []
         config = get_config()
-        self.enabled = config.VLLM_DEFRAG or False
-        self.graphed = config.VLLM_DEFRAG_WITH_GRAPHS or (config.bridge_mode == 'eager')
+        self.enabled = with_default(config.VLLM_DEFRAG, False)
+        self.graphed = with_default(config.VLLM_DEFRAG_WITH_GRAPHS, config.bridge_mode == 'eager')
         self.cache_utils: Optional[CacheSwapUtils] = None
         self.debug = init_debug_logger('defrag')
 
