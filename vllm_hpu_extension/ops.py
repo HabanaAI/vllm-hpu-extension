@@ -51,12 +51,13 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
 
 def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    fused_block_softmax_adjustment_requirements = get_config().fused_block_softmax_adjustment and attn.dtype != torch.float16
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
     if block_bias is not None and attn.dtype != block_bias.dtype:
         block_bias = block_bias.to(dtype=attn.dtype)
     # TODO: w/a with 5D req as the block_softmax kernel does not support 4D attn tensor, which is used in e.g. Granite-3B
-    if get_config().fused_block_softmax and get_config().fused_block_softmax_adjustment and attn.dim() == 5:
+    if get_config().fused_block_softmax and attn.dim() == 5 and fused_block_softmax_adjustment_requirements:
         attn, block_max, block_sums = torch.ops.hpu.block_softmax(attn, block_bias, block_groups)
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
@@ -70,7 +71,7 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
     attn = matmul_av_op(attn, value)
-    if get_config().fused_block_softmax_adjustment:
+    if fused_block_softmax_adjustment_requirements:
         out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
         rescale = torch.ops.hpu.block_softmax_adjustment(block_max,
                                                          block_sums.to(block_max.dtype),
