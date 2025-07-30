@@ -49,7 +49,7 @@ def get_expert_prefix(node_name):
 
 def get_local_expert_num(data):
     expert_id = -1
-    for mod_name in unified_json["Nodes"]:
+    for mod_name in data:
         if is_moe_experts(mod_name):
             idx = get_expert_id(mod_name)
             expert_id = max(expert_id, idx)
