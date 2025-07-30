@@ -92,7 +92,7 @@ class HPUBucketingManager():
             if self.use_sliding_window:
                 self.prompt_buckets = [t for t in self.prompt_buckets
                     if t[1] < self.slice_thld or (
-                    t[1] >=self.slice_thld and t[1] % self.slice_size == 0)]
+                    t[1] >= self.slice_thld and t[1] % self.slice_size == 0)]
 
             self.log_generate_info(True)
         else:
