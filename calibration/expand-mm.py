@@ -63,7 +63,7 @@ def unify_measurements(
     output_path,
     groups_size,
     groups_num,
-    group_index,
+    local_rank,
     world_size,
     scales=False,
     use_ep=False,
@@ -81,7 +81,7 @@ def unify_measurements(
     if len(measurements_paths) == 0:
         print("Error: invalid measurement paths. No *.json files or no *mod_list.json files.")
         return
-    print(f"got {len(measurements_paths)} measurements for group {group_name} with index {group_index} out of {groups_num} groups")
+    print(f"got {len(measurements_paths)} measurements for group {group_name} with index {local_rank} out of {groups_num} groups")
     for measurement_path in measurements_paths:
         print(f"measurement path: {measurement_path}")
     # save all the jsons content in the given measurement group
@@ -97,67 +97,42 @@ def unify_measurements(
         .split("/")[-1]
         .replace(
             "_" + measurement_group[0] + "_" + str(groups_size),
-            "_" + str(group_index) + "_" + str(world_size)
+            "_" + str(local_rank) + "_" + str(world_size)
         )
     )
-    print(f"generate unified json name: {unified_json_name} for group {group_name} with index {group_index} out of {world_size} ranks")
-    # breakpoint()
+    print(f"generate unified json name: {unified_json_name} for group {group_name} with index {local_rank} out of {world_size} ranks")
     unified_json_path = os.path.join(output_path, unified_json_name)
 
-    # open a unified json file
+    # Create a replica of the first measurement json file
     with open(measurements_paths[0], "r") as origin, open(unified_json_path, "w") as copy:
         copy.write(origin.read())
     with open(unified_json_path, "r") as json_file:
         unified_json = json.load(json_file)
-        unified_json["LocalRank"] = group_index
+        unified_json["LocalRank"] = local_rank
 
-    moe_experts_data = {}
     # expert_num is original local_expert_num, it is used only when use_ep is True
     expert_num = get_local_expert_num(unified_json["Nodes"]) if use_ep else -1
-    
+    total_experts = expert_num
     # breakpoint()
     # iterate all unified json nodes
     for node_name, node_values in unified_json["Nodes"].items():
-        max_inputs = node_values["inputs"]
         max_outputs = None
         if node_values.get("outputs") is not None:
             max_outputs = node_values["outputs"]
-        max_weight = None
-        if node_values.get("params") is not None and node_values["params"].get("weight") is not None:
-            max_weight = node_values["params"]["weight"]
+
         
         # iterate over all the measurment group and take the maximum for each tensor and its channel
 
         for idx, measurement_json in enumerate(measurements_jsons):
-            # # for experts of moe, append results in all measurements
-            # if use_ep and is_moe_experts(node_name):
-            #     if node_name not in moe_experts_data:
-            #         moe_experts_data[node_name] = node_values
-            #     else:
-            #         prefix, local_expert_id = get_expert_prefix(node_name), get_expert_id(node_name)
-            #         new_node_name = ".".join((prefix, str(expert_num * idx + local_expert_id)))
-            #         assert new_node_name not in moe_experts_data
-            #         moe_experts_data[new_node_name] = measurement_json[node_name]
-            #     continue
-
-            # for i in range(0, len(max_inputs)):
-            #     for j in range(0, len(max_inputs[i])):
-            #         max_inputs[i][j][0] = max(
-            #             measurement_json[node_name]["inputs"][i][j][0], max_inputs[i][j][0])
             if is_fused_moe_op(node_name):
-                # breakpoint()
-                # max_outputs is not None:
-                
                 if use_ep and is_fused_moe_op(node_name):
-                    # breakpoint()
-                    # 1 + num_experts
-                    # 
                     node_res = measurement_json[node_name]["outputs"]
                     node_res_output = node_res[0]
                     node_res_experts_intermediate_amax = node_res[1:]
-                    total_experts = len(node_res_experts_intermediate_amax)
+                    num_intermediate_amax = len(node_res_experts_intermediate_amax)
+                    assert num_intermediate_amax == total_experts, f"the number of intermediate amax should be {total_experts}, but got {num_intermediate_amax}"
                     ep_size = world_size
-                    ep_rank = group_index
+                    ep_rank = local_rank
                     num_local_experts = total_experts // ep_size
                     expert_start_index = ep_rank * num_local_experts
                     expert_end_index = expert_start_index + num_local_experts
@@ -165,42 +140,13 @@ def unify_measurements(
                     assert len(node_intermediate_amax) == num_local_experts, f"len(node_intermediate_amax) should be {num_local_experts}, but got {len(node_intermediate_amax)}"
                     max_outputs = [node_res_output, *node_intermediate_amax]
                     print(f"select {len(max_outputs)} outputs for {node_name} ep_rank {ep_rank} with expert_start_index {expert_start_index} and expert_end_index {expert_end_index}")
-                    # max_outputs[0][0] = max(
-                    #     measurement_json[node_name]["outputs"][0][0], max_outputs[0][0])
-                    # max_outputs.extend(measurement_json[node_name]["outputs"][1:])
-                # else:
-                #     for i in range(0, len(max_outputs)):
-                #         max_outputs[i][0] = max(
-                #             measurement_json[node_name]["outputs"][i][0], max_outputs[i][0])
-            # if max_weight is not None:
-            #     for i in range(0, len(max_weight)):
-            #         max_weight[i][0] = max(
-            #             measurement_json[node_name]["params"]["weight"][i][0], max_weight[i][0])
 
-        # update the maximum in the unified json
-        # if scales:
-        #     for i in range(0, len(max_inputs)):
-        #         unified_json["Nodes"][node_name]["inputs"][i] = max_inputs[i]
-        #     if max_outputs is not None:
-        #         unified_json["Nodes"][node_name]["outputs"] = max_outputs
-        #     if max_weight is not None:
-        #         unified_json["Nodes"][node_name]["params"]["weight"] = max_weight
-        # else:
-        # for i in range(0, len(max_inputs)):
-        #     for j in range(0, len(max_inputs[i])):
-        #         unified_json["Nodes"][node_name]["inputs"][i][j][0] = max_inputs[i][j][0]
         if max_outputs is not None:
-            # for i in range(0, len(max_outputs)):
-            #     unified_json["Nodes"][node_name]["outputs"][i][0] = max_outputs[i][0]
             if is_fused_moe_op(node_name):
                 unified_json["Nodes"][node_name]["outputs"] = max_outputs
-        # if max_weight is not None:
-        #     for i in range(0, len(max_weight)):
-        #         unified_json["Nodes"][node_name]["params"]["weight"][i][0] = max_weight[i][0]
-    # if use_ep:
-    #     unified_json["Nodes"].update(moe_experts_data)
+
     global_rank = None
-    local_rank = group_index
+    local_rank = local_rank
     mode = ""
     layers = {}
     with open(unified_json_path, "w") as json_file:
@@ -313,29 +259,13 @@ def main(args):
             output_path=output_path,
             groups_size=1,
             groups_num=1,
-            group_index=ep_rank,
-            # group, measurements_path, output_path, num_jsons_drange, len(groups), group_index,
+            local_rank=ep_rank,
+            # group, measurements_path, output_path, num_jsons_drange, len(groups), local_rank,
             scales=False,
             use_ep=args.use_expert_paral,
             world_size=target_world_size
         )
-# def unify_measurements(
-#     measurement_group,
-#     measurements_dir_path,
-#     output_path,
-#     groups_size,
-#     groups_num,
-#     group_index,
-#     scales=False,
-#     use_ep=False,
-# ):
-    # for group_index, group in enumerate(groups):
-    #     unify_measurements(
-    #         group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_expert_paral
-    #     )
-    #     # unify_measurements(
-    #     #     group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_expert_paral
-    #     # )
+
 
     print("finished measurement unifier script")
 
