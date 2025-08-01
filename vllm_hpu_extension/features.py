@@ -72,6 +72,8 @@ def get_features():
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
         Value('exponential_bucketing', True),
         Value('linear_bucketing', True),
+        Value('use_const_norm', False, env_var='VLLM_SOFTMAX_CONST_NORM'),
+        Value('const_norm_value', 10.0, env_var='VLLM_SOFTMAX_CONST_NORM_VALUE'),
         ValueFromList('bucketing_strategy', bucketing_strategies),
     ]
     return split_values_and_flags(features)
