@@ -109,6 +109,10 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
 
 def const_norm_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+    if block_bias is not None and attn.dtype != block_bias.dtype:
+        block_bias = block_bias.to(dtype=attn.dtype)
+    if block_bias is not None:
+        attn.add_(block_bias)
     #normalization
     const_norm_value = get_config().const_norm_value
     attn.sub_(const_norm_value)
