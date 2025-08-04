@@ -76,5 +76,6 @@ def get_features():
         Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'), 
         Value('linear_bucketing', True),
         Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
+        Value('pin_memory', False, env_var='VLLM_FORCE_PIN_MEMORY'),
     ]
     return split_values_and_flags(features)
