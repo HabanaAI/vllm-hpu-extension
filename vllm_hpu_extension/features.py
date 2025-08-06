@@ -37,7 +37,8 @@ def get_user_flags():
         
         # Sliding window flags
         Env('PT_HPU_SDPA_QKV_SLICE_MODE_FWD', boolean),
-        Env('PT_HPU_QKV_SLICE_SEQ_LEN_THLD', int)
+        Env('PT_HPU_SDPA_BC_FACTOR', int),
+        Env('VLLM_FUSEDSDPA_SLIDE_THLD', int),
     ]
     return to_dict(flags)
 
