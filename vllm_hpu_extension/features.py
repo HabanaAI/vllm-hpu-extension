@@ -5,8 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
 
-from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, ValueFromList, Env, Disabled, Engine, boolean, to_dict, split_values_and_flags
+from vllm_hpu_extension.config import Not, Hardware, VersionRange, ModelType, Kernel, FirstEnabled, All, Value, ValueFromList, Env, Disabled, Engine, boolean, to_dict, split_values_and_flags, list_of
 from vllm_hpu_extension.kernels import fsdpa, block_softmax_adjustment
+from vllm_hpu_extension.validation import for_all, choice
+
 def get_user_flags():
     flags = [
         Env('VLLM_USE_V1', boolean),
@@ -45,6 +47,10 @@ def get_experimental_flags():
         Env('VLLM_PT_PROFILE', str),
         Env('VLLM_PROFILE_PROMPT', str),
         Env('VLLM_PROFILE_DECODE', str),
+        Env('VLLM_PROFILE_STEPS', list_of(int)),
+        Env('VLLM_DEFRAG_THRESHOLD', int),
+        Env('VLLM_DEFRAG_WITH_GRAPHS', boolean),
+        Env('VLLM_DEBUG', list_of(str), check=for_all(choice('steps', 'defrag'))),
     ]
     return to_dict(flags)
 
@@ -72,6 +78,9 @@ def get_features():
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
         Value('exponential_bucketing', True),
         Value('linear_bucketing', True),
+        Value('use_const_norm', False, env_var='VLLM_SOFTMAX_CONST_NORM'),
+        Value('const_norm_value', 10.0, env_var='VLLM_SOFTMAX_CONST_NORM_VALUE'),
         ValueFromList('bucketing_strategy', bucketing_strategies),
+        Value('defrag', False),
     ]
     return split_values_and_flags(features)

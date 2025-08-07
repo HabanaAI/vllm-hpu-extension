@@ -47,7 +47,8 @@ class Config:
 
 
 ValueFn: TypeAlias = Callable[[Config], Any]
-
+T = TypeVar('T')
+Constructor: TypeAlias = Callable[[str], Any]
 
 def All(*parts: ValueFn) -> ValueFn:
     """Return True if all functions return True"""
@@ -117,18 +118,29 @@ def boolean(x: str) -> bool:
     return x.lower() in ['true', 't', '1', 'yes', 'y', 'on']
 
 
+def list_of(t: Constructor):
+    """Converts a comma seperated string representation of a list of values"""
+    def list_of_impl(x: str) -> list[Any]:
+        return [t(v) for v in x.split(',')]
+    return list_of_impl
+
+
 class Env:
     """A callable that fetches values from env variables, applying conversions if necessary"""
 
-    def __init__(self, name: str, value_type: Callable[..., Any]):
+    def __init__(self, name: str, value_type: Constructor, check: Checker = skip_validation):
         self.name = name
         self.value_type = value_type
+        self.check = check
 
     def __call__(self, _):
         value = os.environ.get(self.name)
         if value is not None:
             try:
-                return self.value_type(value)
+                value = self.value_type(value)
+                if error := self.check(value):
+                    raise RuntimeError(error)
+                return value
             except Exception as e:
                 msg = f'{self.name}: exception during construction: {e}'
                 raise RuntimeError(msg)
@@ -138,7 +150,7 @@ class Env:
 class Value:
     """A callable that returns the value calculated through its dependencies or overriden by an associated experimental flag"""
 
-    def __init__(self, name: str, dependencies: Any, env_var: Optional[str] = None, env_var_type: Callable[[Any], Any] = boolean, check: Checker = skip_validation):
+    def __init__(self, name: str, dependencies: Any, env_var: Optional[str] = None, env_var_type: Constructor = boolean, check: Checker = skip_validation):
         self.name = name
         self.env_var = env_var if env_var is not None else 'VLLM_' + name.upper()
         self.env_var_type = env_var_type
@@ -150,13 +162,13 @@ class Value:
         return Env(self.env_var, self.env_var_type)
 
     def _validate(self, value):
-        error = self.check(value)
-        if error is not None:
+        """ Check for errors and throw if any found"""
+        if error := self.check(value):
             raise RuntimeError(f'{self.name}: {error}')
         return value
 
     def __call__(self, config):
-        """ Return value from experimental flag if provided by user or calculate it based on dependencies"""
+        """ Return value from experimental flag if provided by user or calculate it based on dependencies """
         if (override := config.get(self.env_var)) is not None:
             result = override
         elif callable(self.dependencies):
@@ -167,6 +179,7 @@ class Value:
 
 
 class ValueFromList(Value):
+    """ Helper class to create a value with a limited list of possible options """
     def __init__(self, name: str, options: list[str]):
         super().__init__(name, FirstEnabled(*options), env_var_type=str, check=choice(*options))
 
