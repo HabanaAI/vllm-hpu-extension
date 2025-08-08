@@ -10,7 +10,9 @@ import sys
 import numpy as np
 import logging
 
-from loguru import logger
+# from loguru import logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def find_measurement_path(measurement, measurements_dir_path, group_size):
@@ -145,10 +147,8 @@ def expand_measurements(
                 )
                 max_outputs = [node_res_output, *node_intermediate_amax]
                 logger.debug(
-                    (
-                        "Selecting %d outputs for %s "
-                        "ep_rank %d with expert_start_index %d and expert_end_index %d"
-                    ),
+                    "Selecting %d outputs for %s "
+                    "ep_rank %d with expert_start_index %d and expert_end_index %d",
                     len(max_outputs),
                     node_name,
                     ep_rank,
