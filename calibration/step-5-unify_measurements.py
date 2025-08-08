@@ -250,6 +250,12 @@ def parse_args(args):
         action="store_true",
         help="unify original measurement results based on expert parallelism rules",
     )
+    parser.add_argument(
+        "-s",
+        "--skip_unify_scales",
+        action="store_true",
+        help="skip the scale unification step.",
+    )
     return parser.parse_args(args)
 
 
