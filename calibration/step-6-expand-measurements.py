@@ -14,17 +14,17 @@ from loguru import logger
 
 
 def find_measurement_path(measurement, measurements_dir_path, group_size):
-    measurment_card = "_" + measurement + "_" + str(group_size)
-    for measurment_file in os.listdir(measurements_dir_path):
-        filename = os.fsdecode(measurment_file)
+    measurement_card = "_" + measurement + "_" + str(group_size)
+    for measurement_file in os.listdir(measurements_dir_path):
+        filename = os.fsdecode(measurement_file)
         if (
             not filename.endswith(".json")
             or "_mod_list" in filename
-            or measurment_card not in filename
+            or measurement_card not in filename
         ):
             continue
         if "MAXABS" not in filename:
-            return os.path.join(measurements_dir_path, measurment_file)
+            return os.path.join(measurements_dir_path, measurement_file)
 
 
 def is_fused_moe_op(node_name):
@@ -121,7 +121,7 @@ def expand_measurements(
         if node_values.get("outputs") is not None:
             max_outputs = node_values["outputs"]
 
-        # iterate over all the measurment and update the fused moe op with selected experts data
+        # iterate over all the measurements and update the fused moe op with selected experts data
 
         for idx, measurement_json in enumerate(measurements_jsons):
             if is_fused_moe_op(node_name):
