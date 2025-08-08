@@ -34,7 +34,7 @@ def get_user_flags():
         # Non-vllm flags that are also important to print
         Env('EXPERIMENTAL_WEIGHT_SHARING', str),
         Env('PT_HPU_WEIGHT_SHARING', str),
-        
+
         # Sliding window flags
         Env('PT_HPU_SDPA_QKV_SLICE_MODE_FWD', boolean),
         Env('PT_HPU_SDPA_BC_FACTOR', int),
@@ -73,10 +73,11 @@ def get_features():
         Value('use_contiguous_pa', Disabled('prefix_caching'), env_var='VLLM_CONTIGUOUS_PA'),
         Value('use_delayed_sampling', Engine('v0'), env_var='VLLM_DELAYED_SAMPLING'),
         Value('use_bucketing', True, env_var='VLLM_ENABLE_BUCKETING'),
-        Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'), 
+        Value('exponential_bucketing', True, env_var='VLLM_EXPONENTIAL_BUCKETING'),
         Value('linear_bucketing', True),
         Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
         Value('use_const_norm', False, env_var='VLLM_SOFTMAX_CONST_NORM'),
         Value('const_norm_value', 10.0, env_var='VLLM_SOFTMAX_CONST_NORM_VALUE'),
+        Value('fused_block_softmax_with_const_max', False, env_var='VLLM_FUSED_BLOCK_SOFTMAX_WITH_CONST_MAX'),
     ]
     return split_values_and_flags(features)

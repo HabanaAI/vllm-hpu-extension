@@ -4,6 +4,7 @@
 # This source code is licensed under the Apache 2.0 license found in the
 # LICENSE file in the root directory of this source tree.
 ###############################################################################
+import os
 from typing import Callable, Optional, Tuple, List
 import habana_frameworks.torch as htorch
 import torch
@@ -14,18 +15,19 @@ from vllm_hpu_extension.runtime import get_config
 import habana_frameworks.torch.utils.experimental as htexp
 
 is_hpu_gaudi2 = htexp._get_device_type(
-    ) == htexp.synDeviceType.synDeviceGaudi2
+) == htexp.synDeviceType.synDeviceGaudi2
 
 FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
 if is_hpu_gaudi2:
     FP8_MAX = torch.finfo(torch.float8_e4m3fnuz).max
 
-import os
 # MAX_EXPERTS_PER_SLICE is needed for 1.20, up to 64 experts per slice
 MAX_EXPERTS_PER_SLICE = int(os.environ.get("MAX_EXPERTS_PER_SLICE", -1))
 
+
 def get_inc_quant_method(layer):
     return layer
+
 
 def grouped_max(block_max, batch_size, block_groups):
     group_max = torch.full([batch_size + 1, *block_max.shape[1:]], -math.inf,
@@ -47,13 +49,15 @@ def batch2block(tensor, block_mapping, matmul_op=torch.matmul):
 def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
+
 def group_sum(partial_sum, block_mapping):
     sums = block2batch(partial_sum, block_mapping)
     sums = batch2block(sums, block_mapping)
     return sums
 
+
 def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
-                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op, block_softmax_max_const_op):
     fused_block_softmax_adjustment_requirements = get_config().fused_block_softmax_adjustment and attn.dtype != torch.float16
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
     # We can return to native dtype after we renormalize and calculate the adjustments
@@ -107,13 +111,14 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
     attn = attn.mul(rescale)
     return attn
 
+
 def const_norm_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
-                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
+                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op, block_softmax_max_const_op):
     if block_bias is not None and attn.dtype != block_bias.dtype:
         block_bias = block_bias.to(dtype=attn.dtype)
     if block_bias is not None:
         attn.add_(block_bias)
-    #normalization
+    # normalization
     const_norm_value = get_config().const_norm_value
     attn.sub_(const_norm_value)
     # end of norm
@@ -128,6 +133,15 @@ def const_norm_pa(attn, value, block_bias, block_groups, block_mapping, batch_si
     attn = matmul_av_op(attn, value)
     return attn
 
+
+def pa_block_softmax_with_const_max(attn, value, block_bias, block_groups, block_mapping, batch_size,
+                                    matmul_av_op, batch2block_matmul_op, block2batch_matmul_op, block_softmax_max_const_op):
+    const_norm_value = get_config().const_norm_value
+    attn = block_softmax_max_const_op(attn, block_bias, block_groups, batch_size, const_norm_value)
+    attn = matmul_av_op(attn, value)
+    return attn
+
+
 def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
                 block_bias, block_groups, block_size, scale, matmul_qk_op,
                 matmul_av_op, batch2block_matmul_op, block2batch_matmul_op,
@@ -137,7 +151,7 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
     kv_heads = key_cache.size(1)
 
     query = batch2block(scale * query, block_mapping,
-                            batch2block_matmul_op).unsqueeze(-2)
+                        batch2block_matmul_op).unsqueeze(-2)
     key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list)
     if value_cache is not None:
         value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list)
@@ -179,10 +193,11 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
         attn = attn.flatten(1, 2)
     return attn
 
+
 def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_groups, block_size, scale, matmul_qk_op,
             position_bias, matmul_av_op, batch2block_matmul_op,
-            block2batch_matmul_op, keys_fetch_func, values_fetch_func,
+            block2batch_matmul_op, keys_fetch_func, values_fetch_func, block_softmax_max_const_op,
             **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, kv_heads, head_size = key_cache.shape
@@ -216,11 +231,13 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
 
     if get_config().use_const_norm:
         pa_impl = const_norm_pa
+    elif get_config().fused_block_softmax_with_const_max:
+        pa_impl = pa_block_softmax_with_const_max
     else:
         pa_impl = pipelined_pa
     attn = pa_impl(attn, value, block_bias, block_groups, block_mapping,
-                        batch_size=batch_size, matmul_av_op=matmul_av_op,
-                        batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
+                   batch_size=batch_size, matmul_av_op=matmul_av_op,
+                   batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op, block_softmax_max_const_op=block_softmax_max_const_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
 
@@ -350,15 +367,14 @@ def _fsdpa_prompt_attention(
         valid_seq_lengths = None
 
     if window_size is not None:
-        #causal window sdpa kernel only supports softmax None
+        # causal window sdpa kernel only supports softmax None
         softmax_mode = 'None'
-        padding_side ='left'
+        padding_side = 'left'
 
     args = [query, key, value, attn_bias, 0.0, is_causal,
-                                scale, softmax_mode, recompute_mode,
-                                valid_seq_lengths, padding_side]
+            scale, softmax_mode, recompute_mode,
+            valid_seq_lengths, padding_side]
     args += [window_size] if window_size else []
-
 
     attn_weights = fsdpa_op(*args)
 
@@ -504,7 +520,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         else:
             max_expert_per_slice = self.num_experts
         self.moe_n_slice = 1 if self.num_experts <= max_expert_per_slice \
-                else self.num_experts // max_expert_per_slice
+            else self.num_experts // max_expert_per_slice
         self.num_expert_per_group = self.num_experts // self.moe_n_slice
 
     def forward(self,
@@ -632,14 +648,14 @@ def dequant_block_fp8_weight_naive(weight, weight_scale, block_size, dtype=torch
         weight_scale = weight_scale.view(weight_scale_m, 1, weight_scale_n, 1)
         weight = weight.view(weight_scale_m, block_size_m, weight_scale_n, block_size_n)
         dequant_weight = weight.to(dtype) * weight_scale.to(dtype)
-        dequant_weight = dequant_weight.view(weight_scale_m*block_size_m, weight_scale_n*block_size_n)
+        dequant_weight = dequant_weight.view(weight_scale_m * block_size_m, weight_scale_n * block_size_n)
         keep_first_dim = False
     elif weight_shape_len == 3:
         fd, weight_scale_m, weight_scale_n = weight_scale.shape
         weight_scale = weight_scale.view(fd, weight_scale_m, 1, weight_scale_n, 1)
         weight = weight.view(fd, weight_scale_m, block_size_m, weight_scale_n, block_size_n)
         dequant_weight = weight.to(dtype) * weight_scale.to(dtype)
-        dequant_weight = dequant_weight.view(fd, weight_scale_m*block_size_m, weight_scale_n*block_size_n)
+        dequant_weight = dequant_weight.view(fd, weight_scale_m * block_size_m, weight_scale_n * block_size_n)
         keep_first_dim = True
     else:
         raise ValueError("Only support original weight shape is either 2 or 3")
@@ -697,7 +713,8 @@ def apply_block_fp8_linear_hpu_dequant(
     input_2d = input.view(-1, input.shape[-1])
     original_M = original_M.data.item()
     original_N = original_N.data.item()
-    weight = dequant_block_fp8_weight_naive(weight, weight_scale, block_size, input.dtype, original_M, original_N, do_unpad)
+    weight = dequant_block_fp8_weight_naive(weight, weight_scale, block_size,
+                                            input.dtype, original_M, original_N, do_unpad)
     output = torch.nn.functional.linear(input_2d, weight, bias=None)
     if bias is not None:
         output = output + bias
@@ -715,7 +732,7 @@ def apply_fp8_linear_hpu(
     if input_scale is None:
         x_fp8, x_scale = dynamic_quant(input)
     else:
-        x_fp8 = torch.ops.hpu.cast_to_fp8_v2(input, 1.0/input_scale, False, False, torch.float8_e4m3fn)[0]
+        x_fp8 = torch.ops.hpu.cast_to_fp8_v2(input, 1.0 / input_scale, False, False, torch.float8_e4m3fn)[0]
         x_scale = input_scale
     output = torch.ops.hpu.fp8_gemm_v2(
         A=x_fp8,
@@ -730,8 +747,8 @@ def apply_fp8_linear_hpu(
         accumulate=False)
     return output
 
- 
-def dynamic_quant(data, single_scale = False):
+
+def dynamic_quant(data, single_scale=False):
     if single_scale:
         scale = ((torch.abs(data)).max() + 1e-8) / FP8_MAX
     else:
@@ -744,8 +761,8 @@ def dynamic_quant(data, single_scale = False):
 
 def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
     if torch.isnan(layer.weight.data).any():
-        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
-        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
+        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or"
+                         " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
     weight, orig_M, orig_N = pad_block_fp8_weight_naive(
         layer.weight.data,
         layer.weight_scale_inv.data,
@@ -762,7 +779,7 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
         weight_scale_inv = weight_scale_inv.squeeze(-1)
         layer.weight.data.copy_(weight)
         layer.weight_scale_inv = torch.nn.Parameter(weight_scale_inv,
-                                        requires_grad=False)
+                                                    requires_grad=False)
         htorch.core.mark_step()
         return layer
 
@@ -777,8 +794,8 @@ def fp8_block_linear_postprocess_weights(layer, force_channel_fp8=False):
 
 def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
     if torch.isnan(layer.w13_weight.data).any():
-        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or" \
-        " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
+        raise ValueError("NaN detected in weights. Please use the flag VLLM_HPU_CONVERT_TO_FP8UZ to convert it at runtime or"
+                         " convert the weights using scripts/deepseek_gaudi2 from vllm-hpu-extension")
     if force_channel_fp8:
         # convert to channel-wise fp8
         w13_weight, w13_weight_scale_inv = dynamic_quant(dequant_block_fp8_weight_naive(
@@ -794,9 +811,9 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
         layer.w13_weight.data.copy_(w13_weight)
         layer.w2_weight.data.copy_(w2_weight)
         layer.w13_weight_scale_inv = torch.nn.Parameter(w13_weight_scale_inv,
-                                                requires_grad=False)
+                                                        requires_grad=False)
         layer.w2_weight_scale_inv = torch.nn.Parameter(w2_weight_scale_inv,
-                                                requires_grad=False)
+                                                       requires_grad=False)
         return fp8_channel_moe_prepare_weights(layer)
 
     for index in range(layer.moe_op.num_experts):
@@ -830,7 +847,8 @@ def fp8_channel_moe_prepare_weights(layer):
             weight_scale_inv = layer.w13_weight_scale[index]
             layer.moe_op.w13_list[index].set_scale_inv_fp8(weight_scale_inv)
         else:
-            weight_scale_inv = torch.ones(layer.w13_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w13_weight[index].device)
+            weight_scale_inv = torch.ones(layer.w13_weight[index].shape[:-1],
+                                          dtype=torch.bfloat16, device=layer.w13_weight[index].device)
             layer.moe_op.w13_list[index].set_scale_inv_fp8(weight_scale_inv)
 
         layer.moe_op.w2_list[index].set_weight(layer.w2_weight[index])
@@ -842,9 +860,10 @@ def fp8_channel_moe_prepare_weights(layer):
             weight_scale_inv = layer.w2_weight_scale[index]
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
         else:
-            weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w2_weight[index].device)
+            weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1],
+                                          dtype=torch.bfloat16, device=layer.w2_weight[index].device)
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
-            
+
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
@@ -852,6 +871,7 @@ def fp8_channel_moe_prepare_weights(layer):
 
     htorch.core.mark_step()
     return layer
+
 
 class MoeFP8Matmul(torch.nn.Module):
     def __init__(
@@ -926,7 +946,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         else:
             max_expert_per_slice = self.num_experts
         self.moe_n_slice = 1 if self.num_experts <= max_expert_per_slice \
-                else self.num_experts // max_expert_per_slice
+            else self.num_experts // max_expert_per_slice
         self.num_expert_per_group = self.num_experts // self.moe_n_slice
 
     def forward(
@@ -1010,42 +1030,41 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
         w13_weight_scale = [self.w13_list[i].scale_inv_fp8.squeeze() for i in experts_range]
         w2_weight_scale = [self.w2_list[i].scale_inv_fp8.squeeze() for i in experts_range]
-       
+
         if self.w13_input_scale is None:
             x_fp8, x_scale = dynamic_quant(x)
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                                    hidden_states=x_fp8,
-                                    expert_routing_table=topk_ids.to(torch.int64),
-                                    router_weights=topk_weights.to(x.dtype),
-                                    w12=w13_list,
-                                    w3=w2_list,
-                                    d_scale_hidden_states=x_scale,
-                                    d_scale_w12=w13_weight_scale,
-                                    d_scale_w3=w2_weight_scale,
-                                    permuted_weights=permuted_weights,
-                                    activation=activation,
-                                    experts_min=self.experts_min,
-                                    experts_max=self.experts_max)
+                hidden_states=x_fp8,
+                expert_routing_table=topk_ids.to(torch.int64),
+                router_weights=topk_weights.to(x.dtype),
+                w12=w13_list,
+                w3=w2_list,
+                d_scale_hidden_states=x_scale,
+                d_scale_w12=w13_weight_scale,
+                d_scale_w3=w2_weight_scale,
+                permuted_weights=permuted_weights,
+                activation=activation,
+                experts_min=self.experts_min,
+                experts_max=self.experts_max)
         else:
             x_scale = self.w13_input_scale.data
-            w2_input_scale =  self.w2_input_scale.data
-            x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
+            w2_input_scale = self.w2_input_scale.data
+            x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0 / x_scale, False, False, torch.float8_e4m3fn)[0]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                                    hidden_states=x_fp8,
-                                    expert_routing_table=topk_ids.to(torch.int64),
-                                    router_weights=topk_weights.to(x.dtype),
-                                    w12=w13_list,
-                                    w3=w2_list,
-                                    d_scale_hidden_states=x_scale,
-                                    d_scale_intermediate_hidden_states=w2_input_scale,
-                                    d_scale_w12=w13_weight_scale,
-                                    d_scale_w3=w2_weight_scale,
-                                    permuted_weights=permuted_weights,
-                                    activation=activation,
-                                    experts_min=self.experts_min,
-                                    experts_max=self.experts_max)
+                hidden_states=x_fp8,
+                expert_routing_table=topk_ids.to(torch.int64),
+                router_weights=topk_weights.to(x.dtype),
+                w12=w13_list,
+                w3=w2_list,
+                d_scale_hidden_states=x_scale,
+                d_scale_intermediate_hidden_states=w2_input_scale,
+                d_scale_w12=w13_weight_scale,
+                d_scale_w3=w2_weight_scale,
+                permuted_weights=permuted_weights,
+                activation=activation,
+                experts_min=self.experts_min,
+                experts_max=self.experts_max)
 
-        
         return final_hidden_states
 
 
