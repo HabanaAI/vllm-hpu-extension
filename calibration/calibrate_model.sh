@@ -78,6 +78,7 @@ create_quant_config() {
     block_names="[]"
     fp8_config="E4M3"
     scale_format="scalar"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
@@ -87,9 +88,17 @@ create_quant_config() {
     elif [[ $model_name_lower =~ ^mixtral ]]; then
         block_names="[\"self_attn\", \"lm_head\"]"
     elif [[ $model_name_lower == *"qwen3"* ]]; then
-        scale_method="maxabs_hw"
-        # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
-        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
+        # qwen3 models that using fp8 attention and kv-cache
+        if [[$model_name_lower == *"qwen3-32b"* \
+            || $model_name_lower == *"qwen3-30b-a3b"* \
+            ]]; then
+            block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+        else
+            # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
+            block_names=$block_names_bf16_attn
+        fi
+    elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
+        block_names=$block_names_bf16_attn
     fi
     quant_config=$(cat <<EOF
 {
@@ -111,6 +120,26 @@ create_quant_config() {
 EOF
 )
     echo "$quant_config" | jq . > $1/$2/maxabs_quant_$3.json
+}
+
+set_fp32_softmax() {
+    model_name_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+    # VLLM_FP32_SOFTMAX=true by default for model_type=qwen2* models.
+    # set VLLM_FP32_SOFTMAX=false for models without accuracy issue.
+    if [[ $model_name_lower == *"deepseek-r1-distill-qwen-14b"* \
+        || $model_name_lower == *"deepseek-r1-distill-qwen-32b"* \
+        || $model_name_lower == *"deepseek-r1-distill-llama-8b"* \
+        || $model_name_lower == *"deepseek-r1-distill-llama-70b"* \
+        || $model_name_lower == *"qwen3-8b"* \
+        || $model_name_lower == *"qwen3-14b"* \
+        || $model_name_lower == *"qwen3-32b"* \
+        || $model_name_lower == *"qwq-32b"* \
+        || $model_name_lower == *"qwen3-30b-a3b"* \
+        || $model_name_lower == *"qwen3-235b-a22b"* \
+        ]]; then
+        export VLLM_FP32_SOFTMAX=false
+        echo Set VLLM_FP32_SOFTMAX=false for $1
+    fi
 }
 
 extract_last_folder_name() {
@@ -215,6 +244,7 @@ fi
 
 create_measure_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
+set_fp32_softmax $MODEL_NAME
 
 if [[ $TP_SIZE > 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
