@@ -49,7 +49,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
+def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     fused_block_softmax_adjustment_requirements = get_config().fused_block_softmax_adjustment and attn.dtype != torch.float16
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
@@ -64,12 +64,18 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_siz
     else:
         if block_bias is not None:
             attn.add_(block_bias)
+        if sink is not None:
+            combined_logits = torch.cat([attn, sink], dim=-1)
+            combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
+            attn = combined_logits
         block_max = attn.amax(dim=-1, keepdim=True)
         attn = attn.sub(block_max)
         attn = attn.exp()
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
+    if sink is not None:
+        attn = attn[..., :-1]
     attn = matmul_av_op(attn, value)
     if fused_block_softmax_adjustment_requirements:
         out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
@@ -159,7 +165,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_groups, block_size, scale, matmul_qk_op,
             position_bias, matmul_av_op, batch2block_matmul_op,
             block2batch_matmul_op, keys_fetch_func, values_fetch_func,
-            **ignored_args):
+            sinks, **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
@@ -169,6 +175,11 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
     value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
+    sink = None
+    if sinks is not None:
+        sink = sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)
+        if kv_heads != q_heads:
+            sink = sink.unflatten(1, (kv_heads, -1))
     if kv_heads != q_heads:
         query = query.unflatten(1, (kv_heads, -1))
         key = key.unflatten(1, (kv_heads, 1))
@@ -191,7 +202,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn.add_(position_bias.unsqueeze(-2))
 
     attn = pipelined_pa(attn, value, block_bias, block_groups, block_mapping,
-                        batch_size=batch_size, matmul_av_op=matmul_av_op,
+                        sink, batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
@@ -248,6 +259,7 @@ def _naive_prompt_attention(
         matmul_qk_op=torch.matmul,
         softmax_op=torch.softmax,
         matmul_av_op=torch.matmul,
+        sinks: Optional[torch.Tensor] = None,
         **ignored_args
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
@@ -280,10 +292,19 @@ def _naive_prompt_attention(
         if attn_weights.dtype != attn_bias.dtype:
             attn_bias = attn_bias.to(dtype=attn_weights.dtype)
         attn_weights.add_(attn_bias)
+    if sinks is not None:
+        sink = sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)
+        if query_heads != kv_heads:
+            sink = sink.unflatten(1, (kv_heads, -1))
+        combined_logits = torch.cat([attn_weights, sink], dim=-1)
+        combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
+        attn_weights = combined_logits
     if get_config().fp32_softmax:
         attn_weights = torch.softmax(attn_weights, dim=-1)
     else:
         attn_weights = softmax_op(attn_weights, dim=-1)
+    if sinks is not None:
+        attn_weights = attn_weights[..., :-1]
     attn_weights = attn_weights.to(query.dtype)
     attn_weights = matmul_av_op(attn_weights, value)
 
