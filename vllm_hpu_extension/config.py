@@ -8,6 +8,7 @@
 from packaging.version import Version
 from packaging.specifiers import SpecifierSet
 from typing import Optional, Callable, TypeAlias, Any, Union, Tuple, Dict, List
+from typing import Optional, Callable, TypeAlias, Any, Union, Tuple, Dict, List, TypeVar
 import os
 import itertools
 
@@ -47,6 +48,8 @@ class Config:
 
 ValueFn: TypeAlias = Callable[Config, Any]
 
+T = TypeVar('T')
+Constructor: TypeAlias = Callable[[str], Any]
 
 def All(*parts: List[ValueFn]) -> ValueFn:
     """Return True if all functions return True"""
@@ -122,7 +125,11 @@ def choice(*options: List[Any]) -> Callable[Any, Any]:
 def boolean(x: str) -> Callable[str, bool]:
     """Converts string representation of a bool to its value"""
     return x.lower() in ['true', 't', '1', 'yes', 'y', 'on']
-
+def list_of(t: Constructor):
+    """Converts a comma seperated string representation of a list of values"""
+    def list_of_impl(x: str) -> list[Any]:
+        return [t(v) for v in x.split(',')]
+    return list_of_impl
 
 class Env:
     """A callable that fetches values from env variables, applying conversions if necessary"""
