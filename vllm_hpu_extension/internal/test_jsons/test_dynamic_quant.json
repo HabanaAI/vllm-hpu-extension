@@ -1,0 +1,15 @@
+{
+    "mode": "QUANTIZE",
+    "scale_method": "ACT_MAXABS_PCS_POW2_WEIGHT_MAXABS_PTS_POW2_HW",
+    "scale_format": "CONST",
+    "dynamic_quantization": "True",
+    "allowlist": {
+        "types": [],
+        "names": []
+    },
+    "blocklist": {
+        "types": [],
+        "names": []
+    },
+    "dump_stats_path": "./test_outputs/inc_output"
+}
