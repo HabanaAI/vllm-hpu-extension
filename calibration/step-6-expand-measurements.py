@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
+# Copyright (C) 2025 Habana Labs, Ltd. an Intel Company
 ###############################################################################
 import argparse
 import glob
@@ -241,5 +241,3 @@ def main(args):
 if __name__ == "__main__":
     main(sys.argv[1:])
 
-
-# python expand-mm.py  -m ./Yi30/inc-woq-2282samples-514-g2-unified-tp1  -o ./Yi30/inc-woq-2282samples-514-g2-unified-tp1-expand-tp8 -u
