@@ -56,6 +56,7 @@ class HabanaHighLevelProfiler:
     profiling_trace_events: queue.Queue = queue.Queue()
     event_tid = {'counter': 1, 'external': 2, 'internal': 3}
     event_cache: List[Any] = []
+    process_name = None
 
     def __init__(self, vllm_instance_id = None):
         self.enabled = os.getenv('VLLM_PROFILER_ENABLED',
@@ -76,6 +77,11 @@ class HabanaHighLevelProfiler:
             file_writer.start()
         if os.getenv('VLLM_PROFILER_ENABLED') == 'full':
             self.enabled = True # don't save separate high-level traces
+
+    def set_process_name(self, name):
+        if not self.process_name:
+            self.process_name = name
+            self.pid = name+" "+str(self.pid)
 
     def _dump_with_sep(self, entry):
         entry = json.dumps(entry) + ','
