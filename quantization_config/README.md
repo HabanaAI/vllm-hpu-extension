@@ -1,5 +1,5 @@
 # Example command
-
+# dynamic quantization example
 ```bash
 export QUANT_CONFIG='<path to quant config files>/maxabs_quant_dynamic_quantization.json'
 PT_HPU_LAZY_MODE=1 vllm serve meta-llama/Llama-3.1-8B-Instruct --max-model-len 1024 --quantization inc
