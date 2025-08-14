@@ -914,6 +914,8 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
+                                                       'false').lower() == 'true'
 
     def _get_extra_kwargs(self, tokens_num: int):
         if(self.enable_moe_chunk):
@@ -981,6 +983,8 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
+                                                       'false').lower() == 'true'
 
     def _get_extra_kwargs(self, tokens_num: int):
         if(self.enable_moe_chunk):
