@@ -99,6 +99,8 @@ create_quant_config() {
         fi
     elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
         block_names=$block_names_bf16_attn
+    elif [[ $model_name_lower == *"qwq-32b"* ]]; then
+        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fi
     quant_config=$(cat <<EOF
 {
@@ -200,7 +202,7 @@ while getopts "m:b:l:t:d:h:o:r:u" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH" ]]; then
+if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
     exit 1
@@ -246,11 +248,11 @@ create_measure_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 create_quant_config $FP8_DIR $MODEL_NAME $DEVICE_TYPE
 set_fp32_softmax $MODEL_NAME
 
-if [[ $TP_SIZE > 1 ]]; then
+if [[ $TP_SIZE -gt 1 ]]; then
     export PT_HPU_ENABLE_LAZY_COLLECTIVES=true
 fi
 
-if [[ $MODEL_PATH_NAME == llama.*2.* ]]; then
+if [[ $MODEL_NAME == llama.*2.* ]]; then
     EXTRA_FLAGS+="--chat-template template/llama-2-chat.jinja "
 elif  [[ "$MODEL_PATH" == *"Mixtral-8x7B"* ]]; then
     EXTRA_FLAGS+="--chat-template template/mistral_mixtral.jinja "
