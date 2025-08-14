@@ -124,6 +124,12 @@ class HabanaHighLevelProfiler:
             event = self.event_cache.pop()
             event['dur'] = ts - event['ts']
             self._dump_with_sep(event)
+            msg = f"name {event['name']}, ts {event['ts']}, dur {event['dur']}"
+            if event['args'] and len(event['args']):
+                args = event['args']
+                for key, value in args.items():
+                    msg += f", {key} {value}"
+            logger.info(msg)
 
     @contextmanager
     def record_event(self, type, name, args=None):
