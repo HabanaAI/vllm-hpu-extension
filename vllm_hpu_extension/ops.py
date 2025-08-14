@@ -510,7 +510,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 chunk_size = 512
             kwargs = {
                 "chunk_size": chunk_size,
-                "total_experts": self.num_global_experts,
+                "total_experts": self.global_num_experts,
             }
         else:
             kwargs = {}
@@ -927,7 +927,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
                 chunk_size = 512
             kwargs = {
                 "chunk_size": chunk_size,
-                "total_experts": self.num_global_experts,
+                "total_experts": self.global_num_experts,
             }
         else:
             kwargs = {}
@@ -996,7 +996,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                 chunk_size = 512
             kwargs = {
                 "chunk_size": chunk_size,
-                "total_experts": self.num_global_experts,
+                "total_experts": self.global_num_experts,
             }
         else:
             kwargs = {}
