@@ -1,6 +1,6 @@
 # Dynamic Quantization Example
-# This command executes Llama 3.1–8B with dynamic quantization applied exclusively to its linear layers. 
-# Dynamic quantization is employed to optimize memory efficiency and inference performance while maintaining model accuracy.
+This command runs Llama 3.1–8B with dynamic quantization applied exclusively to its linear layers.
+The technique enhances memory efficiency and inference speed while preserving model accuracy.
 
 ```bash
 export QUANT_CONFIG="<path to quant config files>/maxabs_quant_dynamic_quantization.json"
