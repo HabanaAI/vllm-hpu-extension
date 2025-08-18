@@ -149,6 +149,7 @@ class ModuleFusedSDPA(torch.nn.Module):
         valid_sequence_lengths,
         padding_side="left",
         window_size=None,
+        sinks=None
     ):
 
         if window_size:
@@ -166,7 +167,8 @@ class ModuleFusedSDPA(torch.nn.Module):
                 padding_side,
                 False,
                 False,
-                window_size)
+                window_size,
+                sinks)
         else:
             return self._hpu_kernel_fsdpa.apply(
             query,
@@ -180,6 +182,10 @@ class ModuleFusedSDPA(torch.nn.Module):
             recompute_mode,
             valid_sequence_lengths,
             padding_side,
+            False,
+            False,
+            (-1,-1),
+            sinks
         )
 
 

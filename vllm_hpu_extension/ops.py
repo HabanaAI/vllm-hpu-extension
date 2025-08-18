@@ -323,6 +323,8 @@ def _fsdpa_prompt_attention(
         attn_bias: Optional[torch.Tensor] = None,
         valid_seq_lengths: Optional[torch.Tensor] = None,
         window_size: Optional[int] = None,
+        sinks: Optional[torch.Tensor] = None,
+        always_sink: Optional[bool] = False,
         **ignored_args
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
@@ -349,8 +351,13 @@ def _fsdpa_prompt_attention(
     args = [query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
                                 valid_seq_lengths, padding_side]
-    args += [window_size] if window_size else []
-
+    args += [window_size] if window_size else [None]
+    # use sinks in fsdpa
+    if sinks is not None:
+        if always_sink:
+            args += [sinks]
+        elif window_size:
+            args += [sinks]
 
     attn_weights = fsdpa_op(*args)
 
