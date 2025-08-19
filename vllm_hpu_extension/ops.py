@@ -66,7 +66,6 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, bat
             attn.add_(block_bias)
         if sink is not None:
             combined_logits = torch.cat([attn, sink], dim=-1)
-            combined_logits = combined_logits - combined_logits.max(dim=-1, keepdim=True).values
             attn = combined_logits
         block_max = attn.amax(dim=-1, keepdim=True)
         attn = attn.sub(block_max)
