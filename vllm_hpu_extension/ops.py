@@ -542,7 +542,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             experts_max=self.experts_max,
             **kwargs
         )
-        print('\nVllmMixtureOfExpertsOp\n')
         return final_hidden_states
 
 
@@ -568,7 +567,6 @@ class DynamicFusedMOE(torch.nn.Module):
             permuted_weights=True,
             activation="silu",
         )
-        print('\nDynamicFusedMOE\n')
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
 
@@ -967,7 +965,6 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
             experts_max=self.experts_max,
             **kwargs
         )
-        print('\nVllmMixtureOfExpertsOpFP8\n')
         return final_hidden_states
 
 
@@ -1060,7 +1057,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                     experts_min=self.experts_min,
                                     experts_max=self.experts_max,
                                     **kwargs)
-        print('\nVllmMixtureOfExpertsOpFP8PerChannel\n')
+
         return final_hidden_states
 
 
