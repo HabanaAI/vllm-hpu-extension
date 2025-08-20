@@ -1040,7 +1040,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                     **kwargs)
         else:
             x_scale = self.w13_input_scale.data
-            w2_input_scale =  self.w2_input_scale.data
+            w2_input_scale = self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
