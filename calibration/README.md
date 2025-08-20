@@ -166,9 +166,7 @@ vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtyp
 
 #### Advanced Usage for MoE Models
 
-For models with Mixture of Experts (MoE), like Deepseek-R1, you may want to run calibration once and use the results for different expert or card counts (e.g., 8, 16, or 32 cards). This saves time because you don’t need to recalibrate for every setup. 
-
-To do this:
+For models with Mixture of Experts (MoE), like Deepseek-R1, you may want to run calibration once and use the results for different expert parallelism and data parallelism scenarios (e.g., 8, 16, or 32 cards). To do this:
 
 1. Unify all measurement files onto a single card (TP1).
 2. (Optional) Postprocess the unified measurement for better performance.
