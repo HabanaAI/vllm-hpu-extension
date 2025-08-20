@@ -162,3 +162,35 @@ vllm serve meta-llama/Llama-3.1-405B-Instruct --quantization inc --kv-cache-dtyp
 
 > [!NOTE] 
 > Detailed information about serving with vLLM (including multi-node serving) you can find in [README_GAUDI](https://github.com/HabanaAI/vllm-fork/blob/habana_main/README_GAUDI.md) within vllm-fork repo.
+
+
+#### Advanced Usage for MoE Models
+
+For models with Mixture of Experts (MoE), like Deepseek-R1, you may want to run calibration once and use the results for different expert or card counts (e.g., 8, 16, or 32 cards). This saves time because you don’t need to recalibrate for every setup. 
+
+To do this:
+
+1. Unify all measurement files onto a single card (TP1).
+2. (Optional) Postprocess the unified measurement for better performance.
+3. Expand the unified results to the number of expert-parallel cards you need. The `step-6-expand-measurements.py` splits expert measurements across the target number of cards, while other values are reused.
+
+The diagram below shows an example where calibration is done on 2 cards and deployment is on 4 cards.
+
+![unify-and-expand](./unify-and-expand.png)
+
+
+Here is a real example that calibrates Deepseek-R1 on 8 cards and deploys on 16 or 32 cards:
+
+```bash
+# Unify measurements: TP8 -> TP1
+python step-5-unify_measurements.py -m  /path/to/measurements/deepseek-r1/g3/ -r 1 -o /path/to/measurements/deepseek-r1/g3-unified-tp1/  -u -s
+
+# (Optional) Postprocess unified TP1
+python step-3-postprocess-measure.py -m /path/to/measurements/deepseek-r1/g3-unified-tp1/ -o /path/to/measurements/deepseek-r1/g3-unified-tp1-post/ -d
+
+# Expand to EP16TP1
+python step-6-expand-measurements.py -m /path/to/measurements/deepseek-r1/g3-unified-tp1-post/ -o /path/to/measurements/deepseek-r1/g3-unified-tp1-post-expand-ep16 -w 16
+
+# Expand to EP32TP1
+python step-6-expand-measurements.py -m /path/to/measurements/deepseek-r1/g3-unified-tp1-post/ -o /path/to/measurements/deepseek-r1/g3-unified-tp1-post-expand-ep32 -w 32
+```
