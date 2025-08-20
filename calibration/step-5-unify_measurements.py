@@ -302,9 +302,17 @@ def main(args):
         unify_measurements(
             group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_expert_paral
         )
-        unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_expert_paral
-        )
+        if not args.skip_unify_scales:
+            unify_measurements(
+                group,
+                measurements_path,
+                output_path,
+                num_jsons_scales,
+                len(groups),
+                group_index,
+                scales=True,
+                use_ep=args.use_expert_paral,
+            )
 
     print("finished measurement unifier script")
 
