@@ -250,6 +250,12 @@ def parse_args(args):
         action="store_true",
         help="unify original measurement results based on expert parallelism rules",
     )
+    parser.add_argument(
+        "-s",
+        "--skip_unify_scales",
+        action="store_true",
+        help="skip the scale unification step.",
+    )
     return parser.parse_args(args)
 
 
@@ -296,9 +302,17 @@ def main(args):
         unify_measurements(
             group, measurements_path, output_path, num_jsons_drange, len(groups), group_index, scales=False, use_ep=args.use_expert_paral
         )
-        unify_measurements(
-            group, measurements_path, output_path, num_jsons_scales, len(groups), group_index, scales=True, use_ep=args.use_expert_paral
-        )
+        if not args.skip_unify_scales:
+            unify_measurements(
+                group,
+                measurements_path,
+                output_path,
+                num_jsons_scales,
+                len(groups),
+                group_index,
+                scales=True,
+                use_ep=args.use_expert_paral,
+            )
 
     print("finished measurement unifier script")
 
