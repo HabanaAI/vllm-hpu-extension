@@ -152,7 +152,7 @@ class HPUBucketingManager():
                     self.prompt_buckets.sort()
                     return new_bucket
                 else:
-                    return (None, None, ctx)
+                    return (None, None, None)
             return found_bucket
         return (batch_size, seq_len, ctx)
 
