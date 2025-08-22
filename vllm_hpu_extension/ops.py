@@ -849,8 +849,7 @@ def fp8_channel_moe_prepare_weights(layer):
     htorch.core.mark_step()
     
     
-    print('\n\n\n',type(layer),'\n\n\n')
-    print('\n\n\n',layer.copy(),'\n\n\n')
+    print('\n\n\n',layer.moe_op,'\n\n\n')
     
     
     return layer
