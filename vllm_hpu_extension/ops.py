@@ -847,6 +847,11 @@ def fp8_channel_moe_prepare_weights(layer):
         layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
 
     htorch.core.mark_step()
+    
+    
+    print('\n\n\n',os.getenv("VLLM_HPU_FORCE_HUNYUAN_FP8"),'\n\n\n')
+    
+    
     return layer
 
 class MoeFP8Matmul(torch.nn.Module):
