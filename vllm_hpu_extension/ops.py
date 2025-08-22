@@ -850,7 +850,14 @@ def fp8_channel_moe_prepare_weights(layer):
     
     
     #print('\n\n\n', layer.moe_op.w13_list[0].weight.shape, layer.moe_op.w2_list[0].weight.shape, '\n\n\n')
-    print('\n\n\n', get_config(), '\n\n\n')
+    import pprint
+    cfg = get_config()
+    attrs = {k: getattr(cfg, k)
+                for k in dir(cfg)
+                if not k.startswith("_") and not callable(getattr(cfg, k))}
+    print('\n\n\n')
+    pprint.pprint(attrs)
+    print('\n\n\n')
     
     
     return layer
