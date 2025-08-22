@@ -837,23 +837,19 @@ def fp8_channel_moe_prepare_weights(layer):
         else:
             weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w2_weight[index].device)
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
-            
-        layer.moe_op.w2_list[index].set_scale_inv_fp8(layer.moe_op.w2_list[index].scale_inv_fp8.repeat(4096).flatten().clone())
-        layer.moe_op.w13_list[index].set_scale_inv_fp8(layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,3072).flatten().clone())
+        
+        if get_config().model_type == "hunyuan":
+            layer.moe_op.w2_list[index].set_scale_inv_fp8(layer.moe_op.w2_list[index].scale_inv_fp8.repeat(4096).flatten().clone())
+            layer.moe_op.w13_list[index].set_scale_inv_fp8(layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,3072).flatten().clone())
             
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
-        layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
+        layer.moe_op.w2_input_scale = layer.w2_input_scale
+        if get_config().model_type == "hunyuan":
+            layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
 
     htorch.core.mark_step()
-    
-    
-    #print('\n\n\n', layer.moe_op.w13_list[0].weight.shape, layer.moe_op.w2_list[0].weight.shape, '\n\n\n')
-    cfg = get_config()
-    print('\n\n\n', cfg.get_all(), '\n\n\n')
-    
-    
     return layer
 
 class MoeFP8Matmul(torch.nn.Module):
