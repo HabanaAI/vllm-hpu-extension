@@ -81,7 +81,7 @@ class VLLMFP8KVCache(VLLMKVCache):
 
     def quant_input(self, input):
         return torch.ops.hpu.cast_to_fp8_v2(input, self.input_scale, False, False, torch.float8_e4m3fn)[0]
-    
+
     def dequant_output(self, output):
         return torch.ops.hpu.cast_from_fp8(output, self.output_scale, torch.bfloat16)
 
@@ -92,7 +92,7 @@ class VLLMFP8KVCache(VLLMKVCache):
     def fetch_from_cache(self, quant_cache, blocks, permutations=None):
         if permutations:
             output_cache = super().fetch_from_cache(quant_cache, blocks,
-                                                        permutations)
+                                                    permutations)
             for i in range(len(output_cache)):
                 output_cache[i] = self.dequant_output(output_cache[i])
             return output_cache
@@ -181,17 +181,24 @@ class ModuleFusedSDPA(torch.nn.Module):
                 window_size)
         else:
             return self._hpu_kernel_fsdpa.apply(
-            query,
-            key,
-            value,
-            attn_mask,
-            dropout_p,
-            is_causal,
-            scale,
-            softmax_mode,
-            recompute_mode,
-            valid_sequence_lengths,
-            padding_side,
-        )
+                query,
+                key,
+                value,
+                attn_mask,
+                dropout_p,
+                is_causal,
+                scale,
+                softmax_mode,
+                recompute_mode,
+                valid_sequence_lengths,
+                padding_side,
+            )
 
 
+class BlockSoftmaxConstMax(torch.nn.Module):
+
+    def __init__(self):
+        super(BlockSoftmaxConstMax, self).__init__()
+
+    def forward(self, attn, block_bias, block_groups, batch_size, const_norm_value):
+        return torch.ops.hpu.block_softmax_const_max(attn, block_bias, block_groups, batch_size, const_norm_value)
