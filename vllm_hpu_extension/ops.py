@@ -849,7 +849,7 @@ def fp8_channel_moe_prepare_weights(layer):
     htorch.core.mark_step()
     
     
-    print('\n\n\n',os.getenv("VLLM_HPU_FORCE_HUNYUAN_FP8"),'\n\n\n')
+    print('\n\n\n',os.environ.copy(),'\n\n\n')
     
     
     return layer
