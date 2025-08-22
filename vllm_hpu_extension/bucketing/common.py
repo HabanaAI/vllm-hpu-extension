@@ -140,16 +140,19 @@ class HPUBucketingManager():
                       self.num_hpu_blocks)
         return (new_batch_size, new_seq_len, new_ctx)
 
-    def find_prompt_bucket(self, batch_size, seq_len, ctx=0):
+    def find_prompt_bucket(self, batch_size, seq_len, ctx=0, use_fallback=True):
         if self.initialized:
             found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
-                new_bucket = self.generate_fallback_bucket(batch_size, seq_len, ctx)
-                logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
-                                 f" was not prepared. Adding new bucket: {new_bucket}")
-                self.prompt_buckets.append(new_bucket)
-                self.prompt_buckets.sort()
-                return new_bucket
+                if use_fallback:
+                    new_bucket = self.generate_fallback_bucket(batch_size, seq_len, ctx)
+                    logger().warning(f"Prompt bucket for {batch_size, seq_len, ctx}"
+                                     f" was not prepared. Adding new bucket: {new_bucket}")
+                    self.prompt_buckets.append(new_bucket)
+                    self.prompt_buckets.sort()
+                    return new_bucket
+                else:
+                    return (None, None, None)
             return found_bucket
         return (batch_size, seq_len, ctx)
 
