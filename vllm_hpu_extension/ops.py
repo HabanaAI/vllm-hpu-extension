@@ -490,11 +490,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             [MoeMatmul() for _ in range(num_total_experts)])
         self.w2_list = torch.nn.ModuleList(
             [MoeMatmul() for _ in range(num_total_experts)])
-        if bias is not None:
-            self.w13_bias_list = torch.nn.ModuleList(
-                [MoeMatmul() for _ in range(num_total_experts)])
-            self.w2_bias_list = torch.nn.ModuleList(
-                [MoeMatmul() for _ in range(num_total_experts)])        
         self.num_experts = num_total_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
@@ -521,8 +516,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
 
         if self.moe_n_slice == 1:
             if self.bias is not None:
-                w1_bias_list = [self.w13_bias_list[i].bias.squeeze() for i in experts_range]
-                w2_bias_list = [self.w2_bias_list[i].bias.squeeze() for i in experts_range] 
+                w1_bias_list = [self.w13_list[i].bias.squeeze() for i in experts_range]
+                w2_bias_list = [self.w2_list[i].bias.squeeze() for i in experts_range] 
                 return torch.ops.hpu.mixture_of_experts.bias_fused_weights(
                     hidden_states=hidden_states,
                     expert_routing_table=expert_routing_table,
@@ -552,8 +547,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             min_expert = self.experts_min + i * self.num_expert_per_group
             max_expert = min_expert + self.num_expert_per_group - 1
             if self.bias is not None:
-                w1_bias_list = [self.w13_bias_list[i].bias.squeeze() for i in experts_range]
-                w2_bias_list = [self.w2_bias_list[i].bias.squeeze() for i in experts_range] 
+                w1_bias_list = [self.w13_list[i].bias.squeeze() for i in experts_range]
+                w2_bias_list = [self.w2_list[i].bias.squeeze() for i in experts_range]                 
                 w1_bias_list_slice = w1_bias_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]
                 w2_bias_list_slice = w2_bias_list[i * self.num_expert_per_group:(i + 1) * self.num_expert_per_group]                
                 slice_final_hidden_states = torch.ops.hpu.mixture_of_experts.bias_fused_weights(
@@ -584,7 +579,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 final_hidden_states += slice_final_hidden_states
             htorch.core.mark_step()
         return final_hidden_states
-
+                    
 
 class DynamicFusedMOE(torch.nn.Module):
 
