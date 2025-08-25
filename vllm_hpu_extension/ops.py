@@ -846,7 +846,7 @@ def fp8_channel_moe_prepare_weights(layer):
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
-        # for hunyuan, clone input_scale scalar for each expert
+        # for hunyuan, clone input_scale for each expert
         if get_config().model_type == "hunyuan":
             layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
         else:
