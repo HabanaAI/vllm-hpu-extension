@@ -346,7 +346,7 @@ def _fsdpa_prompt_attention(
     if window_size is not None:
         #causal window sdpa kernel only supports softmax None
         softmax_mode = 'None'
-        padding_side ='left'
+        # padding_side ='left'
 
     args = [query, key, value, attn_bias, 0.0, is_causal,
                                 scale, softmax_mode, recompute_mode,
@@ -354,10 +354,7 @@ def _fsdpa_prompt_attention(
     args += [window_size] if window_size else [None]
     # use sinks in fsdpa
     if sinks is not None:
-        if always_sink:
-            args += [sinks]
-        elif window_size:
-            args += [sinks]
+        args += [sinks]
 
     attn_weights = fsdpa_op(*args)
 
