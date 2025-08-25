@@ -837,11 +837,20 @@ def fp8_channel_moe_prepare_weights(layer):
         else:
             weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w2_weight[index].device)
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
+        
+        # hunyuan only has coarse weight_scale, so expand scale_inv_fp8 to have fine-grained scaling
+        if get_config().model_type == "hunyuan":
+            layer.moe_op.w2_list[index].set_scale_inv_fp8(layer.moe_op.w2_list[index].scale_inv_fp8.repeat(layer.w2_weight.shape[1]).flatten().clone())
+            layer.moe_op.w13_list[index].set_scale_inv_fp8(layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,layer.w13_weight.shape[1]//2).flatten().clone())
             
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
-        layer.moe_op.w2_input_scale = layer.w2_input_scale
+        # for hunyuan, clone input_scale for each expert
+        if get_config().model_type == "hunyuan":
+            layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
+        else:
+            layer.moe_op.w2_input_scale = layer.w2_input_scale
 
     htorch.core.mark_step()
     return layer
@@ -1037,7 +1046,12 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                     **kwargs)
         else:
             x_scale = self.w13_input_scale.data
-            w2_input_scale =  self.w2_input_scale.data
+            
+            if get_config().model_type == "hunyuan":
+                w2_input_scale = self.w2_input_scale
+            else:
+                w2_input_scale = self.w2_input_scale.data
+                
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
