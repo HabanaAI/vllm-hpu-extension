@@ -324,7 +324,6 @@ def _fsdpa_prompt_attention(
         valid_seq_lengths: Optional[torch.Tensor] = None,
         window_size: Optional[int] = None,
         sinks: Optional[torch.Tensor] = None,
-        always_sink: Optional[bool] = False,
         **ignored_args
 ) -> torch.Tensor:
     query = query.transpose(1, 2)
