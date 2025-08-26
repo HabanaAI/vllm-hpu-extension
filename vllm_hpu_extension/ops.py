@@ -705,6 +705,10 @@ def apply_fp8_linear_hpu(
     bias: Optional[torch.Tensor] = None,
     trans_B: bool = True,
 ):
+    x_shape = input.shape
+    if len(x_shape) > 2:
+        input = input.reshape(-1, x_shape[-1])
+
     if input_scale is None:
         x_fp8, x_scale = dynamic_quant(input)
     else:
@@ -721,6 +725,9 @@ def apply_fp8_linear_hpu(
         B_scale_inv=weight_scale,
         bias=bias,
         accumulate=False)
+
+    if len(x_shape) > 2:
+        output = output.reshape(*x_shape[0:-1], -1)
     return output
 
  
@@ -841,7 +848,10 @@ def fp8_channel_moe_prepare_weights(layer):
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
-        layer.moe_op.w2_input_scale = layer.w2_input_scale
+        if layer.w2_input_scale is None:
+            layer.moe_op.w2_input_scale = layer.w2_input_scale
+        else:
+            layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
 
     htorch.core.mark_step()
     return layer
@@ -1037,7 +1047,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                     **kwargs)
         else:
             x_scale = self.w13_input_scale.data
-            w2_input_scale =  self.w2_input_scale.data
+            w2_input_scale =  self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
