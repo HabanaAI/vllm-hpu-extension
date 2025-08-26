@@ -839,7 +839,7 @@ def fp8_channel_moe_prepare_weights(layer):
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
         
         # change the scalar scale_inv_fp8 to meet the channel size
-        if len(layer.moe_op.w2_list[index].scale_inv_fp8) == 0 and len(layer.moe_op.w13_list[index].scale_inv_fp8) == 1:
+        if len(layer.moe_op.w2_list[index].scale_inv_fp8.shape) == 0 and len(layer.moe_op.w13_list[index].scale_inv_fp8.shape) == 1:
             layer.moe_op.w2_list[index].set_scale_inv_fp8(layer.moe_op.w2_list[index].scale_inv_fp8.repeat(layer.w2_weight.shape[1]).flatten().clone())
             layer.moe_op.w13_list[index].set_scale_inv_fp8(layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,layer.w13_weight.shape[1]//2).flatten().clone())
             
