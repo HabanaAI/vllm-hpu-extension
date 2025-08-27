@@ -705,6 +705,10 @@ def apply_fp8_linear_hpu(
     bias: Optional[torch.Tensor] = None,
     trans_B: bool = True,
 ):
+    x_shape = input.shape
+    if len(x_shape) > 2:
+        input = input.reshape(-1, x_shape[-1])
+
     if input_scale is None:
         x_fp8, x_scale = dynamic_quant(input)
     else:
@@ -721,6 +725,9 @@ def apply_fp8_linear_hpu(
         B_scale_inv=weight_scale,
         bias=bias,
         accumulate=False)
+
+    if len(x_shape) > 2:
+        output = output.reshape(*x_shape[0:-1], -1)
     return output
 
  
