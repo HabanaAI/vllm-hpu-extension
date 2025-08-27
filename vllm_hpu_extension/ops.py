@@ -852,8 +852,8 @@ def fp8_channel_moe_prepare_weights(layer):
             )
             '''
             When weight scale is per tensor quantized, w1 and w3 are combined so the shape of their weight scales become [2],
-            but MoE requires [2 * num_experts], so it has to be reshaped as [2, 1],
-            and repeated to [2, num_experts] and then flattened to [2 * num_experts].
+            but MoE requires [2 * out_channels], so it has to be reshaped as [2, 1],
+            and repeated to [2, out_channels] and then flattened to [2 * out_channels].
             '''
             layer.moe_op.w13_list[index].set_scale_inv_fp8(
                 layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,layer.w13_weight.shape[1]//2).flatten().clone()
