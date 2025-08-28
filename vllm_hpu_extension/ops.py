@@ -310,7 +310,6 @@ def _naive_prompt_attention(
     if query_heads != kv_heads:
         attn_weights = attn_weights.flatten(1, 2)
     attn_weights = attn_weights.transpose(1, 2)
-    htcore.mark_step()
     return attn_weights
 
 
@@ -359,6 +358,7 @@ def _fsdpa_prompt_attention(
     attn_weights = fsdpa_op(*args)
 
     attn_weights = attn_weights.transpose(1, 2)
+    htcore.mark_step()
     return attn_weights
 
 
