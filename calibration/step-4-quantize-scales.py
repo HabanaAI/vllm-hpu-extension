@@ -1,12 +1,14 @@
 ###############################################################################
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
 ###############################################################################
-import vllm
-import torch
-import argparse
 import os
 os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
 os.environ["VLLM_SKIP_WARMUP"] = "true"
+os.environ["PT_HPU_LAZY_MODE"] = "1"
+
+import vllm
+import torch
+import argparse
 
 
 if __name__ == "__main__":
@@ -14,7 +16,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
-    parser.add_argument("--block-quant", action="store_true", default=False)
+    parser.add_argument("--load-fp8-weights", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
@@ -28,7 +30,7 @@ if __name__ == "__main__":
         tensor_parallel_size=args.tensor_parallel_size,
         enforce_eager=args.enforce_eager,
         dtype=torch.bfloat16,
-        quantization="fp8" if args.block_quant else "inc",
+        quantization=None if args.load_fp8_weights else "inc",
         kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         max_model_len=128,
