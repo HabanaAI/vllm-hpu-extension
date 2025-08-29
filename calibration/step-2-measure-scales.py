@@ -1,15 +1,16 @@
 ###############################################################################
 # Copyright (C) 2024 Habana Labs, Ltd. an Intel Company
 ###############################################################################
+import os
+os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
+os.environ["VLLM_SKIP_WARMUP"] = "true"
+os.environ["PT_HPU_LAZY_MODE"] = "1"
+
 import vllm
 import torch
 import pandas as pd
 import time
 import argparse
-import os
-os.environ["PT_HPU_WEIGHT_SHARING"] = "0"
-os.environ["VLLM_SKIP_WARMUP"] = "true"
-
 
 def get_ds(args):
     print(f"Loading dataset: {args.dataset}")
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
-    parser.add_argument("--block-quant", action="store_true", default=False)
+    parser.add_argument("--load-fp8-weights", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument(
         "--auto-process-dataset",
@@ -150,7 +151,7 @@ if __name__ == "__main__":
         model=args.model,
         dtype=torch.bfloat16,
         enforce_eager=args.enforce_eager,
-        quantization="fp8" if args.block_quant else "inc",
+        quantization=None if args.load_fp8_weights else "inc",
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len,
