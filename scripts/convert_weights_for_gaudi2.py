@@ -7,7 +7,8 @@ import os
 
 import argparse
 
-FP8_MAX = torch.finfo(torch.float8_e4m3fnuz).max
+fp8_e4m3fnuz_max = torch.finfo(torch.float8_e4m3fnuz).max
+fp8_e4m3fn_max = torch.finfo(torch.float8_e4m3fn).max
 
 
 def calc_maxabs_scale(xmaxabs, fullscale, backoff=1.0):
@@ -17,10 +18,10 @@ def calc_maxabs_scale(xmaxabs, fullscale, backoff=1.0):
 
 def quant_per_tensor(data):
     amax = (torch.abs(data)).max() + 1e-8
-    scale = calc_maxabs_scale(amax, FP8_MAX, 1.0)
+    scale = calc_maxabs_scale(amax, fp8_e4m3fnuz_max, 1.0)
     scale = scale.to(data.dtype)
     data_fp8 = data / scale
-    cliped_qtensor = torch.clamp(data_fp8, -FP8_MAX, FP8_MAX)
+    cliped_qtensor = torch.clamp(data_fp8, -fp8_e4m3fnuz_max, fp8_e4m3fnuz_max)
     cliped_qtensor_fp8 = cliped_qtensor.to(torch.float8_e4m3fn)
     return cliped_qtensor_fp8, scale.float()
 
@@ -49,7 +50,7 @@ def convert_files_per_tensor(input_path, output_path):
             for k in tensor_file.keys():
                 tensor = tensor_file.get_tensor(k)
                 if "input_scale" in k:
-                    result = (tensor * 448.0 / 240.0).float()
+                    result = (tensor * fp8_e4m3fn_max / fp8_e4m3fnuz_max).float()
                     tensors.update({k : result})
                 elif "weight_scale" in k:
                     weight_name = k.rstrip("_scale")
@@ -82,18 +83,18 @@ def convert_files(input_path, output_path):
                 tensor = tensor_file.get_tensor(k)
                 if "proj" in k:
                     if k.endswith("weight"):
-                        tensor = (tensor.float() * 240.0 / 448.0).to(
+                        tensor = (tensor.float() * fp8_e4m3fnuz_max / fp8_e4m3fn_max).to(
                             torch.float8_e4m3fn
                         )
                     elif k.endswith("weight_scale") or k.endswith(
                         "input_scale"
                     ):
-                        tensor = tensor.float() * 448.0 / 240.0
+                        tensor = tensor.float() * fp8_e4m3fn_max / fp8_e4m3fnuz_max
                     elif k.endswith("weight_scale_inv") or k.endswith(
                         "input_scale_inv"
                     ):
                         # "scale_inv" in deepseek-r1 is actually "scale"
-                        tensor = tensor.float() * 448.0 / 240.0
+                        tensor = tensor.float() * fp8_e4m3fn_max / fp8_e4m3fnuz_max
                     elif tensor.dtype == torch.bfloat16:
                         print(f"skip converting {k} as it is bfloat16")
                     else:
