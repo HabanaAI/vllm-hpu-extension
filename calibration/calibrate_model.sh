@@ -42,33 +42,95 @@ create_measure_config() {
     model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
 
     if [[ $model_name_lower =~ ^mixtral ]]; then
-        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"self_attn\", \"lm_head\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
-    elif [[ $model_name_lower =~ ^deepseek ]]; then
-        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+        block_names="[\"self_attn\", \"lm_head\"]"
+    elif [[ $model_name_lower == *"qwen3"* ]]; then
+        block_names="[\"lm_head\"]"
     else
-        tmp_config="{\"method\": \"HOOKS\",\"mode\": \"MEASURE\",\"observer\": \"maxabs\",\"allowlist\": {\"types\": [], \"names\":  []},\"blocklist\": {\"types\": [], \"names\":  []},\"quantize_weight\": false,\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+        block_names="[]"
     fi
-    echo "$tmp_config" > $1/$2/maxabs_measure_$3.json
+    measure_config=$(cat <<EOF
+{
+    "method": "HOOKS",
+    "mode": "MEASURE",
+    "observer": "maxabs",
+    "allowlist": {
+        "types": [],
+        "names": []
+    },
+    "blocklist": {
+        "types": [],
+        "names": ${block_names}
+    },
+    "quantize_weight": false,
+    "dump_stats_path": "$1/$2/$3/inc_output"
+}
+EOF
+)
+    echo "$measure_config" | jq . > $1/$2/maxabs_measure_$3.json
 }
 
 create_quant_config() {
     mkdir -p $1/$2/$3
     
-    model_name_lower=$(echo "$2" | tr '[:upper:]' '[:lower:]')
-
-    #note(kwisniewski98): mixtral models has attention masked to not cause regression in accuracy
-    if [[ $model_name_lower =~ ^mixtral ]]; then
-        if [[ $PT_HPU_LAZY_MODE == 0 ]]; then
-            tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"CONST\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    scale_method="maxabs_hw"
+    block_types="[\"Softmax\"]"
+    block_names="[]"
+    fp8_config="E4M3"
+    scale_format="scalar"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
+    if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
+            || $model_name_lower == *"qwen2-7b-instruct"* \
+            || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
+        scale_method="unit_scale"
+        block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
+        block_names="[\"fused_scaled_dot_product_attention\"]"
+    elif [[ $model_name_lower =~ ^mixtral ]]; then
+        scale_format="const"
+        block_names="[\"self_attn\", \"lm_head\"]"
+    elif [[ $model_name_lower == *"qwen3"* ]]; then
+        # qwen3 models that using fp8 attention and kv-cache
+        if [[ $model_name_lower == *"qwen3-32b"* \
+            || $model_name_lower == *"qwen3-30b-a3b"* \
+            ]]; then
+            block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
         else
-            tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"self_attn\", \"lm_head\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+            # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
+            block_names=$block_names_bf16_attn
         fi
-    elif [[ $model_name_lower =~ ^deepseek ]]; then
-        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\", \"scale_format\": \"scalar\", \"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": [\"lm_head\", \"mlp\\\.gate\\\b\"]},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
-    else
-        tmp_config="{\"mode\": \"QUANTIZE\",\"observer\": \"maxabs\",\"scale_method\": \"maxabs_hw\",\"allowlist\": {\"types\": [],\"names\": []},\"blocklist\": {\"types\": [],\"names\": []},\"dump_stats_path\": \"$1/$2/$3/inc_output\"}"
+    elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
+        block_names=$block_names_bf16_attn
+    elif [[ $model_name_lower == *"qwq-32b"* ]]; then
+        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fi
-    echo "$tmp_config" > $1/$2/maxabs_quant_$3.json
+    if [[ $model_name_lower == *"glm-4.5"* ]]; then
+        scale_format="const"
+        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+    fi
+
+    if [[ $scale_format == "const" ]]; then
+        export VLLM_DISABLE_MARK_SCALES_AS_CONST=true
+    fi
+
+    quant_config=$(cat <<EOF
+{
+    "mode": "QUANTIZE",
+    "observer": "maxabs",
+    "scale_method": "${scale_method}",
+    "scale_format": "${scale_format}",
+    "allowlist": {
+        "types": [],
+        "names": []
+    },
+    "blocklist": {
+        "types": ${block_types},
+        "names": ${block_names}
+    },
+    "dump_stats_path": "$1/$2/$3/inc_output",
+    "fp8_config": "${fp8_config}"
+}
+EOF
+)
+    echo "$quant_config" | jq . > $1/$2/maxabs_quant_$3.json
 }
 
 extract_last_folder_name() {
@@ -94,7 +156,7 @@ MULTI_NODE_SETUP=false
 USE_EP=""
 ENFORCE_EAGER=false
 
-while getopts "m:b:l:t:d:h:o:r:u:e" OPT; do
+while getopts "m:b:l:t:d:h:o:r:ue" OPT; do
     case ${OPT} in
         m )
             MODEL_PATH="$OPTARG"
@@ -117,9 +179,9 @@ while getopts "m:b:l:t:d:h:o:r:u:e" OPT; do
         r )
             RANK="$OPTARG"
             ;;
-	u )
-	    USE_EP="--use_expert_paral"
-	    ;;
+        u )
+            USE_EP="--use_expert_paral"
+            ;;
         e ) 
             ENFORCE_EAGER=true
             ;;
@@ -133,7 +195,7 @@ while getopts "m:b:l:t:d:h:o:r:u:e" OPT; do
     esac
 done
 
-if [[ -z "$MODEL_PATH" && -z "$FP8_DIR" && -z "$DATASET_PATH_OR_NAME" ]]; then
+if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
     exit 1
@@ -203,11 +265,16 @@ fi
 
 
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
-    EXTRA_FLAGS_STEP_2+="--block-quant --expert-parallel "
+    EXTRA_FLAGS_STEP_2+="--load-fp8-weights --expert-parallel "
     EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_3+="--deepseek "
     EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
-    EXTRA_FLAGS_STEP_4+="--block-quant --expert-parallel "
+    EXTRA_FLAGS_STEP_4+="--load-fp8-weights --expert-parallel "
+fi
+
+if  [[ "$model_name_lower" == *"glm-4.5"* ]]; then
+    EXTRA_FLAGS_STEP_2+="--load-fp8-weights --expert-parallel "
+    EXTRA_FLAGS_STEP_4+="--load-fp8-weights --expert-parallel "
 fi
 
 # Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
