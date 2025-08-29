@@ -106,6 +106,11 @@ create_quant_config() {
         scale_format="const"
         block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fi
+
+    if [[ $scale_format == "const" ]]; then
+        export VLLM_DISABLE_MARK_SCALES_AS_CONST=true
+    fi
+
     quant_config=$(cat <<EOF
 {
     "mode": "QUANTIZE",
