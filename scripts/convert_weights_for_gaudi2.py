@@ -10,7 +10,7 @@ import argparse
 FP8_MAX = torch.finfo(torch.float8_e4m3fnuz).max
 
 
-def calc_maxabs_scale(xmaxabs, fullscale, backoff=1):
+def calc_maxabs_scale(xmaxabs, fullscale, backoff=1.0):
     scale = xmaxabs / (fullscale * backoff)
     return scale
 
@@ -82,14 +82,20 @@ def convert_files(input_path, output_path):
                 tensor = tensor_file.get_tensor(k)
                 if "proj" in k:
                     if k.endswith("weight"):
-                        tensor = (tensor.float() * 0.5).to(
+                        tensor = (tensor.float() * 240.0 / 448.0).to(
                             torch.float8_e4m3fn
                         )
+                    elif k.endswith("weight_scale") or k.endswith(
+                        "input_scale"
+                    ):
+                        tensor = tensor.float() * 448.0 / 240.0
                     elif k.endswith("weight_scale_inv") or k.endswith(
                         "input_scale_inv"
                     ):
                         # "scale_inv" in deepseek-r1 is actually "scale"
-                        tensor = tensor.float() * 2
+                        tensor = tensor.float() * 448.0 / 240.0
+                    elif tensor.dtype == torch.bfloat16:
+                        print(f"skip converting {k} as it is bfloat16")
                     else:
                         raise NotImplementedError(f"Cannot covert {k}")
                 else:
