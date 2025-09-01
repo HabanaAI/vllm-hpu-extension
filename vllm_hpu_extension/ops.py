@@ -499,15 +499,33 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
 
     def _get_extra_kwargs(self, tokens_num: int):
         if self.enable_moe_chunk:
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
+            min_chunk_size = self.chunk_size_list[0]
+            max_chunk_size = self.chunk_size_list[-1]
+            if tokens_num <= min_chunk_size:
+                chunk_size = min_chunk_size
+            elif tokens_num > max_chunk_size:
+                chunk_size = max_chunk_size
             else:
-                chunk_size = 512
+                # handle sub_chunk_size
+                chunk_size = max_chunk_size
+                for i in range(len(self.chunk_size_list) - 1):
+                    if(
+                       self.chunk_size_list[i]
+                       < tokens_num <=
+                       self.chunk_size_list[i + 1]
+                    ):
+                        chunk_size = self.chunk_size_list[i + 1]
+                        break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -951,15 +969,33 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
+        if self.enable_moe_chunk:
+            min_chunk_size = self.chunk_size_list[0]
+            max_chunk_size = self.chunk_size_list[-1]
+            if tokens_num <= min_chunk_size:
+                chunk_size = min_chunk_size
+            elif tokens_num > max_chunk_size:
+                chunk_size = max_chunk_size
             else:
-                chunk_size = 512
+                # handle sub_chunk_size
+                chunk_size = max_chunk_size
+                for i in range(len(self.chunk_size_list) - 1):
+                    if(
+                       self.chunk_size_list[i]
+                       < tokens_num <=
+                       self.chunk_size_list[i + 1]
+                    ):
+                        chunk_size = self.chunk_size_list[i + 1]
+                        break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -1020,15 +1056,33 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
+        if self.enable_moe_chunk:
+            min_chunk_size = self.chunk_size_list[0]
+            max_chunk_size = self.chunk_size_list[-1]
+            if tokens_num <= min_chunk_size:
+                chunk_size = min_chunk_size
+            elif tokens_num > max_chunk_size:
+                chunk_size = max_chunk_size
             else:
-                chunk_size = 512
+                # handle sub_chunk_size
+                chunk_size = max_chunk_size
+                for i in range(len(self.chunk_size_list) - 1):
+                    if(
+                       self.chunk_size_list[i]
+                       < tokens_num <=
+                       self.chunk_size_list[i + 1]
+                    ):
+                        chunk_size = self.chunk_size_list[i + 1]
+                        break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
