@@ -533,7 +533,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
             kwargs = {}
         return kwargs
 
-
     def forward(self,
                 hidden_states,
                 expert_routing_table,
@@ -1088,7 +1087,6 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         else:
             kwargs = {}
         return kwargs
-
 
     def forward(
         self,
