@@ -509,7 +509,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.token_boundary_list = [
             int(x)
             for x in os.environ.get(
-                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,64,1536,1536,2048,2048,4096"
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
             ).split(",")
             if x.strip()
         ]
@@ -978,7 +978,7 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.token_boundary_list = [
             int(x)
             for x in os.environ.get(
-                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,64,1536,1536,2048,2048,4096"
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
             ).split(",")
             if x.strip()
         ]
@@ -1064,7 +1064,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.token_boundary_list = [
             int(x)
             for x in os.environ.get(
-                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,64,1536,1536,2048,2048,4096"
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
             ).split(",")
             if x.strip()
         ]
