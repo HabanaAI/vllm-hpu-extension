@@ -6,8 +6,6 @@
 set -e
 cd "$(dirname "$0")"
 
-ALLOWED_DEVICES=("g2" "g3")
-
 usage() {
     echo
     echo "Calibrate given MODEL_PATH for FP8 inference"
@@ -25,6 +23,48 @@ usage() {
     echo "  -e    - set this flag to enable enforce_eager execution"
     echo
 }
+
+while getopts "m:d:o:b:l:t:r:ueh" OPT; do
+    case ${OPT} in
+        m )
+            MODEL_PATH="$OPTARG"
+            ;;
+        d )
+            DATASET_PATH_OR_NAME="$OPTARG"
+            ;;
+        o )
+            FP8_DIR=$(realpath "$OPTARG")
+            ;;
+        b )
+            BATCH_SIZE="$OPTARG"
+            ;;
+        l )
+            LIMIT="$OPTARG"
+            ;;
+        t )
+            TP_SIZE="$OPTARG"
+            ;;
+        r )
+            RANK="$OPTARG"
+            ;;
+        u )
+            USE_EP="true"
+            ;;
+        e ) 
+            ENFORCE_EAGER="true"
+            ;;
+        h )
+            usage
+            exit
+            ;;
+        \? )
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+ALLOWED_DEVICES=("g2" "g3")
 
 cleanup_tmp() {
 	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
@@ -155,45 +195,6 @@ MULTI_NODE_SETUP=false
 
 USE_EP=""
 ENFORCE_EAGER=false
-
-while getopts "m:b:l:t:d:h:o:r:ue" OPT; do
-    case ${OPT} in
-        m )
-            MODEL_PATH="$OPTARG"
-            ;;
-        d )
-            DATASET_PATH_OR_NAME="$OPTARG"
-            ;;
-        b )
-            BATCH_SIZE="$OPTARG"
-            ;;
-        o )
-            FP8_DIR=$(realpath "$OPTARG")
-            ;;
-        l )
-            LIMIT="$OPTARG"
-            ;;
-        t )
-            TP_SIZE="$OPTARG"
-            ;;
-        r )
-            RANK="$OPTARG"
-            ;;
-        u )
-            USE_EP="true"
-            ;;
-        e ) 
-            ENFORCE_EAGER=true
-            ;;
-        h )
-            usage
-            ;;
-        \? )
-            usage
-            exit 1
-            ;;
-    esac
-done
 
 if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
