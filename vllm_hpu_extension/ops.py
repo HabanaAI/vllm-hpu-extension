@@ -67,7 +67,9 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, blo
         if sink is not None:
             combined_logits = torch.cat([attn, sink], dim=-1)
             attn = combined_logits
-        block_max = attn.amax(dim=-1, keepdim=True)
+        block_max = torch.flatten(attn, start_dim=0, end_dim=-2).amax(dim=-1, keepdim=True)
+        shape = attn.shape
+        block_max = block_max.reshape(shape[0], shape[1], shape[2], shape[3], block_max.shape[1])
         attn = attn.sub(block_max)
         attn = attn.exp()
         if attn.dtype == torch.float32:
