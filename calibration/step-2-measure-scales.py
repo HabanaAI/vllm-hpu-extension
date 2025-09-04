@@ -34,7 +34,7 @@ def get_dataset(args):
     def get_prompt_token_ids(model_path, prompts, max_length=1024):
         from transformers import AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         prompt_token_ids = []
         for prompt in prompts:
             tokens = tokenizer(
@@ -128,7 +128,6 @@ if __name__ == "__main__":
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--max-dataset-samples", type=int, default=0)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
-    parser.add_argument("--load-fp8-weights", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument(
         "--auto-process-dataset",
@@ -151,7 +150,6 @@ if __name__ == "__main__":
         model=args.model,
         dtype=torch.bfloat16,
         enforce_eager=args.enforce_eager,
-        quantization=None if args.load_fp8_weights else "inc",
         max_num_seqs=args.batch_size,
         tensor_parallel_size=args.tensor_parallel_size,
         max_model_len=args.max_model_len,

@@ -16,7 +16,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
-    parser.add_argument("--load-fp8-weights", action="store_true", default=False)
     parser.add_argument("--enforce-eager", action="store_true", default=False)
     parser.add_argument("--expert-parallel", action="store_true", default=False)
     parser.add_argument("--max-num-prefill-seqs", type=int, default=None)
@@ -30,8 +29,6 @@ if __name__ == "__main__":
         tensor_parallel_size=args.tensor_parallel_size,
         enforce_eager=args.enforce_eager,
         dtype=torch.bfloat16,
-        quantization=None if args.load_fp8_weights else "inc",
-        kv_cache_dtype="fp8_inc",
         max_num_prefill_seqs=args.max_num_prefill_seqs,
         max_model_len=128,
         trust_remote_code=True,
