@@ -499,15 +499,32 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        self.token_boundary_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        assert len(self.chunk_size_list) == len(self.token_boundary_list), (
+            f"chunk_size_list({len(self.chunk_size_list)}) and "
+            f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
+        )
 
     def _get_extra_kwargs(self, tokens_num: int):
         if self.enable_moe_chunk:
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -951,15 +968,32 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        self.token_boundary_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        assert len(self.chunk_size_list) == len(self.token_boundary_list), (
+            f"chunk_size_list({len(self.chunk_size_list)}) and "
+            f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
+        )
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+        if self.enable_moe_chunk:
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -1020,15 +1054,32 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_CHUNK", "64,128,512,1024,1536,2048,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        self.token_boundary_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_TOKEN_BOUNDARY", "64,128,1536,1736,2048,3072,4096"
+            ).split(",")
+            if x.strip()
+        ]
+        assert len(self.chunk_size_list) == len(self.token_boundary_list), (
+            f"chunk_size_list({len(self.chunk_size_list)}) and "
+            f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
+        )
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+        if self.enable_moe_chunk:
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
