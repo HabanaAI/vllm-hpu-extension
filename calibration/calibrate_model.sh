@@ -6,8 +6,6 @@
 set -e
 cd "$(dirname "$0")"
 
-ALLOWED_DEVICES=("g2" "g3")
-
 usage() {
     echo
     echo "Calibrate given MODEL_PATH for FP8 inference"
@@ -21,10 +19,52 @@ usage() {
     echo "  -l    - limit number of samples in calibration dataset"
     echo "  -t    - tensor parallel size to run at (default: 1); NOTE: if t > 8 then we need a multi-node setup"
     echo "  -r    - rank of unified measurements, it should be smaller than original rank number and should be a factor of the original rank number"
-    echo "  -u    - unify measurement results based on expert parallelism rules (default: False), expert parallelism unification rule is unique, card 1 expert measurement will be extended to card 0 if unified to x from 2x cards number"
+    echo "  -u    - use expert parallelism (default: False), expert parallelism unification rule is unique, card 1 expert measurement will be extended to card 0 if unified to x from 2x cards number"
     echo "  -e    - set this flag to enable enforce_eager execution"
     echo
 }
+
+while getopts "m:d:o:b:l:t:r:ueh" OPT; do
+    case ${OPT} in
+        m )
+            MODEL_PATH="$OPTARG"
+            ;;
+        d )
+            DATASET_PATH_OR_NAME="$OPTARG"
+            ;;
+        o )
+            FP8_DIR=$(realpath "$OPTARG")
+            ;;
+        b )
+            BATCH_SIZE="$OPTARG"
+            ;;
+        l )
+            LIMIT="$OPTARG"
+            ;;
+        t )
+            TP_SIZE="$OPTARG"
+            ;;
+        r )
+            RANK="$OPTARG"
+            ;;
+        u )
+            USE_EP="true"
+            ;;
+        e ) 
+            ENFORCE_EAGER="true"
+            ;;
+        h )
+            usage
+            exit
+            ;;
+        \? )
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+ALLOWED_DEVICES=("g2" "g3")
 
 cleanup_tmp() {
 	if [[ $(pwd) == *vllm-hpu-extension/calibration ]]; then
@@ -156,45 +196,6 @@ MULTI_NODE_SETUP=false
 USE_EP=""
 ENFORCE_EAGER=false
 
-while getopts "m:b:l:t:d:h:o:r:ue" OPT; do
-    case ${OPT} in
-        m )
-            MODEL_PATH="$OPTARG"
-            ;;
-        d )
-            DATASET_PATH_OR_NAME="$OPTARG"
-            ;;
-        b )
-            BATCH_SIZE="$OPTARG"
-            ;;
-        o )
-            FP8_DIR=$(realpath "$OPTARG")
-            ;;
-        l )
-            LIMIT="$OPTARG"
-            ;;
-        t )
-            TP_SIZE="$OPTARG"
-            ;;
-        r )
-            RANK="$OPTARG"
-            ;;
-        u )
-            USE_EP="--use_expert_paral"
-            ;;
-        e ) 
-            ENFORCE_EAGER=true
-            ;;
-        h )
-            usage
-            ;;
-        \? )
-            usage
-            exit 1
-            ;;
-    esac
-done
-
 if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
     echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
     usage
@@ -263,19 +264,15 @@ else
     SKIP_STEP_1=true
 fi
 
+if [[ "$USE_EP" == "true" ]]; then
+    EXTRA_FLAGS_STEP_2+="--expert-parallel "
+    EXTRA_FLAGS_STEP_4+="--expert-parallel "
+fi
 
 if  [[ "$model_name_lower" == *"deepseek"* ]]; then
-    EXTRA_FLAGS_STEP_2+="--load-fp8-weights --expert-parallel "
-    EXTRA_ENVS_STEP_2="VLLM_HPU_FORCE_CHANNEL_FP8=0"
     EXTRA_FLAGS_STEP_3+="--deepseek "
-    EXTRA_ENVS_STEP_4="VLLM_HPU_FORCE_CHANNEL_FP8=0"
-    EXTRA_FLAGS_STEP_4+="--load-fp8-weights --expert-parallel "
 fi
 
-if  [[ "$model_name_lower" == *"glm-4.5"* ]]; then
-    EXTRA_FLAGS_STEP_2+="--load-fp8-weights --expert-parallel "
-    EXTRA_FLAGS_STEP_4+="--load-fp8-weights --expert-parallel "
-fi
 
 # Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
 if $SKIP_STEP_1; then
@@ -345,7 +342,10 @@ if [[ -n $RANK ]]; then
     echo ""
     echo "5/5 Unify scales"
     QUANT_DIR=$FP8_DIR/$MODEL_NAME/$DEVICE_TYPE/
-    python3 step-5-unify_measurements.py -r $RANK -m $QUANT_DIR -o $QUANT_DIR $USE_EP || (echo "Error in step 5" && exit 1)
+    if [[ "$USE_EP" == "true" ]]; then
+        EP_ARG="--use_expert_paral"
+    fi
+    python3 step-5-unify_measurements.py -r $RANK -m $QUANT_DIR -o $QUANT_DIR $EP_ARG || (echo "Error in step 5" && exit 1)
     echo "Step 5/5 done"
 fi
 cleanup_tmp
