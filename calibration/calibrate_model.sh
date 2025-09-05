@@ -114,37 +114,37 @@ create_quant_config() {
     
     scale_method="maxabs_hw"
     block_types="[\"Softmax\"]"
-    block_names="[]"
+    block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fp8_config="E4M3"
     scale_format="scalar"
-    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
+    block_types_bf16_attn="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"self_attn\"]"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
         scale_method="unit_scale"
-        block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
-        block_names="[\"fused_scaled_dot_product_attention\"]"
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower =~ ^mixtral ]]; then
         scale_format="const"
-        block_names="[\"self_attn\", \"lm_head\"]"
-    elif [[ $model_name_lower == *"qwen3"* ]]; then
-        # qwen3 models that using fp8 attention and kv-cache
-        if [[ $model_name_lower == *"qwen3-32b"* \
-            || $model_name_lower == *"qwen3-30b-a3b"* \
-            ]]; then
-            block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
-        else
-            # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
-            block_names=$block_names_bf16_attn
-        fi
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
         block_names=$block_names_bf16_attn
-    elif [[ $model_name_lower == *"qwq-32b"* ]]; then
-        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+    elif [[ $model_name_lower == *"qwen3"* && $model_name_lower != *"qwen3-32b"* ]]; then
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
+        if [[ $model_name_lower == *"qwen3-30b-a3b"* \
+            || $model_name_lower == *"qwen3-235b-a22b"* \
+            ]]; then
+            scale_format="const"
     fi
+    fi
+    
     if [[ $model_name_lower == *"glm-4.5"* ]]; then
         scale_format="const"
-        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     fi
 
     if [[ $scale_format == "const" ]]; then
