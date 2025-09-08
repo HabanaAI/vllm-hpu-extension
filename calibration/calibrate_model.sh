@@ -64,6 +64,19 @@ while getopts "m:d:o:b:l:t:r:ueh" OPT; do
     esac
 done
 
+
+if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
+    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
+    usage
+    exit 1
+fi
+BATCH_SIZE=${BATCH_SIZE:-"32"}
+LIMIT=${LIMIT:-""}
+TP_SIZE=${TP_SIZE:-"1"}
+RANK=${RANK:-""}
+USE_EP=${USE_EP:-""}
+ENFORCE_EAGER=${ENFORCE_EAGER:-"false"}
+
 ALLOWED_DEVICES=("g2" "g3")
 
 cleanup_tmp() {
@@ -189,18 +202,7 @@ EXTRA_FLAGS_STEP_1=""
 EXTRA_FLAGS_STEP_2=""
 EXTRA_FLAGS_STEP_3=""
 EXTRA_FLAGS_STEP_4=""
-BATCH_SIZE=32
-TP_SIZE=1
-MULTI_NODE_SETUP=false
-
-USE_EP=""
-ENFORCE_EAGER=false
-
-if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
-    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
-    usage
-    exit 1
-fi
+MULTI_NODE_SETUP="false"
 
 # Store the provided MODEL_PATH name in a variable
 MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
