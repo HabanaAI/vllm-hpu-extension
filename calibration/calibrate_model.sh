@@ -64,6 +64,19 @@ while getopts "m:d:o:b:l:t:r:ueh" OPT; do
     esac
 done
 
+
+if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
+    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
+    usage
+    exit 1
+fi
+BATCH_SIZE=${BATCH_SIZE:-"32"}
+LIMIT=${LIMIT:-""}
+TP_SIZE=${TP_SIZE:-"1"}
+RANK=${RANK:-""}
+USE_EP=${USE_EP:-""}
+ENFORCE_EAGER=${ENFORCE_EAGER:-"false"}
+
 ALLOWED_DEVICES=("g2" "g3")
 
 cleanup_tmp() {
@@ -114,37 +127,37 @@ create_quant_config() {
     
     scale_method="maxabs_hw"
     block_types="[\"Softmax\"]"
-    block_names="[]"
+    block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fp8_config="E4M3"
     scale_format="scalar"
-    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"k_cache\", \"v_cache\", \"matmul_av\", \"matmul_qk\", \"batch2block_matmul\", \"block2batch_matmul\", \"fused_scaled_dot_product_attention\", \"softmax\"]"
+    block_types_bf16_attn="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"self_attn\"]"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
         scale_method="unit_scale"
-        block_types="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
-        block_names="[\"fused_scaled_dot_product_attention\"]"
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower =~ ^mixtral ]]; then
         scale_format="const"
-        block_names="[\"self_attn\", \"lm_head\"]"
-    elif [[ $model_name_lower == *"qwen3"* ]]; then
-        # qwen3 models that using fp8 attention and kv-cache
-        if [[ $model_name_lower == *"qwen3-32b"* \
-            || $model_name_lower == *"qwen3-30b-a3b"* \
-            ]]; then
-            block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
-        else
-            # scale_format="const"  # for faster warmup as the graphs could be shared among the decode layers
-            block_names=$block_names_bf16_attn
-        fi
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
         block_names=$block_names_bf16_attn
-    elif [[ $model_name_lower == *"qwq-32b"* ]]; then
-        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+    elif [[ $model_name_lower == *"qwen3"* && $model_name_lower != *"qwen3-32b"* ]]; then
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
+        if [[ $model_name_lower == *"qwen3-30b-a3b"* \
+            || $model_name_lower == *"qwen3-235b-a22b"* \
+            ]]; then
+            scale_format="const"
     fi
+    fi
+    
     if [[ $model_name_lower == *"glm-4.5"* ]]; then
         scale_format="const"
-        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     fi
 
     if [[ $scale_format == "const" ]]; then
@@ -189,18 +202,7 @@ EXTRA_FLAGS_STEP_1=""
 EXTRA_FLAGS_STEP_2=""
 EXTRA_FLAGS_STEP_3=""
 EXTRA_FLAGS_STEP_4=""
-BATCH_SIZE=32
-TP_SIZE=1
-MULTI_NODE_SETUP=false
-
-USE_EP=""
-ENFORCE_EAGER=false
-
-if [[ -z "$MODEL_PATH" || -z "$FP8_DIR" || -z "$DATASET_PATH_OR_NAME" ]]; then
-    echo "Model stub, source dataset path and output path for fp8 measurements must be provided."
-    usage
-    exit 1
-fi
+MULTI_NODE_SETUP="false"
 
 # Store the provided MODEL_PATH name in a variable
 MODEL_NAME=$(extract_last_folder_name "$MODEL_PATH")
