@@ -131,7 +131,7 @@ class HPUBucketingManager():
             new_seq_len = math.ceil(seq_len / self.slice_size) * self.slice_size
         else:
             new_seq_len = min(calc_fallback_value(seq_len, self.fallback_seq_base_step),
-                          self.max_num_batched_tokens)
+                          self.max_num_batched_tokens, self.max_model_len)
 
         if self.num_hpu_blocks is None:
             new_ctx = 0
