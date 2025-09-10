@@ -1,0 +1,1 @@
+{"method": "HOOKS","mode": "MEASURE","observer": "maxabs","allowlist": {"types": [], "names":  []},"blocklist": {"types": [], "names":  []},"quantize_weight": false,"dump_stats_path": "/data/workspace/nazneen/vllm-hpu-extension/calibration/measurement/deepseek-r1-distill-llama-70b/g2/inc_output"}
