@@ -1,6 +1,7 @@
 import itertools
 import operator
 import os
+import copy
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
@@ -87,9 +88,11 @@ class HPUBucketingContext(metaclass=Singleton):
         msg = f"Omitted prompt buckets: {list(sorted(prompt_omitted_buckets))}"
         print(msg)
 
-    def generate_decode_buckets(self, max_blocks):
+    def generate_decode_buckets(self, max_blocks, num_speculative_tokens = 0):
+        decode_bs_bucket_cfg = copy.deepcopy(self.global_state.decode_bs_bucket_cfg)
+        decode_bs_bucket_cfg[2] = self.global_state.decode_bs_bucket_cfg[2] * (num_speculative_tokens + 1)
         self.global_state.decode_buckets = generate_decode_buckets(
-            self.global_state.decode_bs_bucket_cfg,
+            decode_bs_bucket_cfg,
             self.global_state.decode_block_bucket_cfg, max_blocks)
         print(f"Generated {len(self.global_state.decode_buckets)} "
               f"decode buckets [bs, total_blocks]: "
