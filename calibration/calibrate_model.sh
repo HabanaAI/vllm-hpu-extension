@@ -159,7 +159,7 @@ create_quant_config() {
     if [[ $model_name_lower == *"glm-4.5"* ]]; then
         scale_format="const"
         block_types="$block_types_bf16_attn"
-        block_names="$block_names_bf16_attn"
+        block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
     fi
 
     if [[ $scale_format == "const" ]]; then
