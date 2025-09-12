@@ -135,6 +135,7 @@ create_quant_config() {
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
+        export VLLM_FP32_SOFTMAX=true
         scale_method="unit_scale"
         block_types="$block_types_bf16_attn"
         block_names="$block_names_bf16_attn"
