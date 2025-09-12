@@ -826,6 +826,7 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
 
 def fp8_channel_moe_prepare_weights(layer):
     for index in range(layer.moe_op.num_experts):
+        # breakpoint()
         layer.moe_op.w13_list[index].set_weight(layer.w13_weight[index])
         if hasattr(layer, "w13_weight_scale_inv"):
             layer.moe_op.w13_list[index].set_scale_inv_fp8(
@@ -1015,7 +1016,6 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
         w13_weight_scale = [self.w13_list[i].scale_inv_fp8.squeeze() for i in experts_range]
         w2_weight_scale = [self.w2_list[i].scale_inv_fp8.squeeze() for i in experts_range]
-       
         if self.w13_input_scale is None:
             x_fp8, x_scale = dynamic_quant(x)
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
@@ -1035,16 +1035,21 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale =  self.w2_input_scale.data
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
+            # FIXME: (Yi) refine
+            w13_weight_scale = [k.to(x.dtype) for k in w13_weight_scale]
+            w2_weight_scale = [k.to(x.dtype) for k in w2_weight_scale]
+            w2_input_scale = [k.to(x.dtype) for k in w2_input_scale]
+            htorch.core.mark_step()
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
                                     expert_routing_table=topk_ids.to(torch.int64),
                                     router_weights=topk_weights.to(x.dtype),
                                     w12=w13_list,
                                     w3=w2_list,
-                                    d_scale_hidden_states=x_scale,
-                                    d_scale_intermediate_hidden_states=w2_input_scale,
                                     d_scale_w12=w13_weight_scale,
                                     d_scale_w3=w2_weight_scale,
+                                    d_scale_hidden_states=x_scale,
+                                    d_scale_intermediate_hidden_states=w2_input_scale,
                                     permuted_weights=permuted_weights,
                                     activation=activation,
                                     experts_min=self.experts_min,
