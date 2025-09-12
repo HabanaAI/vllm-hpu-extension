@@ -144,7 +144,8 @@ create_quant_config() {
         block_types="$block_types_bf16_attn"
         block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower == *"deepseek-r1-distill-llama-8b"* ]]; then
-        block_names=$block_names_bf16_attn
+        block_types="$block_types_bf16_attn"
+        block_names="$block_names_bf16_attn"
     elif [[ $model_name_lower == *"qwen3"* && $model_name_lower != *"qwen3-32b"* ]]; then
         block_types="$block_types_bf16_attn"
         block_names="$block_names_bf16_attn"
@@ -152,7 +153,7 @@ create_quant_config() {
             || $model_name_lower == *"qwen3-235b-a22b"* \
             ]]; then
             scale_format="const"
-    fi
+        fi
     fi
     
     if [[ $model_name_lower == *"glm-4.5"* ]]; then
