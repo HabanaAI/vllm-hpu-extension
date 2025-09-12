@@ -131,7 +131,7 @@ create_quant_config() {
     fp8_config="E4M3"
     scale_format="scalar"
     block_types_bf16_attn="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
-    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"self_attn\"]"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"fused_scaled_dot_product_attention\"]"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
