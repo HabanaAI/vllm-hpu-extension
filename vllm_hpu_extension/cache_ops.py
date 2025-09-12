@@ -17,15 +17,32 @@ def insert_or_update_cache(input, cache, block_indices, block_offsets):
     else:
         cache.index_put_((block_indices, block_offsets), input)
 
-def swap_blocks(src, dst, block_mapping):
-    if block_mapping.numel() == 0:
+def swap_blocks_hpu_cpu(src: torch.Tensor, dst: torch.Tensor, block_mapping_t: torch.Tensor):
+    if src is None or dst is None or block_mapping_t.numel() == 0:
         return
 
-    block_mapping = block_mapping.transpose(0, 1)
-    src_indices = block_mapping[0]
-    dst_indices = block_mapping[1]
+    if src.device != dst.device:
+        src = src.to(dst.device)
+        htorch.core.mark_step()
+        torch.hpu.synchronize()
 
-    dst.index_put_(dst_indices, src.index_select(0, src_indices))
+    src_indices = block_mapping_t[0]
+    dst_indices = block_mapping_t[1]
+
+    dst.index_copy_(0, dst_indices, src.index_select(0, src_indices))
+
+def swap_blocks(src, dst, block_mapping):
+    if block_mapping.numel() == 0 or dst is None or src is None:
+        return
+
+    block_mapping_t = block_mapping.transpose(0, 1)
+    src_indices = block_mapping_t[0]
+    dst_indices = block_mapping_t[1]
+
+    if src.device != dst.device:
+        swap_blocks_hpu_cpu(src, dst, block_mapping_t)
+    else:
+        dst.index_put_(dst_indices, src.index_select(0, src_indices))
 
     htorch.core.mark_step()
     torch.hpu.synchronize()
