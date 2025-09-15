@@ -1034,10 +1034,8 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale =  self.w2_input_scale.data
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
-            # FIXME: (Yi) refine
-            w13_weight_scale = [k.to(x.dtype) for k in w13_weight_scale]
-            w2_weight_scale = [k.to(x.dtype) for k in w2_weight_scale]
-            w2_input_scale = [k.to(x.dtype) for k in w2_input_scale]
+            # Note(Yi): pass a list instead of tensor to moe
+            w2_input_scale = [k for k in w2_input_scale]
             htorch.core.mark_step()
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
