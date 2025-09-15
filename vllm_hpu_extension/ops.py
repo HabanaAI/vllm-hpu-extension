@@ -826,7 +826,6 @@ def fp8_block_moe_prepare_weights(layer, force_channel_fp8=False):
 
 def fp8_channel_moe_prepare_weights(layer):
     for index in range(layer.moe_op.num_experts):
-        # breakpoint()
         layer.moe_op.w13_list[index].set_weight(layer.w13_weight[index])
         if hasattr(layer, "w13_weight_scale_inv"):
             layer.moe_op.w13_list[index].set_scale_inv_fp8(
