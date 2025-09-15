@@ -849,11 +849,12 @@ def fp8_channel_moe_prepare_weights(layer):
         else:
             weight_scale_inv = torch.ones(layer.w2_weight[index].shape[:-1], dtype=torch.bfloat16, device=layer.w2_weight[index].device)
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
-            
+
+    high_precision = layer.moe_op.w2_list[0].high_precision
     if hasattr(layer, "w13_input_scale"):
-        layer.moe_op.w13_input_scale = layer.w13_input_scale
+        layer.moe_op.w13_input_scale = layer.w13_input_scale.to(dtype=high_precision)
     if hasattr(layer, "w2_input_scale"):
-        layer.moe_op.w2_input_scale = layer.w2_input_scale
+        layer.moe_op.w2_input_scale = layer.w2_input_scale.to(dtype=high_precision)
 
     htorch.core.mark_step()
     return layer
@@ -873,7 +874,7 @@ class MoeFP8Matmul(torch.nn.Module):
         self.weight = w
 
     def set_scale_inv_fp8(self, scale_inv_fp8: torch.Tensor):
-        self.scale_inv_fp8 = scale_inv_fp8
+        self.scale_inv_fp8 = scale_inv_fp8.to(dtype=self.high_precision)
 
     def set_high_precision(self, high_precision=torch.bfloat16):
         self.high_precision = high_precision
@@ -1034,9 +1035,8 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale =  self.w2_input_scale.data
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
-            # Note(Yi): pass a list instead of tensor to moe
+            # Note: pass a list of w2 scale instead of tensor to moe op
             w2_input_scale = [k for k in w2_input_scale]
-            htorch.core.mark_step()
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
                                     expert_routing_table=topk_ids.to(torch.int64),
