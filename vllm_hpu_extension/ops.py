@@ -166,16 +166,20 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias, block_groups, block_size, scale, matmul_qk_op,
             position_bias, matmul_av_op, batch2block_matmul_op,
             block2batch_matmul_op, keys_fetch_func, values_fetch_func,
-            sinks, **ignored_args):
+            sinks, sliding_window, **ignored_args):
     batch_size, _, hidden_size = query.shape
     _, kv_heads, head_size = key_cache.shape
     q_heads = hidden_size // head_size
 
     query_shape = (-1, q_heads, 1, head_size)
     query = batch2block(scale * query, block_mapping, batch2block_matmul_op).view(query_shape)
-    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
-    value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list).transpose(1, 2)
+    key = keys_fetch_func(key_cache.unflatten(0, (-1, block_size)), block_list, sliding_window).transpose(1, 2)
+    value = values_fetch_func(value_cache.unflatten(0, (-1, block_size)), block_list, sliding_window).transpose(1, 2)
+    print('block bias shape', block_bias.shape)
+    print('key shape', key.shape)
+    print('block list', block_list)
     block_bias = block_bias.view(key.size(0), 1, 1, -1)
+    print('block bias view shape', block_bias.shape)
     sink = None
     if sinks is not None:
         # sink = sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)

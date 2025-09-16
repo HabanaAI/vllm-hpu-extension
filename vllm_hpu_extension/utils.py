@@ -52,9 +52,12 @@ class VLLMKVCache(torch.nn.Module):
             cache.index_copy_(0, slot_mapping, input)
         return cache
 
-    def fetch_from_cache(self, cache, blocks):
+    def fetch_from_cache(self, cache, blocks, sliding_window=False):
         if self.use_contiguous_pa:
-            return cache[:blocks.size(0)]
+            if not sliding_window:
+                return cache[:blocks.size(0)]
+            else:
+                return cache.index_select(0, blocks)
         else:
             return cache.index_select(0, blocks)
 
