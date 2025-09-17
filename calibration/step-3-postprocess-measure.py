@@ -74,8 +74,6 @@ def unify_fsdpa_output_with_o_proj_input(json_data, args):
 
         if fsdpa_output != o_proj_input:
             json_data['Nodes'][fsdpa_key]['outputs'][0][0][0] = o_proj_input
-        fsdpa_output = json_data['Nodes'].get(fsdpa_key, {}).get('outputs')[0][0][0]
-        o_proj_input = json_data['Nodes'].get(o_proj_key, {}).get('inputs')[0][0][0]
 
     return json_data
 
