@@ -280,7 +280,7 @@ def main(args):
     args = parse_args(args)
     output_path = args.out
     if not os.path.exists(output_path):
-        os.mkdir(output_path)
+        os.makedirs(output_path)
     measurements_path = args.measurements
     groups = prepare_group_list(measurements_path, args.rank)
 
