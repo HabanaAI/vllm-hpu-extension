@@ -49,7 +49,7 @@ def block2batch(tensor, block_mapping, matmul_op=torch.matmul):
     return b2b_impl(tensor, block_mapping.t(), matmul_op)
 
 
-def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, block_size, batch_size,
+def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     fused_block_softmax_adjustment_requirements = get_config().fused_block_softmax_adjustment and attn.dtype != torch.float16
     # When fp32_softmax is enabled attn is left in fp32 after Q@K
@@ -64,19 +64,24 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, blo
     else:
         if block_bias is not None:
             attn.add_(block_bias)
+        block_max = attn.amax(dim=-1, keepdim=True)
         if sink is not None:
-            combined_logits = torch.cat([attn, sink], dim=-1)
-            attn = combined_logits
-        block_max = torch.flatten(attn, start_dim=0, end_dim=-2).amax(dim=-1, keepdim=True)
-        shape = attn.shape
-        block_max = block_max.reshape(shape[0], shape[1], shape[2], shape[3], block_max.shape[1])
+            block_max = torch.maximum(block_max, sink)
         attn = attn.sub(block_max)
         attn = attn.exp()
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
         block_sums = attn.sum(dim=-1, keepdim=True)
-    if sink is not None:
-        attn = attn[..., :-block_size]
+        if sink is not None:
+            attn_sink = sink.sub(block_max)
+            attn_sink = attn_sink.exp()
+            if attn_sink.dtype == torch.float32:
+                attn_sink = attn_sink.to(value.dtype)
+            #TODO: Removing this .sum and using attn_sink directly
+            #results in wrong output which does not make sense. 
+            #Looks like a Synapse issue, need to investigate further.
+            block_sums_sink = attn_sink.sum(dim=-1, keepdim=True)
+            block_sums = block_sums + block_sums_sink
     attn = matmul_av_op(attn, value)
     if fused_block_softmax_adjustment_requirements:
         out_shape = list(attn.shape[:3]) + [1] * (attn.dim() - 3)
@@ -179,6 +184,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
     sink = None
     if sinks is not None:
         # sink = sinks.reshape(1, -1, 1, 1).expand(query.shape[0], -1, query.shape[-2], -1)
+        sinks = sinks.reshape(sinks.shape[0], 1)
         sink = sinks.reshape(1, sinks.shape[0], 1, sinks.shape[1])
         sink = sink.expand(query.shape[0], -1, query.shape[-2], -1)
         if kv_heads != q_heads:
@@ -205,7 +211,7 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
         attn.add_(position_bias.unsqueeze(-2))
 
     attn = pipelined_pa(attn, value, block_bias, block_groups, block_mapping,
-                        sink, block_size, batch_size=batch_size, matmul_av_op=matmul_av_op,
+                        sink, batch_size=batch_size, matmul_av_op=matmul_av_op,
                         batch2block_matmul_op=batch2block_matmul_op, block2batch_matmul_op=block2batch_matmul_op)
     attn = block2batch(attn, block_mapping, block2batch_matmul_op)
     attn = attn.squeeze(-2)
