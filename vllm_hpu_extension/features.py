@@ -61,8 +61,7 @@ def get_features():
     bucketing_strategies = ['exponential_bucketing', 'linear_bucketing']
     features = [
         Value('fp32_alibi_biases', True, env_var='VLLM_ALIBI_USE_FLOAT32_BIASES'),
-        # May manually enable this flag for Qwen2 and Qwen2-MoE models to get better accuracy
-        Value('fp32_softmax', False, env_var='VLLM_FP32_SOFTMAX'),
+        Value('fp32_softmax', ModelType('qwen2')),
         Value('fused_block_softmax_adjustment', All(VersionRange(">=1.22.0.494"),
                                                     Hardware('gaudi3'),
                                                     Kernel(block_softmax_adjustment),
