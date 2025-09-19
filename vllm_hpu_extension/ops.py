@@ -71,7 +71,8 @@ def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, sink, bat
         attn = attn.exp()
         if attn.dtype == torch.float32:
             attn = attn.to(value.dtype)
-        block_sums = attn.sum(dim=-1, keepdim=True)
+        attn_shape = attn.shape
+        block_sums = attn.view(-1,attn_shape[-1]).sum(dim=-1, keepdim=True).view(attn_shape[0],attn_shape[1],attn_shape[2],attn_shape[3],1)
         if sink is not None:
             attn_sink = sink.sub(block_max)
             attn_sink = attn_sink.exp()
