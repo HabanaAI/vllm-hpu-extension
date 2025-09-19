@@ -485,30 +485,29 @@ class MoeMatmul(torch.nn.Module):
     def forward(self, state, expert_id, w):
         raise NotImplementedError()
 
-def get_optimal_chunk_size(tokens_num: int):
-    if tokens_num <= 1536:
-        chunk_size = 64
-    elif tokens_num > 1536 and tokens_num <= 4096:
-        chunk_size = 256
-    else:
-        chunk_size = 512
+def get_optimal_chunk_size(tokens_num: int, chunk_size_config: str) -> int:
+    chunk_size = 512
+    if chunk_size_config.isdigit():
+        chunk_size = int(chunk_size_config)
+        if chunk_size <= 0:
+            raise ValueError("chunk size for MoE must be a positive integer.")
+    elif chunk_size_config.lower() == 'auto':
+        if tokens_num <= 1536:
+            chunk_size = 64
+        elif 1536 < tokens_num <= 4096:
+            chunk_size = 256
+        else:
+            chunk_size = 512
+    elif chunk_size_config is not None and chunk_size_config != 'None':
+        logger().error(
+            "VLLM_MOE_CHUNK_SIZE must be a positive integer or 'auto' instead of %s.",
+            chunk_size_config
+        )
     return chunk_size
 
-def get_extra_moe_kwargs(tokens_num: int, global_num_experts: int):
-    chunk_size = os.environ.get('VLLM_MOE_CHUNK_SIZE', '512')
-    if chunk_size.isdigit():
-        chunk_size = int(chunk_size)
-        if chunk_size <= 0:
-            raise ValueError("VLLM_MOE_CHUNK_SIZE must be a positive integer.")
-        kwargs = {"total_experts": global_num_experts, "chunk_size": chunk_size}
-        return kwargs
-    elif chunk_size.lower() == 'auto':
-        kwargs = {"total_experts": global_num_experts}
-        chunk_size = get_optimal_chunk_size(tokens_num)
-        kwargs["chunk_size"] = chunk_size
-        return kwargs
-    else:
-        raise ValueError("VLLM_MOE_CHUNK_SIZE must be a positive integer or 'auto'.")
+def get_extra_moe_kwargs(tokens_num: int, global_num_experts: int, chunk_size_config: str) -> dict:
+    return {"total_experts": global_num_experts,
+            "chunk_size": get_optimal_chunk_size(tokens_num, chunk_size_config)}
 
 class VllmMixtureOfExpertsOp(torch.nn.Module):
 
@@ -522,14 +521,10 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
-        self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
-                                                       'false').lower() == 'true'
+        self.chunk_size_config = str(get_config().get('VLLM_MOE_CHUNK_SIZE'))
 
     def _get_extra_kwargs(self, tokens_num: int):
-        kwargs = {"total_experts": self.global_num_experts}
-        if self.enable_moe_chunk:
-            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
-        return kwargs
+        return get_extra_moe_kwargs(tokens_num, self.global_num_experts, self.chunk_size_config)
 
     def forward(self,
                 hidden_states,
@@ -933,14 +928,10 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
-        self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
-                                                       'false').lower() == 'true'
+        self.chunk_size_config = str(get_config().get('VLLM_MOE_CHUNK_SIZE'))
 
     def _get_extra_kwargs(self, tokens_num: int):
-        kwargs = {"total_experts": self.global_num_experts}
-        if self.enable_moe_chunk:
-            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
-        return kwargs
+        return get_extra_moe_kwargs(tokens_num, self.global_num_experts, self.chunk_size_config)
 
     def forward(
         self,
@@ -992,14 +983,10 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
-        self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
-                                                       'false').lower() == 'true'
+        self.chunk_size_config = str(get_config().get('VLLM_MOE_CHUNK_SIZE'))
 
     def _get_extra_kwargs(self, tokens_num: int):
-        kwargs = {"total_experts": self.global_num_experts}
-        if self.enable_moe_chunk:
-            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
-        return kwargs
+        return get_extra_moe_kwargs(tokens_num, self.global_num_experts, self.chunk_size_config)
 
     def forward(
         self,
