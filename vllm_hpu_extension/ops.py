@@ -485,6 +485,30 @@ class MoeMatmul(torch.nn.Module):
     def forward(self, state, expert_id, w):
         raise NotImplementedError()
 
+def get_optimal_chunk_size(tokens_num: int):
+    if tokens_num <= 1536:
+        chunk_size = 64
+    elif tokens_num > 1536 and tokens_num <= 4096:
+        chunk_size = 256
+    else:
+        chunk_size = 512
+    return chunk_size
+
+def get_extra_moe_kwargs(tokens_num: int, global_num_experts: int):
+    chunk_size = os.environ.get('VLLM_MOE_CHUNK_SIZE', '512')
+    if chunk_size.isdigit():
+        chunk_size = int(chunk_size)
+        if chunk_size <= 0:
+            raise ValueError("VLLM_MOE_CHUNK_SIZE must be a positive integer.")
+        kwargs = {"total_experts": global_num_experts, "chunk_size": chunk_size}
+        return kwargs
+    elif chunk_size.lower() == 'auto':
+        kwargs = {"total_experts": global_num_experts}
+        chunk_size = get_optimal_chunk_size(tokens_num)
+        kwargs["chunk_size"] = chunk_size
+        return kwargs
+    else:
+        raise ValueError("VLLM_MOE_CHUNK_SIZE must be a positive integer or 'auto'.")
 
 class VllmMixtureOfExpertsOp(torch.nn.Module):
 
@@ -502,19 +526,9 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                                                        'false').lower() == 'true'
 
     def _get_extra_kwargs(self, tokens_num: int):
+        kwargs = {"total_experts": self.global_num_experts}
         if self.enable_moe_chunk:
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
-            kwargs = {
-                "chunk_size": chunk_size,
-                "total_experts": self.global_num_experts,
-            }
-        else:
-            kwargs = {}
+            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
         return kwargs
 
     def forward(self,
@@ -923,19 +937,9 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
                                                        'false').lower() == 'true'
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
-            kwargs = {
-                "chunk_size": chunk_size,
-                "total_experts": self.global_num_experts,
-            }
-        else:
-            kwargs = {}
+        kwargs = {"total_experts": self.global_num_experts}
+        if self.enable_moe_chunk:
+            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
         return kwargs
 
     def forward(
@@ -992,19 +996,9 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                                        'false').lower() == 'true'
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
-            kwargs = {
-                "chunk_size": chunk_size,
-                "total_experts": self.global_num_experts,
-            }
-        else:
-            kwargs = {}
+        kwargs = {"total_experts": self.global_num_experts}
+        if self.enable_moe_chunk:
+            kwargs["chunk_size"] = get_optimal_chunk_size(tokens_num)
         return kwargs
 
     def forward(
