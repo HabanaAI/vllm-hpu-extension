@@ -46,6 +46,38 @@ def fix_cache_inputs(json_data, args):
     return json_data
 
 
+def unify_fsdpa_output_with_o_proj_input(json_data, args):
+    """Due to the seperation of prefill and decoding modes, the output of fsdpa may differ with the input of o_proj, we need to fix that otherwise the accuracy may drop."""
+    layer_indexes = set([int(key.split('.')[2]) for key in json_data['Nodes'].keys() if key.startswith('model.layers.')])
+    for layer_index in range(len(layer_indexes)):
+        fsdpa_output = None
+        o_proj_input = None
+        
+        attn_name = "attn"
+        if args.deepseek:
+            attn_name = "mla_attn"
+
+        fsdpa_key = f'model.layers.{layer_index}.self_attn.{attn_name}.impl.fused_scaled_dot_product_attention'
+        o_proj_keys = [
+            f'model.layers.{layer_index}.self_attn.o_proj',  #Llama
+            f'model.layers.{layer_index}.self_attn.out_proj'  # OPT
+            f'model.layers.{layer_index}.self_attn.c_proj'  # Qwen
+        ]
+        for o_proj_key in o_proj_keys:
+            if o_proj_key in json_data['Nodes']:
+                break
+        if fsdpa_key not in json_data['Nodes'] or o_proj_key not in json_data['Nodes']:
+            continue
+
+        fsdpa_output = json_data['Nodes'].get(fsdpa_key, {}).get('outputs')[0][0][0]
+        o_proj_input = json_data['Nodes'].get(o_proj_key, {}).get('inputs')[0][0][0]
+
+        if fsdpa_output != o_proj_input:
+            json_data['Nodes'][fsdpa_key]['outputs'][0][0][0] = o_proj_input
+
+    return json_data
+
+
 def parse_args(args):
     parser = argparse.ArgumentParser(
         description="Run the measurements parser", formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -89,6 +121,7 @@ def main(args):
             with open(os.path.join(measurements_path, measurement), "r") as json_file:
                 data_to_fix = json.load(json_file)
                 fixed_data = fix_cache_inputs(data_to_fix, args)
+                fixed_data = unify_fsdpa_output_with_o_proj_input(fixed_data, args)
                 json.dump(fixed_data, fixed_json_file)
                 print("")
                 print("measurement=", measurement, flush=True)
