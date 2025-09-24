@@ -851,9 +851,9 @@ def fp8_channel_moe_prepare_weights(layer):
             layer.moe_op.w2_list[index].set_scale_inv_fp8(weight_scale_inv)
 
     high_precision = layer.moe_op.w2_list[0].high_precision
-    if hasattr(layer, "w13_input_scale"):
+    if hasattr(layer, "w13_input_scale") and layer.w13_input_scale is not None:
         layer.moe_op.w13_input_scale = layer.w13_input_scale.to(dtype=high_precision)
-    if hasattr(layer, "w2_input_scale"):
+    if hasattr(layer, "w2_input_scale") and layer.w2_input_scale is not None:
         layer.moe_op.w2_input_scale = layer.w2_input_scale.to(dtype=high_precision)
 
     htorch.core.mark_step()
