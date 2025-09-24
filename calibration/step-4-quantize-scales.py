@@ -37,6 +37,36 @@ if __name__ == "__main__":
         enable_expert_parallel=args.expert_parallel,
     )
 
+    prompts = [
+        "Hello, my name is",
+        "0.999 compares to 0.9 is ",
+        "The capital of France is",
+        "The future of AI is",
+    ]
+    from vllm import LLM, SamplingParams
+    # Create a sampling params object.
+    sampling_params = SamplingParams(
+        temperature=0, max_tokens=32, ignore_eos=True
+    )
+    import time
+    start = time.perf_counter()
+    outputs = llm.generate(prompts, sampling_params)
+    end = time.perf_counter()
+    print(f"e2e took {end - start} seconds")
+    gt = None
+    for output_i in range(len(outputs)):
+        output = outputs[output_i]
+        gt_i = None if gt is None else gt[output_i]
+        prompt = output.prompt
+        generated_text = output.outputs[0].text
+        gen_token_id = output.outputs[0].token_ids
+        print("====================================")
+        print(f"Prompt: {prompt!r}")
+        print(f"Generated text: {generated_text!r}")
+        print(f"Generated token: {gen_token_id!r}")
+        print(f"Ground truth: {gt_i!r}")
+        print("====================================")
+
     # Skip shutdown when VLLM_USE_V1 is set to "1"
     if not os.environ.get("VLLM_USE_V1") or os.environ.get("VLLM_USE_V1") != "1":
         llm.llm_engine.model_executor.shutdown()
