@@ -34,6 +34,15 @@ def dump(prefix, values):
             logger().info(f'{padding}{key}: {value}')
 
 
+def clear_config():
+    global RUNTIME_CONFIG, USER_FLAGS, EXPERIMENTAL_FLAGS, ENVIRONMENT_VALUES, FEATURE_VALUES
+    RUNTIME_CONFIG = None
+    USER_FLAGS = None
+    EXPERIMENTAL_FLAGS = None
+    ENVIRONMENT_VALUES = None
+    FEATURE_VALUES = None
+
+
 def get_config():
 
     global RUNTIME_CONFIG, USER_FLAGS, EXPERIMENTAL_FLAGS, ENVIRONMENT_VALUES, FEATURE_VALUES, HIDDEN_PARAMS
