@@ -35,6 +35,7 @@ if __name__ == "__main__":
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,
+        split_qkv=True,
     )
 
     # Skip shutdown when VLLM_USE_V1 is set to "1"

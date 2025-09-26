@@ -158,6 +158,7 @@ if __name__ == "__main__":
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,
+        split_qkv=True,
     )
 
     sampling_params = vllm.SamplingParams(
