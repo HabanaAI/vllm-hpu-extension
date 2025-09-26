@@ -91,9 +91,14 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     params = ['min', 'step', 'max', 'limit']
     env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
     default_values = [defaults[p] for p in params]
-    values = [
-        int(os.environ.get(e, d)) for e, d in zip(env_vars, default_values)
-    ]
+    values = []
+    for e, d in zip(env_vars, default_values):
+        value = os.environ.get(e, d)
+        if value.isdigit():
+            value = int(value)
+        else:
+            value = float(value)
+        values.append(value)
     for e, v, d in zip(env_vars, values, default_values):
         logger().info(f'{e}={v} (default:{d})')
     return values
