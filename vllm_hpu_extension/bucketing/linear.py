@@ -19,10 +19,10 @@ class LinearBucketingStrategy:
 
         prompt_bs_bucket_cfg = read_bucket_settings(
             'prompt', 'bs', min=1, step=32,
-            max=max_num_prefill_seqs)
+            max=max_num_prefill_seqs, limit=0.25)
         prompt_seq_bucket_cfg = read_bucket_settings(
             'prompt', 'seq', min=block_size,
-            step=block_size, max=max_prompt_seq)
+            step=block_size, max=max_prompt_seq, limit=0.25)
 
         if use_merged_prefill:
             prev_prompt_bs_bucket_cfg = tuple(prompt_bs_bucket_cfg)
@@ -63,10 +63,10 @@ class LinearBucketingStrategy:
 
         decode_bs_bucket_cfg = read_bucket_settings(
             'decode', 'bs', min=1, step=32,
-            max=max_num_seqs)
+            max=max_num_seqs, limit=0.25)
         decode_block_bucket_cfg = read_bucket_settings(
             'decode', 'block', min=block_size,
-            step=block_size, max=max_blocks)
+            step=block_size, max=max_blocks, limit=0.25)
 
         msg = ("Decode bucket config (min, step, max_warmup) "
                f"bs:{decode_bs_bucket_cfg}, "
@@ -88,23 +88,28 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     param is either 'min', 'step' or 'max'
     example env variable: VLLM_DECODE_BS_BUCKET_STEP=128
     """
-    params = ['min', 'step', 'max']
+    params = ['min', 'step', 'max', 'limit']
     env_vars = [f'VLLM_{phase}_{dim}_BUCKET_{p}'.upper() for p in params]
     default_values = [defaults[p] for p in params]
-    values = [
-        int(os.environ.get(e, d)) for e, d in zip(env_vars, default_values)
-    ]
+    values = []
+    for e, d in zip(env_vars, default_values):
+        value = os.environ.get(e, d)
+        if value.isdigit():
+            value = int(value)
+        else:
+            value = float(value)
+        values.append(value)
     for e, v, d in zip(env_vars, values, default_values):
         logger().info(f'{e}={v} (default:{d})')
     return values
 
 
-def warmup_range(config: Tuple[int, int, int]):
+def warmup_range_with_limit(config: Tuple[int, int, int, float]):
     """Generate a warmup range.
 
     Start from bmin and multiply by 2 until you reach bstep.
-    Then, increase the values in the range by the value of bstep until you 
-    reach bmax.
+    Then, increase the values in the range by the value of bstep until you
+    reach bmax if the padding ratio is within the limit.
 
     Example:
     bmin = 2, bstep = 32, bmax = 64
@@ -112,17 +117,25 @@ def warmup_range(config: Tuple[int, int, int]):
     => stable = (32, 64)
     => return ramp_up + stable => (2, 4, 8, 16, 32, 64)
     """
-    bmin, bstep, bmax = config
-    assert bmin <= bmax, ("Min. batch size cannot be greater than max. "
-                          "batch size. If you want to skip warmup, "
-                          "set VLLM_SKIP_WARMUP=true")
-    base = itertools.repeat(2)
-    ramp_up_acc = itertools.accumulate(base, func=operator.mul, initial=bmin)
-    ramp_up_tw = itertools.takewhile(lambda x: x < bstep and x <= bmax, \
-        ramp_up_acc)
-    stable = range(bstep, bmax + 1, bstep)
-    buckets = list(ramp_up_tw) + list(stable)
-    return list(filter(lambda bucket: bucket >= bmin, buckets))
+    bucket_min, bucket_step, bucket_max, limit = config
+    assert bucket_min <= bucket_max, ("bucket_min cannot be greater than bucket_max. "
+                          "If you want to skip warmup, set VLLM_SKIP_WARMUP=true")
+    buckets = [bucket_min]
+    current_bucket = bucket_min
+    while current_bucket <= bucket_max:
+        last_bucket = buckets[-1]
+        if current_bucket <= bucket_step:
+            next_bucket = last_bucket * 2
+            buckets.append(next_bucket)
+        else:
+            next_bucket = current_bucket + bucket_step
+            max_padding_ratio = 1 - (last_bucket / (next_bucket  - 1))
+            if max_padding_ratio > limit and current_bucket != last_bucket:
+                buckets.append(current_bucket)
+        current_bucket = next_bucket
+    if buckets[-1] != bucket_max:
+        buckets.append(bucket_max)
+    return buckets
 
 
 def generate_prompt_buckets(bs_bucket_config,
@@ -130,9 +143,9 @@ def generate_prompt_buckets(bs_bucket_config,
                             block_size,
                             prefix_caching,
                             max_num_batched_tokens=None):
-    _, _, bmax = seq_bucket_config
-    batch_size_buckets = warmup_range(bs_bucket_config)
-    seq_bucket_config = warmup_range(seq_bucket_config)
+    _, _, bmax, _ = seq_bucket_config
+    batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
+    seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
 
     if prefix_caching:
         buckets_3d = []
@@ -192,12 +205,12 @@ def generate_prompt_buckets(bs_bucket_config,
 def generate_decode_buckets(bs_bucket_config, blocks_bucket_config,
                             max_blocks):
     buckets = []
-    bs_buckets = warmup_range(bs_bucket_config)
+    bs_buckets = warmup_range_with_limit(bs_bucket_config)
     use_contiguous_pa = get_config().use_contiguous_pa
     if os.environ.get('VLLM_DECODE_BLOCK_BUCKET_MAX') is None\
        and use_contiguous_pa:
         blocks_bucket_config[2] = max_blocks
-    block_buckets = warmup_range(blocks_bucket_config)
+    block_buckets = warmup_range_with_limit(blocks_bucket_config)
     if os.environ.get('VLLM_DECODE_BLOCK_BUCKET_MAX') is None\
        and max_blocks not in block_buckets and use_contiguous_pa:
         block_buckets.append(max_blocks)
