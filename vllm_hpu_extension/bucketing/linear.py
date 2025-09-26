@@ -143,7 +143,7 @@ def generate_prompt_buckets(bs_bucket_config,
                             block_size,
                             prefix_caching,
                             max_num_batched_tokens=None):
-    _, _, bmax = seq_bucket_config
+    _, _, bmax, _ = seq_bucket_config
     batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
     seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
 
