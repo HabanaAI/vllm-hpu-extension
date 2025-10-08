@@ -3,10 +3,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 from glob import glob
 import os
-
-
 import argparse
-
 
 def copy_other_files(input_path, output_path):
     import shutil
