@@ -126,7 +126,10 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float]):
         last_bucket = buckets[-1]
         if current_bucket <= bucket_step:
             next_bucket = last_bucket * 2
-            buckets.append(next_bucket)
+            if next_bucket <= bucket_max:
+                buckets.append(next_bucket)
+            else:
+                break
         else:
             next_bucket = current_bucket + bucket_step
             max_padding_ratio = 1 - (last_bucket / (next_bucket  - 1))
