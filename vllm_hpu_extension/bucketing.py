@@ -287,5 +287,7 @@ def find_bucket(value: int, config: Tuple[int, int, int, float]) -> int:
     for b in buckets:
         if b >= value:
             return b
-    return value
+    else:
+        _, step, _, _ = config
+        return round_up(value, step)
 
