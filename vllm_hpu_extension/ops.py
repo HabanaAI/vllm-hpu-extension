@@ -852,7 +852,12 @@ def fp8_channel_moe_prepare_weights(layer):
             layer.moe_op.w13_list[index].set_scale_inv_fp8(
                 layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,layer.w13_weight.shape[1]//2).flatten().clone()
             )
-            
+    if hasattr(layer.moe_op, "w13_weight_scale"):
+        _, _, hidden_size = layer.w13_weight.shape
+        layer.moe_op.w13_weight = layer.w13_weight.reshape(-1, hidden_size).contiguous()
+        layer.moe_op.w2_weight = layer.w2_weight.transpose(-1, -2).contiguous()
+        layer.moe_op.w13_weight_scale = torch.cat([layer.w13_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).reshape(-1)
+        layer.moe_op.w2_weight_scale = torch.cat([layer.w2_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).unsqueeze(1)          
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
@@ -860,7 +865,9 @@ def fp8_channel_moe_prepare_weights(layer):
         if layer.w2_input_scale is None:
             layer.moe_op.w2_input_scale = layer.w2_input_scale
         else:
-            layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
+            # layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
+            layer.moe_op.w2_input_scale_dmoe = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
+            layer.moe_op.w2_input_scale = layer.w2_input_scale.repeat(layer.moe_op.num_experts).unsqueeze(-1).unsqueeze(-1)
 
     htorch.core.mark_step()
     return layer
@@ -1007,6 +1014,11 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         )
         self.w13_input_scale = None
         self.w2_input_scale = None
+        self.w2_input_scale_dmoe = None
+        self.w13_weight = None
+        self.w2_weight = None
+        self.w13_weight_scale = None
+        self.w2_weight_scale = None
 
         self.num_experts = num_experts
         self.global_num_experts = global_num_experts
@@ -1068,21 +1080,72 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale = self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
-            final_hidden_states = torch.ops.hpu.mixture_of_experts(
-                                    hidden_states=x_fp8,
-                                    expert_routing_table=topk_ids.to(torch.int64),
-                                    router_weights=topk_weights.to(x.dtype),
-                                    w12=w13_list,
-                                    w3=w2_list,
-                                    d_scale_hidden_states=x_scale,
-                                    d_scale_intermediate_hidden_states=w2_input_scale,
-                                    d_scale_w12=w13_weight_scale,
-                                    d_scale_w3=w2_weight_scale,
-                                    permuted_weights=permuted_weights,
-                                    activation=activation,
-                                    experts_min=self.experts_min,
-                                    experts_max=self.experts_max,
-                                    **kwargs)
+            is_per_channel = (self.w2_weight.shape[-1] == self.w2_weight_scale.shape[-1])
+
+            print(is_per_channel)
+            if x.size(0) <= 1024 and is_per_channel:
+                experts_mask = torch.zeros((x.size(0), self.global_num_experts), dtype=x.dtype, device=x.device)
+                experts_mask.scatter_(-1, topk_ids, topk_weights)
+                experts_mask = experts_mask.transpose(0, 1).unsqueeze(-1)
+
+                out_dim = self.w13_weight.size(0)
+                intermediate_size = out_dim // self.num_experts
+                num_slice = 2
+                partial_dim = out_dim // num_slice
+                partila_num_expert = self.num_experts // num_slice
+                for idx in range(num_slice):
+                    up_gate_states = torch.ops.hpu.fp8_gemm_v2(
+                        A=x_fp8,
+                        trans_A=False,
+                        B=self.w13_weight[partial_dim * idx : partial_dim * (idx + 1), ...],
+                        trans_B=True,
+                        D=None,
+                        out_dtype=torch.bfloat16,
+                        A_scale_inv=x_scale,
+                        B_scale_inv=self.w13_weight_scale[partial_dim * idx : partial_dim * (idx + 1)],
+                        bias=None,
+                        accumulate=False,
+                    )
+                    up_gate_states = up_gate_states.reshape(x.size(0), -1, intermediate_size)
+                    d = up_gate_states.shape[-1] // 2
+                    current_state_static = F.silu(up_gate_states[..., :d]) * up_gate_states[..., d:]
+
+                    current_state_static = torch.ops.hpu.cast_to_fp8_v2(current_state_static, 1.0/self.w2_input_scale[0, 0, 0], False, False, torch.float8_e4m3fn)[0]
+                    current_state_static = current_state_static.transpose(0, 1).contiguous()
+
+                    current_hidden_states = torch.ops.hpu.fp8_gemm_v2(
+                        A=current_state_static,
+                        trans_A=False,
+                        B=self.w2_weight[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
+                        trans_B=False,
+                        D=None,
+                        out_dtype=torch.bfloat16,
+                        A_scale_inv=self.w2_input_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
+                        B_scale_inv=self.w2_weight_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
+                        bias=None,
+                        accumulate=False,
+                    )
+                    current_hidden_states = experts_mask[(self.experts_min + partila_num_expert * idx) : (self.experts_min + partila_num_expert * (idx + 1)), ...] * current_hidden_states
+                    if idx == 0:
+                        final_hidden_states = current_hidden_states.sum(dim=0)
+                    else:
+                        final_hidden_states.add_(current_hidden_states.sum(dim=0))  
+            else:
+                final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                                        hidden_states=x_fp8,
+                                        expert_routing_table=topk_ids.to(torch.int64),
+                                        router_weights=topk_weights.to(x.dtype),
+                                        w12=w13_list,
+                                        w3=w2_list,
+                                        d_scale_hidden_states=x_scale,
+                                        d_scale_intermediate_hidden_states=self.w2_input_scale_dmoe,
+                                        d_scale_w12=w13_weight_scale,
+                                        d_scale_w3=w2_weight_scale,
+                                        permuted_weights=permuted_weights,
+                                        activation=activation,
+                                        experts_min=self.experts_min,
+                                        experts_max=self.experts_max,
+                                        **kwargs)
 
         return final_hidden_states
 
