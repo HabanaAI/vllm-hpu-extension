@@ -3,6 +3,12 @@
     "observer": "maxabs",
     "scale_format": "CONST",
     "scale_method": "act_maxabs_pcs_pow2_weight_maxabs_pts_pow2_hw",
+    "allowlist": {
+        "types": [],
+        "names": [
+            "mlp"
+        ]
+    },
     "dynamic_quantization": true,
     "dump_stats_path": ""
 }
