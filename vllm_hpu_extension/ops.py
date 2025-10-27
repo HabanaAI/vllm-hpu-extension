@@ -865,7 +865,6 @@ def fp8_channel_moe_prepare_weights(layer):
         if layer.w2_input_scale is None:
             layer.moe_op.w2_input_scale = layer.w2_input_scale
         else:
-            # layer.moe_op.w2_input_scale = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
             layer.moe_op.w2_input_scale_dmoe = [layer.w2_input_scale.data.clone() for _ in range(layer.moe_op.num_experts)]
             layer.moe_op.w2_input_scale = layer.w2_input_scale.repeat(layer.moe_op.num_experts).unsqueeze(-1).unsqueeze(-1)
 
@@ -1080,9 +1079,11 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale = self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
-            is_per_channel = (self.w2_weight.shape[-1] == self.w2_weight_scale.shape[-1])
-
-            print(is_per_channel)
+            is_per_channel = (
+                self.w2_weight is not None and
+                self.w2_weight_scale is not None and
+                self.w2_weight.shape[-1] == self.w2_weight_scale.shape[-1]
+            )
             if x.size(0) <= 1024 and is_per_channel:
                 experts_mask = torch.zeros((x.size(0), self.global_num_experts), dtype=x.dtype, device=x.device)
                 experts_mask.scatter_(-1, topk_ids, topk_weights)
