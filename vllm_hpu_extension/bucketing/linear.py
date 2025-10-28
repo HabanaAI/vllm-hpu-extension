@@ -144,16 +144,20 @@ def generate_prompt_buckets(bs_bucket_config,
                             block_size,
                             prefix_caching,
                             max_num_batched_tokens=None):
-    _, _, bmax, _ = seq_bucket_config
+    _, _, bmax, limit = seq_bucket_config
     batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
     seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
 
     if prefix_caching:
         buckets_3d = []
+        context_bucket_config = (1, 1, bmax * 2 // block_size, limit)
+        context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
         for bs in batch_size_buckets:
             for b in seq_bucket_config:
                 max_blocks_range = (bmax - b) // block_size
-                for i in range(0, max_blocks_range + 2):
+                for i in context_buckets:
+                    if i > max_blocks_range:
+                        continue
                     buckets_3d.append((bs, b, i))
         buckets = buckets_3d
     else:
