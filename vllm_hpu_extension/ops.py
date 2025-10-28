@@ -1025,6 +1025,20 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.experts_max = experts_max
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.static_moe_limits_list = [
+            int(x)
+            for x in os.environ.get(
+                "PT_HPU_MOE_STATIC_LIMITS", "4,1024"
+            ).split(",")
+            if x.strip()
+        ]
+        assert (
+            len(self.static_moe_limits_list) == 2 and
+            self.static_moe_limits_list[0] < self.static_moe_limits_list[1]
+        ), (
+            f"static_moe_limits_list must contain exactly two elements, "
+            f"and the second must be greater than the first: {self.static_moe_limits_list}"
+        )
 
     def _get_extra_kwargs(self, tokens_num: int):
         if(self.enable_moe_chunk):
@@ -1084,7 +1098,9 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                 self.w2_weight_scale is not None and
                 self.w2_weight.shape[-1] == self.w2_weight_scale.shape[-1]
             )
-            if x.size(0) <= 1024 and is_per_channel:
+            lo, hi = self.static_moe_limits_list
+            is_in_moe_static_limits = lo <= x.size(0) <= hi
+            if is_in_moe_static_limits and is_per_channel:
                 experts_mask = torch.zeros((x.size(0), self.global_num_experts), dtype=x.dtype, device=x.device)
                 experts_mask.scatter_(-1, topk_ids, topk_weights)
                 experts_mask = experts_mask.transpose(0, 1).unsqueeze(-1)
