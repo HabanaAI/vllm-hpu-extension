@@ -737,8 +737,11 @@ def dynamic_quant(data, single_scale = False):
     else:
         scale = ((torch.abs(data)).max(dim=-1).values + 1e-8) / FP8_MAX
         scale = scale.unsqueeze(-1)
-    data_fp8 = torch.ops.hpu.cast_to_fp8_v2(
-        data, 1.0 / scale, False, False, torch.float8_e4m3fn)[0]
+    if data.device.type == 'hpu':
+        data_fp8 = torch.ops.hpu.cast_to_fp8_v2(
+            data, 1.0 / scale, False, False, torch.float8_e4m3fn)[0]
+    else:
+        data_fp8 = (data / scale).to(torch.float8_e4m3fn)
     return data_fp8, scale.float()
 
 
