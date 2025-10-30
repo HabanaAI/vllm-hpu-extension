@@ -1028,7 +1028,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.static_moe_limits_list = [
             x
             for x in os.environ.get(
-                "PT_HPU_MOE_STATIC_LIMITS", "8,256"
+                "PT_HPU_MOE_STATIC_LIMITS", "None"
             ).split(",")
             if x.strip()
         ]
