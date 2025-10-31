@@ -30,7 +30,7 @@ if __name__ == "__main__":
         enforce_eager=args.enforce_eager,
         dtype=torch.bfloat16,
         max_num_prefill_seqs=args.max_num_prefill_seqs,
-        max_model_len=128,
+        max_model_len=4096,
         trust_remote_code=True,
         distributed_executor_backend=args.distributed_executor_backend,
         enable_expert_parallel=args.expert_parallel,

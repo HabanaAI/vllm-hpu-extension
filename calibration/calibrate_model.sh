@@ -105,6 +105,8 @@ create_measure_config() {
 
     if [[ $model_name_lower =~ ^mixtral ]]; then
         block_names="[\"self_attn\", \"lm_head\"]"
+    elif [[ $model_name_lower == *"qwen3-vl"* ]]; then
+        block_names="[\"lm_head\", \"visual\"]"
     elif [[ $model_name_lower == *"qwen3"* ]]; then
         block_names="[\"lm_head\"]"
     else
@@ -136,11 +138,11 @@ create_quant_config() {
     
     scale_method="maxabs_hw"
     block_types="[\"Softmax\"]"
-    block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\"]"
+    block_names="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"visual\"]"
     fp8_config="E4M3"
     scale_format="scalar"
     block_types_bf16_attn="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
-    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"fused_scaled_dot_product_attention\"]"
+    block_names_bf16_attn="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"visual\", \"fused_scaled_dot_product_attention\"]"
     if [[ $model_name_lower == *"deepseek-r1-distill-qwen-7b"* \
             || $model_name_lower == *"qwen2-7b-instruct"* \
             || $model_name_lower == *"qwen2.5-7b-instruct"* ]]; then
@@ -290,7 +292,7 @@ fi
 # Skip step 1 if the DATASET_PATH_OR_NAME is a .pkl file
 if $SKIP_STEP_1; then
     EXTRA_FLAGS_STEP_2+="--max-dataset-samples 512 --batch-size 1 --max-tokens 32 "
-    EXTRA_FLAGS_STEP_2+="--auto-process-dataset --sample-len 1024 --max-model-len 2048 "
+    EXTRA_FLAGS_STEP_2+="--auto-process-dataset --sample-len 1024 --max-model-len 4096 "
     EXTRA_FLAGS_STEP_2+="--dataset ${DATASET_PATH_OR_NAME} "
 fi
 
