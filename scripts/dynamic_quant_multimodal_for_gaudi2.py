@@ -34,7 +34,7 @@ def change_config_json(output_path):
     quantization_config["activation_scheme"]  = "dynamic"
     quantization_config["fmt"]                = "e4m3"
     quantization_config["quant_method"]       = "fp8"
-    quantization_config["quant_scheme"]      = "per_channel"
+    quantization_config["quant_scheme"]      = "channel"
 
     config_json["quantization_config"] = quantization_config
     with open(config_json_file_path, "w") as f:
