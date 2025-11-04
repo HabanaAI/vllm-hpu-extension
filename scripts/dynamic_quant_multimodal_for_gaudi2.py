@@ -90,7 +90,8 @@ def convert_files(input_path, output_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Convert tensors to float8 format."
+        description="Convert bf16 format checkpoint to fp8 format that can run "
+                    "on gaudi. This script only suppots channel wise quant."
     )
     parser.add_argument(
         "-i",
