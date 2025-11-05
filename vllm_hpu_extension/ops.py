@@ -855,7 +855,7 @@ def fp8_channel_moe_prepare_weights(layer):
             layer.moe_op.w13_list[index].set_scale_inv_fp8(
                 layer.moe_op.w13_list[index].scale_inv_fp8.reshape(2,1).repeat(1,layer.w13_weight.shape[1]//2).flatten().clone()
             )
-    if hasattr(layer.moe_op, "w13_weight_scale"):
+    if hasattr(layer.moe_op, "w13_weight_scale") and os.getenv("QUANT_CONFIG", None) is None:
         _, _, hidden_size = layer.w13_weight.shape
         layer.moe_op.w13_weight = layer.w13_weight.reshape(-1, hidden_size).contiguous()
         layer.moe_op.w2_weight = layer.w2_weight.transpose(-1, -2).contiguous()
