@@ -141,12 +141,8 @@ class HPUBucketingManager():
         return (new_batch_size, new_seq_len, new_ctx)
 
     def find_prompt_bucket(self, batch_size, seq_len, ctx=0, use_fallback=True):
-        target_shape = (batch_size, seq_len, ctx)
         if self.initialized:
-            if get_config().prefix_caching:
-                found_bucket = find_bucket_with_prefix_caching(self.prompt_buckets, target_shape, self.block_size)
-            else:
-                found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, target_shape)
+            found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, (batch_size, seq_len, ctx))
             if found_bucket is None:
                 if use_fallback:
                     new_bucket = self.generate_fallback_bucket(batch_size, seq_len, ctx)
@@ -158,7 +154,7 @@ class HPUBucketingManager():
                 else:
                     return (None, None, None)
             return found_bucket
-        return target_shape
+        return (batch_size, seq_len, ctx)
 
     def find_decode_bucket(self, batch_size, num_blocks):
         if self.initialized:
@@ -202,33 +198,3 @@ def find_equal_or_closest_greater_config(sorted_list, target_tuple):
             return sorted_list[i]
     return None
 
-def find_bucket_with_prefix_caching(prompt_buckets, target_shape, block_size):
-        batch_size, seq_len, ctx = target_shape
-        import bisect
-        def find_ge(a, x):
-            'Find leftmost item greater than or equal to x'
-            i = bisect.bisect_left(a, x)
-            if i != len(a):
-                return a[i]
-            raise ValueError
-
-        def find_le(a, x):
-            'Find rightmost value less than or equal to x'
-            i = bisect.bisect_right(a, x)
-            if i:
-                return a[i-1]
-            raise ValueError
-        
-        bs_buckets = list(sorted([b[0] for b in prompt_buckets]))
-        seq_buckets = list(sorted([b[1] for b in prompt_buckets]))
-        ctx_buckets = list(sorted([b[2] for b in prompt_buckets]))
-
-        try:
-            found_bs = find_ge(bs_buckets, batch_size)
-            found_ctx = find_le(ctx_buckets, ctx)
-            pad_seq_len = seq_len + (ctx - found_ctx) * block_size
-            found_seq = find_ge(seq_buckets, pad_seq_len)
-            found_bucket = (found_bs, found_seq, found_ctx)
-            return found_bucket
-        except ValueError:
-            return target_shape
