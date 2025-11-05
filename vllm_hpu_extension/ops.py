@@ -859,10 +859,8 @@ def fp8_channel_moe_prepare_weights(layer):
         _, _, hidden_size = layer.w13_weight.shape
         layer.moe_op.w13_weight = layer.w13_weight.reshape(-1, hidden_size).contiguous()
         layer.moe_op.w2_weight = layer.w2_weight.transpose(-1, -2).contiguous()
-        w13_weight_scale = layer.w13_weight_scale if hasattr(layer, "w13_weight_scale") else layer.w13_weight_scale_inv
-        layer.moe_op.w13_weight_scale = torch.cat([w13_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).reshape(-1)
-        w2_weight_scale = layer.w2_weight_scale if hasattr(layer, "w2_weight_scale") else layer.w2_weight_scale_inv
-        layer.moe_op.w2_weight_scale = torch.cat([w2_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).unsqueeze(1)
+        layer.moe_op.w13_weight_scale = torch.cat([layer.w13_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).reshape(-1)
+        layer.moe_op.w2_weight_scale = torch.cat([layer.w2_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).unsqueeze(1)          
     if hasattr(layer, "w13_input_scale"):
         layer.moe_op.w13_input_scale = layer.w13_input_scale
     if hasattr(layer, "w2_input_scale"):
