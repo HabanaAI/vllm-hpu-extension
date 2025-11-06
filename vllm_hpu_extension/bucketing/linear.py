@@ -147,10 +147,11 @@ def generate_prompt_buckets(bs_bucket_config,
     _, _, seq_max, limit = seq_bucket_config
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
     seq_buckets = warmup_range_with_limit(seq_bucket_config)
+    context_bucket_step = 2
 
     if prefix_caching:
         buckets_3d = []
-        context_bucket_config = (1, 2, seq_max * 2 // block_size + 2, limit)
+        context_bucket_config = (1, context_bucket_step, seq_max * 2 // block_size + 2, limit)
         context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
         for bs in bs_buckets:
             for seq in seq_buckets:
@@ -158,8 +159,8 @@ def generate_prompt_buckets(bs_bucket_config,
                     ctx = context_buckets[i]
                     if ctx * block_size + seq > seq_max:
                         ctx = (seq_max - seq) // block_size
-                        ctx = (ctx + context_bucket_config[1] - 1) // \
-                            context_bucket_config[1] * context_bucket_config[1]
+                        ctx = (ctx + context_bucket_step - 1) // \
+                            context_bucket_step * context_bucket_step
                         if ctx > buckets_3d[-1][2]:
                             buckets_3d.append((bs, seq, ctx))
                         break
@@ -180,10 +181,17 @@ def generate_prompt_buckets(bs_bucket_config,
     filtered_buckets = buckets
     if max_num_batched_tokens is not None:
         # Remove buckets exceeding batch token budget
-        filtered_buckets = list(
-            filter(
-                lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens,
-                buckets))
+        if prefix_caching:
+            max_tokens = max_num_batched_tokens + context_bucket_step * block_size
+            filtered_buckets = list(
+                filter(
+                    lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_tokens,
+                    buckets))
+        else:
+            filtered_buckets = list(
+                filter(
+                    lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens,
+                    buckets))
 
         if len(filtered_buckets) == 0:
             # we can handle this if we ignore max_num_batched_tokens
