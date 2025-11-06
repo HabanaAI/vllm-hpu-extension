@@ -145,25 +145,30 @@ def generate_prompt_buckets(bs_bucket_config,
                             prefix_caching,
                             max_num_batched_tokens=None):
     _, _, seq_max, limit = seq_bucket_config
-    batch_size_buckets = warmup_range_with_limit(bs_bucket_config)
-    seq_bucket_config = warmup_range_with_limit(seq_bucket_config)
+    bs_buckets = warmup_range_with_limit(bs_bucket_config)
+    seq_buckets = warmup_range_with_limit(seq_bucket_config)
 
     if prefix_caching:
         buckets_3d = []
         context_bucket_config = (1, 2, seq_max * 2 // block_size + 2, limit)
         context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
-        for bs in batch_size_buckets:
-            for seq in seq_bucket_config:
+        for bs in bs_buckets:
+            for seq in seq_buckets:
                 for i in range(len(context_buckets)):
                     ctx = context_buckets[i]
                     if ctx * block_size + seq > seq_max:
+                        ctx = (seq_max - seq) // block_size
+                        ctx = (ctx + context_bucket_config[1] - 1) // \
+                            context_bucket_config[1] * context_bucket_config[1]
+                        if ctx > buckets_3d[-1][2]:
+                            buckets_3d.append((bs, seq, ctx))
                         break
                     buckets_3d.append((bs, seq, ctx))
         buckets = buckets_3d
     else:
         buckets = list(
-                itertools.product(batch_size_buckets,
-                                seq_bucket_config, [0]))
+                itertools.product(bs_buckets,
+                                seq_buckets, [0]))
 
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
