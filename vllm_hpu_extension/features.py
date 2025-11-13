@@ -39,6 +39,9 @@ def get_user_flags():
         Env('PT_HPU_SDPA_QKV_SLICE_MODE_FWD', boolean),
         Env('PT_HPU_SDPA_BC_FACTOR', int),
         Env('VLLM_FUSEDSDPA_SLIDE_THLD', int),
+
+        # FusedSDPA prefix caching flags
+        Env('VLLM_FUSEDSDPA_PREFIX_SPLIT_THLD', int),
     ]
     return to_dict(flags)
 

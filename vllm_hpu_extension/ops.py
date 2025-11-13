@@ -331,34 +331,108 @@ def _fsdpa_prompt_attention(
         window_size: Optional[int] = None,
         **ignored_args
 ) -> torch.Tensor:
-    query = query.transpose(1, 2)
-    key = key.transpose(1, 2)
-    value = value.transpose(1, 2)
+    query = query.transpose(1, 2).contiguous()
+    key = key.transpose(1, 2).contiguous()
+    value = value.transpose(1, 2).contiguous()
     padding_side = 'right'
     if get_config().fp32_softmax:
         softmax_mode = 'fp32'
     else:
         softmax_mode = 'fast'
     recompute_mode = True
-    assert attn_bias is not None or valid_seq_lengths is not None, \
-        'Either attn_bias or valid_seq_lengths must be != None'
-    if is_causal and attn_bias is not None:
-        # TODO: causal + attn_bias is not yet supported
-        is_causal = False
-        valid_seq_lengths = None
 
-    if window_size is not None:
-        #causal window sdpa kernel only supports softmax None
-        softmax_mode = 'None'
-        padding_side ='left'
+    if 'key_prefix' in ignored_args:
+        key_prefix = ignored_args["key_prefix"].transpose(1, 2).contiguous()
+        value_prefix = ignored_args["value_prefix"].transpose(1,
+                                                              2).contiguous()
+        mask = attn_bias[..., -query.size(2):]
 
-    args = [query, key, value, attn_bias, 0.0, is_causal,
-                                scale, softmax_mode, recompute_mode,
-                                valid_seq_lengths, padding_side]
-    args += [window_size] if window_size else []
+        q_heads = query.size(1)
+        kv_heads = key_prefix.size(1)
+        if q_heads != kv_heads:
+            q_heads_per_group = q_heads // kv_heads
 
+            bs, heads, seq_len, h_dim = key.shape
+            key = key.unsqueeze(2).expand(bs, heads, q_heads_per_group,
+                                          seq_len, h_dim).reshape(
+                                              bs, q_heads, seq_len, h_dim)
 
-    attn_weights = fsdpa_op(*args)
+            bs, heads, seq_len, h_dim = key_prefix.shape
+            key_prefix = key_prefix.unsqueeze(2).expand(
+                bs, heads, q_heads_per_group, seq_len,
+                h_dim).reshape(bs, q_heads, seq_len, h_dim)
+
+            bs, heads, seq_len, h_dim = value.shape
+            value = value.unsqueeze(2).expand(bs, heads, q_heads_per_group,
+                                              seq_len, h_dim).reshape(
+                                                  bs, q_heads, seq_len, h_dim)
+
+            bs, heads, seq_len, h_dim = value_prefix.shape
+            value_prefix = value_prefix.unsqueeze(2).expand(
+                bs, heads, q_heads_per_group, seq_len,
+                h_dim).reshape(bs, q_heads, seq_len, h_dim)
+
+        prefix_out, prefix_m, prefix_linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+            query,
+            key_prefix,
+            value_prefix,
+            None,
+            0.0,
+            scale,
+            False,
+            True,
+            softmax_mode,
+            None,  #vsl,
+            padding_side,
+        )
+
+        text_out, text_m, text_linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+            query,
+            key,
+            value,
+            mask,
+            0.0,
+            scale,
+            False,
+            True,
+            softmax_mode,
+            None,  #vsl,
+            padding_side,
+        )
+
+        if not get_config().fp32_softmax:
+            text_linv = text_linv * 128.0
+            prefix_linv = prefix_linv * 128.0
+        text_out = text_out.to(torch.float32)
+        prefix_out = prefix_out.to(torch.float32)
+
+        new_m = torch.maximum(prefix_m, text_m)
+        l_rescaled = (1.0 / prefix_linv) * torch.exp(prefix_m - new_m)
+        block_l_rescaled = (1.0 / text_linv) * torch.exp(text_m - new_m)
+        new_linv = 1.0 / (l_rescaled + block_l_rescaled)
+        attn_weights = (l_rescaled * new_linv) * prefix_out + (
+            block_l_rescaled * new_linv) * text_out
+        attn_weights = attn_weights.to(query.dtype)
+
+    else:
+        assert attn_bias is not None or valid_seq_lengths is not None, \
+            'Either attn_bias or valid_seq_lengths must be != None'
+        if is_causal and attn_bias is not None:
+            # TODO: causal + attn_bias is not yet supported
+            is_causal = False
+            valid_seq_lengths = None
+
+        if window_size is not None:
+            #causal window sdpa kernel only supports softmax None
+            softmax_mode = 'None'
+            padding_side ='left'
+
+        args = [query, key, value, attn_bias, 0.0, is_causal,
+                                    scale, softmax_mode, recompute_mode,
+                                    valid_seq_lengths, padding_side]
+        args += [window_size] if window_size else []
+
+        attn_weights = fsdpa_op(*args)
 
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
@@ -389,8 +463,14 @@ def _include_past(tensor_str, fn_str, cache_str, args):
         current, fn, cache, block_list, block_size = all_tensors
         past = fn(cache.unflatten(0, (-1, block_size)), block_list)
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
-        current = torch.concat((past, current), dim=1)
-        args[tensor_str] = current
+        prefix_split_thld = get_config().VLLM_FUSEDSDPA_PREFIX_SPLIT_THLD
+        prefix_split_thld = prefix_split_thld if prefix_split_thld is not None else 8192
+        if past.size(1) + current.size(1) > prefix_split_thld:
+            args[tensor_str] = current
+            args[tensor_str + '_prefix'] = past
+        else:
+            current = torch.concat((past, current), dim=1)
+            args[tensor_str] = current
 
 
 def _get_context(args):
