@@ -40,7 +40,7 @@ def get_user_flags():
         Env('PT_HPU_SDPA_BC_FACTOR', int),
         Env('VLLM_FUSEDSDPA_SLIDE_THLD', int),
 
-        # FusedSDPA prefix caching flags
+        # FusedSDPA prefix caching flags, set 0 to disable
         Env('VLLM_FUSEDSDPA_PREFIX_SPLIT_THLD', int),
     ]
     return to_dict(flags)

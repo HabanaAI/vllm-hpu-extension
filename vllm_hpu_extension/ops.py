@@ -465,7 +465,8 @@ def _include_past(tensor_str, fn_str, cache_str, args):
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
         prefix_split_thld = get_config().VLLM_FUSEDSDPA_PREFIX_SPLIT_THLD
         prefix_split_thld = prefix_split_thld if prefix_split_thld is not None else 8192
-        if past.size(1) + current.size(1) > prefix_split_thld:
+        if prefix_split_thld > 0 and past.size(1) + current.size(
+                1) > prefix_split_thld:
             args[tensor_str] = current
             args[tensor_str + '_prefix'] = past
         else:
