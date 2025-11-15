@@ -158,11 +158,6 @@ def generate_prompt_buckets(bs_bucket_config,
                 for i in range(len(context_buckets)):
                     ctx = context_buckets[i]
                     if ctx * block_size + seq > seq_max:
-                        ctx = (seq_max - seq) // block_size
-                        ctx = (ctx + context_bucket_step - 1) // \
-                            context_bucket_step * context_bucket_step
-                        if ctx > buckets_3d[-1][2]:
-                            buckets_3d.append((bs, seq, ctx))
                         break
                     buckets_3d.append((bs, seq, ctx))
         buckets = buckets_3d
