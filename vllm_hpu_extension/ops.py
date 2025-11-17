@@ -350,27 +350,17 @@ def _fsdpa_prompt_attention(
         q_heads = query.size(1)
         kv_heads = key_prefix.size(1)
         if q_heads != kv_heads:
+            bs, _, query_len, h_dim = query.shape
             q_heads_per_group = q_heads // kv_heads
 
-            bs, heads, seq_len, h_dim = key.shape
-            key = key.unsqueeze(2).expand(bs, heads, q_heads_per_group,
-                                          seq_len, h_dim).reshape(
-                                              bs, q_heads, seq_len, h_dim)
+            query = query.reshape(bs, kv_heads, q_heads_per_group,
+                                  query_len, h_dim)
 
-            bs, heads, seq_len, h_dim = key_prefix.shape
-            key_prefix = key_prefix.unsqueeze(2).expand(
-                bs, heads, q_heads_per_group, seq_len,
-                h_dim).reshape(bs, q_heads, seq_len, h_dim)
-
-            bs, heads, seq_len, h_dim = value.shape
-            value = value.unsqueeze(2).expand(bs, heads, q_heads_per_group,
-                                              seq_len, h_dim).reshape(
-                                                  bs, q_heads, seq_len, h_dim)
-
-            bs, heads, seq_len, h_dim = value_prefix.shape
-            value_prefix = value_prefix.unsqueeze(2).expand(
-                bs, heads, q_heads_per_group, seq_len,
-                h_dim).reshape(bs, q_heads, seq_len, h_dim)
+            key = key.unsqueeze(2)
+            key_prefix = key_prefix.unsqueeze(2)
+            value = value.unsqueeze(2)
+            value_prefix = value_prefix.unsqueeze(2)
+            mask = mask.unsqueeze(2)
 
         prefix_out, prefix_m, prefix_linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
             query,
@@ -412,7 +402,8 @@ def _fsdpa_prompt_attention(
         new_linv = 1.0 / (l_rescaled + block_l_rescaled)
         attn_weights = (l_rescaled * new_linv) * prefix_out + (
             block_l_rescaled * new_linv) * text_out
-        attn_weights = attn_weights.to(query.dtype)
+        attn_weights = attn_weights.to(query.dtype).reshape(bs, q_heads,
+                                            query_len, h_dim)
 
     else:
         assert attn_bias is not None or valid_seq_lengths is not None, \
