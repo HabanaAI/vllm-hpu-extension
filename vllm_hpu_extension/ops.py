@@ -366,25 +366,51 @@ def _fsdpa_prompt_attention(
     else:
         softmax_mode = 'fast'
     recompute_mode = True
-    assert attn_bias is not None or valid_seq_lengths is not None, \
-        'Either attn_bias or valid_seq_lengths must be != None'
-    if is_causal and attn_bias is not None:
-        # TODO: causal + attn_bias is not yet supported
-        is_causal = False
-        valid_seq_lengths = None
+    if 'key_prefix' in ignored_args:
+        key_prefix = ignored_args["key_prefix"].transpose(1, 2).contiguous()
+        value_prefix = ignored_args["value_prefix"].transpose(1,
+                                                              2).contiguous()
 
-    if window_size is not None:
-        #causal window sdpa kernel only supports softmax None
-        softmax_mode = 'None'
-        padding_side ='left'
+        q_chunk_size = ignored_args['q_chunk_size']
+        kv_chunk_size = ignored_args['kv_chunk_size']
+        causal_chunk_size = ignored_args['causal_chunk_size']
 
-    args = [query, key, value, attn_bias, 0.0, is_causal,
-                                scale, softmax_mode, recompute_mode,
-                                valid_seq_lengths, padding_side]
-    args += [window_size] if window_size else []
+        causal_attn_mask = attn_bias[..., -query.size(2):]
+
+        attn_weights = QKVSliceSDPA.apply(
+            query,
+            key_prefix,
+            value_prefix,
+            key,
+            value,
+            causal_attn_mask,
+            q_chunk_size,
+            kv_chunk_size,
+            causal_chunk_size,
+            scale,
+            softmax_mode,
+            None,  #valid_seq_len
+            padding_side)
+    else:
+        assert attn_bias is not None or valid_seq_lengths is not None, \
+            'Either attn_bias or valid_seq_lengths must be != None'
+        if is_causal and attn_bias is not None:
+            # TODO: causal + attn_bias is not yet supported
+            is_causal = False
+            valid_seq_lengths = None
+
+        if window_size is not None:
+            #causal window sdpa kernel only supports softmax None
+            softmax_mode = 'None'
+            padding_side ='left'
+
+        args = [query, key, value, attn_bias, 0.0, is_causal,
+                                    scale, softmax_mode, recompute_mode,
+                                    valid_seq_lengths, padding_side]
+        args += [window_size] if window_size else []
 
 
-    attn_weights = fsdpa_op(*args)
+        attn_weights = fsdpa_op(*args)
 
     attn_weights = attn_weights.transpose(1, 2)
     return attn_weights
@@ -416,8 +442,30 @@ def _include_past(tensor_str, fn_str, cache_str, args):
         current, fn, cache, block_list, block_size = all_tensors
         past = fn(cache.unflatten(0, (-1, block_size)), block_list)
         past = past.reshape(current.size(0), -1, past.shape[2], past.shape[3])
-        current = torch.concat((past, current), dim=1)
-        args[tensor_str] = current
+
+        # TODO cache the settings
+        qkv_slice_thld = get_config().VLLM_FUSEDSDPA_QKV_SLICE_SEQ_LEN_THLD
+        qkv_slice_thld = qkv_slice_thld if qkv_slice_thld is not None else 8192
+        if qkv_slice_thld > 0 and (past.size(1) >= qkv_slice_thld
+                                   or current.size(1) >= qkv_slice_thld):
+            args[tensor_str] = current
+            args[tensor_str + '_prefix'] = past
+
+            q_chunk_size = get_config().VLLM_FUSEDSDPA_Q_SLICE_CHUNK_SIZE
+            q_chunk_size = q_chunk_size if q_chunk_size is not None else qkv_slice_thld
+            args['q_chunk_size'] = q_chunk_size
+
+            kv_chunk_size = get_config().VLLM_FUSEDSDPA_KV_SLICE_CHUNK_SIZE
+            kv_chunk_size = kv_chunk_size if kv_chunk_size is not None else qkv_slice_thld
+            args['kv_chunk_size'] = kv_chunk_size
+
+            causal_chunk_size = get_config(
+            ).VLLM_FUSEDSDPA_CAUSAL_QKV_SLICE_CHUNK_SIZE
+            causal_chunk_size = causal_chunk_size if causal_chunk_size is not None else qkv_slice_thld
+            args['causal_chunk_size'] = causal_chunk_size
+        else:
+            current = torch.concat((past, current), dim=1)
+            args[tensor_str] = current
 
 
 def _get_context(args):
@@ -1382,3 +1430,382 @@ def scaled_fp8_quant(
                                               dtype=torch.float8_e4m3fn)[0]
 
     return output, scale
+
+
+class QKVSliceSDPA(torch.autograd.Function):
+
+    @staticmethod
+    def resolve_gqa(query, key_prefix, value_prefix, key, value, attn_mask):
+        bs, q_head, seq_len, hs = query.shape
+        kv_head = key_prefix.size(1)
+
+        n_group = q_head // kv_head
+
+        query = query.reshape(bs, kv_head, n_group, seq_len, hs)
+
+        key_prefix = key_prefix.unsqueeze(2)
+        key = key.unsqueeze(2)
+        value_prefix = value_prefix.unsqueeze(2)
+        value = value.unsqueeze(2)
+        attn_mask = attn_mask.unsqueeze(2)
+        return query, key_prefix, value_prefix, key, value, attn_mask
+
+    @staticmethod
+    def forward(ctx,
+                query,
+                key_prefix,
+                value_prefix,
+                key,
+                value,
+                causal_attn_mask,
+                q_chunk_size,
+                kv_chunk_size,
+                causal_chunk_size,
+                scale,
+                softmax_mode,
+                valid_seq_len=None,
+                padding_mode="right"):
+
+        ori_shape = query.shape
+
+        query, key_prefix, value_prefix, key, value, causal_attn_mask = \
+            QKVSliceSDPA.resolve_gqa(query, key_prefix, value_prefix,
+                                     key, value, causal_attn_mask)
+
+        prefix_out, prefix_m, prefix_linv = QKVSliceFullSDPA.apply(
+            query,
+            key_prefix,
+            value_prefix,
+            q_chunk_size,
+            kv_chunk_size,
+            scale,
+            softmax_mode,
+            valid_seq_len,
+            padding_mode,
+            False,  #output_original_dtype
+            True,  #gqa_resolved
+            ori_shape  #org_q_shape
+        )
+
+        text_out, text_m, text_linv = QKVSliceCausalSDPA.apply(
+            query,
+            key,
+            value,
+            causal_chunk_size,
+            causal_attn_mask,
+            scale,
+            softmax_mode,
+            valid_seq_len,
+            padding_mode,
+            False,  #output_original_dtype
+            True,  #gqa_resolved
+            ori_shape  #org_q_shape
+        )
+
+        prefix_m = prefix_m.unsqueeze(-1)
+        prefix_linv = prefix_linv.unsqueeze(-1)
+        text_m = text_m.unsqueeze(-1)
+        text_linv = text_linv.unsqueeze(-1)
+
+        #if softmax_mode == "fast":
+        #    text_linv = text_linv * 128.0
+        #    prefix_linv = prefix_linv * 128.0
+        #text_out = text_out.to(torch.float32)
+        #prefix_out = prefix_out.to(torch.float32)
+
+        new_m = torch.maximum(prefix_m, text_m)
+        l_rescaled = (1.0 / prefix_linv) * torch.exp(prefix_m - new_m)
+        block_l_rescaled = (1.0 / text_linv) * torch.exp(text_m - new_m)
+        new_linv = 1.0 / (l_rescaled + block_l_rescaled)
+        output = (l_rescaled * new_linv) * prefix_out + (block_l_rescaled *
+                                                         new_linv) * text_out
+        return output.to(query.dtype)
+
+
+class QKVSliceFullSDPA(torch.autograd.Function):
+
+    @staticmethod
+    def resolve_gqa(self, query, key_prefix, value_prefix):
+        bs, q_head, seq_len, hs = query.shape
+        kv_head = key_prefix.size(1)
+
+        n_group = q_head // kv_head
+
+        query = query.reshape(bs, kv_head, n_group, seq_len, hs)
+
+        key_prefix = key_prefix.unsqueeze(2)
+        value_prefix = value_prefix.unsqueeze(2)
+        return query, key_prefix, value_prefix
+
+    @staticmethod
+    def forward(ctx,
+                query,
+                key_prefix,
+                value_prefix,
+                q_chunk_size,
+                kv_chunk_size,
+                scale,
+                softmax_mode,
+                valid_seq_len=None,
+                padding_mode="right",
+                output_original_dtype=False,
+                gqa_resolved=False,
+                org_q_shape=None):
+
+        if not gqa_resolved:
+            ori_shape = query.shape
+            query, key_prefix, value_prefix = QKVSliceFullSDPA.resolve_gqa(
+                query, key_prefix, value_prefix)
+        else:
+            assert org_q_shape is not None, "org_q_shape should be provided when gqa_resolved is True"
+            ori_shape = org_q_shape
+
+        query_len = query.size(-2)
+        num_query_chunk = int((query_len - 1) / q_chunk_size) + 1
+
+        key_len = key_prefix.size(-2)
+        num_kv_chunk = int((key_len - 1) / kv_chunk_size) + 1
+
+        final_hidden_list = []
+        final_m_list = []
+        final_linv_list = []
+
+        for query_idx in range(num_query_chunk):
+
+            query_start = query_idx * q_chunk_size
+            query_end = (
+                query_idx + 1
+            ) * q_chunk_size if query_idx < num_query_chunk - 1 else query_len
+            query_slice = query[..., query_start:query_end, :]
+
+            out = None
+            m = None
+            linv = None
+
+            for kv_idx in range(num_kv_chunk):
+
+                kv_start = kv_idx * kv_chunk_size
+                kv_end = (
+                    kv_idx + 1
+                ) * kv_chunk_size if kv_idx < num_kv_chunk - 1 else key_len
+
+                key_slice = key_prefix[..., kv_start:kv_end, :]
+                value_slice = value_prefix[..., kv_start:kv_end, :]
+
+                block_out, block_m, block_linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+                    query_slice,
+                    key_slice,
+                    value_slice,
+                    None,  #attn_mask
+                    0.0,  #dropout
+                    scale,
+                    False,  #is_causal
+                    True,  #requires_backward
+                    softmax_mode,
+                    valid_seq_len,
+                    padding_mode)
+
+                if kv_idx == 0:
+                    out = block_out.to(torch.float32)
+                    m = block_m.to(torch.float32)
+                    if softmax_mode == "fast":
+                        linv = block_linv.to(torch.float32) * 128.0
+                    else:
+                        linv = block_linv.to(torch.float32)
+                else:
+                    if softmax_mode == "fast":
+                        block_linv = block_linv.to(torch.float32) * 128
+                    else:
+                        block_linv = block_linv.to(torch.float32)
+                    block_m = block_m.to(torch.float32)
+                    block_out = block_out.to(torch.float32)
+                    new_m = torch.maximum(m, block_m)
+                    l_rescaled = (1.0 / linv) * torch.exp(m - new_m)
+                    block_l_rescaled = (1.0 / block_linv) * torch.exp(block_m -
+                                                                      new_m)
+                    new_linv = 1.0 / (l_rescaled + block_l_rescaled)
+                    out = (l_rescaled * new_linv) * out + (
+                        block_l_rescaled * new_linv) * block_out
+                    linv = new_linv
+                    m = new_m
+
+            if output_original_dtype:
+                final_hidden_list.append(out.to(query.dtype))
+            else:
+                final_hidden_list.append(out)
+            final_linv_list.append(linv)
+            final_m_list.append(m)
+
+        output = torch.cat(final_hidden_list, dim=-2)
+        final_linv = torch.cat(final_linv_list, dim=-2)
+        final_m = torch.cat(final_m_list, dim=-2)
+
+        return output.reshape(ori_shape), final_m.reshape(
+            ori_shape[:-1]), final_linv.reshape(ori_shape[:-1])
+
+
+class QKVSliceCausalSDPA(torch.autograd.Function):
+
+    @staticmethod
+    def resolve_gqa(self, query, key, value, attn_mask):
+        bs, q_head, seq_len, hs = query.shape
+        kv_head = key.size(1)
+
+        n_group = q_head // kv_head
+
+        query = query.reshape(bs, kv_head, n_group, seq_len, hs)
+
+        key = key.unsqueeze(2)
+        value = value.unsqueeze(2)
+        attn_mask = attn_mask.unsqueeze(2)
+        return query, key, value, attn_mask
+
+    @staticmethod
+    def forward(ctx,
+                query,
+                key,
+                value,
+                chunk_size,
+                attn_mask,
+                scale,
+                softmax_mode,
+                valid_seq_len=None,
+                padding_mode="right",
+                output_original_dtype=False,
+                gqa_resolved=True,
+                org_q_shape=None):
+
+        if not gqa_resolved:
+            ori_shape = query.shape
+            query, key, value, attn_mask = QKVSliceCausalSDPA.resolve_gqa(
+                query, key, value, attn_mask)
+        else:
+            assert org_q_shape is not None, "org_q_shape should be provided when gqa_resolved is True"
+            ori_shape = org_q_shape
+
+        seq_len = query.size(-2)
+        num_chunk = int((seq_len - 1) / chunk_size) + 1
+
+        final_hidden_list = []
+        final_m_list = []
+        final_linv_list = []
+
+        for query_idx in range(num_chunk):
+
+            query_start = query_idx * chunk_size
+            query_end = (
+                query_idx +
+                1) * chunk_size if query_idx < num_chunk - 1 else seq_len
+
+            # step 1: compute the diagonal casual blocks
+            query_slice = query[..., query_start:query_end, :]
+            key_slice = key[..., query_start:query_end, :]
+            value_slice = value[..., query_start:query_end, :]
+
+            bs, _, _, q_len, _ = query_slice.shape
+
+            # Kernel limitation, need to use not causal and pass mask to get correct m and linv
+            if query_slice.size(2) < chunk_size:
+                mask = (1 - torch.tril(
+                    torch.ones(bs,
+                               1,
+                               1,
+                               q_len,
+                               q_len,
+                               dtype=query.dtype,
+                               device=query.device))) * torch.finfo(
+                                   query.dtype).min
+
+                out, m, linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+                    query_slice,
+                    key_slice,
+                    value_slice,
+                    mask,
+                    0.0,  #dropout
+                    scale,
+                    False,  #is_causal
+                    True,  #requires_backward
+                    softmax_mode,
+                    None,  #valid_seq_len
+                    padding_mode)
+            else:
+                # causal
+                out, m, linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+                    query_slice,
+                    key_slice,
+                    value_slice,
+                    None,  #mask
+                    0.0,  #dropout
+                    scale,
+                    True,  #is_causal
+                    True,  #requires_backward
+                    softmax_mode,
+                    None,  #valid_seq_len
+                    padding_mode)
+            if num_chunk == 1:
+                if output_original_dtype:
+                    out = out.to(query.dtype)
+                if softmax_mode == "fast":
+                    linv = linv.to(torch.float32) * 128
+                else:
+                    linv = linv.to(torch.float32)
+                return out.reshape(ori_shape), m.to(torch.float32).reshape(
+                    ori_shape[:-1]), linv.reshape(ori_shape[:-1])
+
+            if softmax_mode == "fast":
+                linv = linv * 128
+            else:
+                linv = linv.to(torch.float32)
+            m = m.to(torch.float32)
+            out = out.to(torch.float32)
+
+            # step 2: compute the full attn blocks
+            for kv_idx in range(0, query_idx):
+                kv_start = kv_idx * chunk_size
+                kv_end = (kv_idx + 1) * chunk_size
+
+                key_slice = key[..., kv_start:kv_end, :]
+                value_slice = value[..., kv_start:kv_end, :]
+
+                block_out, block_m, block_linv, _ = torch.ops.hpu.sdpa_recomp_fwd(
+                    query_slice,
+                    key_slice,
+                    value_slice,
+                    None,  #mask
+                    0.0,  #dropout
+                    scale,
+                    False,  #is_causal
+                    True,  #requires_backward
+                    softmax_mode,
+                    None,  #valid_seq_len
+                    padding_mode)
+
+                if softmax_mode == "fast":
+                    block_linv = block_linv.to(torch.float32) * 128
+                else:
+                    block_linv = block_linv.to(torch.float32)
+                block_m = block_m.to(torch.float32)
+                block_out = block_out.to(torch.float32)
+                new_m = torch.maximum(m, block_m)
+                l_rescaled = (1.0 / linv) * torch.exp(m - new_m)
+                block_l_rescaled = (1.0 / block_linv) * torch.exp(block_m -
+                                                                  new_m)
+                new_linv = 1.0 / (l_rescaled + block_l_rescaled)
+                out = (l_rescaled * new_linv) * out + (block_l_rescaled *
+                                                       new_linv) * block_out
+                linv = new_linv
+                m = new_m
+
+            if output_original_dtype:
+                final_hidden_list.append(out.to(query.dtype))
+            else:
+                final_hidden_list.append(out)
+            final_linv_list.append(linv)
+            final_m_list.append(m)
+
+        output = torch.cat(final_hidden_list, dim=-2)
+        final_linv = torch.cat(final_linv_list, dim=-2)
+        final_m = torch.cat(final_m_list, dim=-2)
+
+        return output.reshape(ori_shape), final_m.reshape(
+            ori_shape[:-1]), final_linv.reshape(ori_shape[:-1])
