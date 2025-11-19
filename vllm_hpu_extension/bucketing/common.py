@@ -219,9 +219,9 @@ def find_bucket_with_prefix_caching(prompt_buckets, target_shape, block_size):
                 return a[i-1]
             raise ValueError
         
-        bs_buckets = list(sorted([b[0] for b in prompt_buckets]))
-        seq_buckets = list(sorted([b[1] for b in prompt_buckets]))
-        ctx_buckets = list(sorted([b[2] for b in prompt_buckets]))
+        bs_buckets = list(sorted(set([b[0] for b in prompt_buckets])))
+        seq_buckets = list(sorted(set([b[1] for b in prompt_buckets])))
+        ctx_buckets = list(sorted(set([b[2] for b in prompt_buckets])))
 
         try:
             found_bs = find_ge(bs_buckets, batch_size)
