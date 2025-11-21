@@ -13,7 +13,7 @@ class LinearBucketingStrategy:
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
                            max_num_batched_tokens, max_model_len):
         use_merged_prefill = get_config().merged_prefill
-        prefix_caching = get_config().prefix_caching
+        prefix_caching = get_config().prefix_caching or get_config().chunked_prefill
 
         max_prompt_seq = max_model_len
 
@@ -197,12 +197,17 @@ def generate_prompt_buckets(bs_bucket_config,
     filtered_buckets = buckets
     if max_num_batched_tokens is not None:
         # Remove buckets exceeding batch token budget
-        if prefix_caching:
+        if get_config().prefix_caching:
             max_tokens = max_num_batched_tokens + context_bucket_step * block_size
             filtered_buckets = list(
                 filter(
                     lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_tokens,
                     buckets))
+        elif get_config().chunked_prefill:
+            filtered_buckets = list(
+                filter(
+                    lambda bucket: bucket[1] <= max_num_batched_tokens \
+                    and bucket[0] == 1 , buckets))
         else:
             filtered_buckets = list(
                 filter(

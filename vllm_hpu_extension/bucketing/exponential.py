@@ -31,7 +31,7 @@ class ExponentialBucketingStrategy():
                            max_num_batched_tokens, max_model_len):
         self.check_for_user_flags('prompt')
         use_merged_prefill = get_config().merged_prefill
-        prefix_caching = get_config().prefix_caching
+        prefix_caching = get_config().prefix_caching or get_config().chunked_prefill
         max_prompt_seq = max_model_len
 
         # cfgs shape: [min, step, max, limit]
@@ -131,10 +131,16 @@ def generate_prompt_buckets(bs_bucket_config,
     filtered_buckets = buckets
     if max_num_batched_tokens is not None and max_model_len is not None:
         # Remove buckets exceeding batch token budget
-        filtered_buckets = list(
-            filter(
-                lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens \
-                and bucket[1] <= max_model_len, buckets))
+        if get_config().chunked_prefill:
+            filtered_buckets = list(
+                filter(
+                    lambda bucket: bucket[1] <= max_num_batched_tokens \
+                    and bucket[1] <= max_model_len and bucket[0] == 1 , buckets))
+        else:
+            filtered_buckets = list(
+                filter(
+                    lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens \
+                    and bucket[1] <= max_model_len, buckets))
 
         if len(filtered_buckets) == 0:
             # we can handle this if we ignore max_num_batched_tokens
