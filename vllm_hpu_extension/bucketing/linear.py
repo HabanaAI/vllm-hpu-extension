@@ -152,7 +152,8 @@ def generate_prompt_buckets(bs_bucket_config,
                                os.getenv('PT_HPU_QKV_SLICE_SEQ_LEN_THLD', None))
     if qkv_chunk_size is not None:
         qkv_chunk_size = int(qkv_chunk_size)
-        assert qkv_chunk_size%1024 ==0, "VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE must be multiple of 1024"
+        assert qkv_chunk_size % 1024 == 0, \
+            "VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE must be multiple of 1024"
         seq_buckets = warmup_range_with_limit((seq_min, seq_step, qkv_chunk_size, seq_limit))
         seq_buckets += warmup_range_with_limit((qkv_chunk_size, qkv_chunk_size, seq_max, 0.0))
     else:
@@ -177,9 +178,7 @@ def generate_prompt_buckets(bs_bucket_config,
                     buckets_3d.append((bs, seq, ctx))
         buckets = buckets_3d
     else:
-        buckets = list(
-                itertools.product(bs_buckets,
-                                seq_buckets, [0]))
+        buckets = list(itertools.product(bs_buckets, seq_buckets, [0]))
 
     if len(buckets) == 0:
         msg = ("No buckets could be captured with following config "
@@ -195,18 +194,18 @@ def generate_prompt_buckets(bs_bucket_config,
             max_tokens = max_num_batched_tokens + context_bucket_step * block_size
             filtered_buckets = list(
                 filter(
-                    lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_tokens,
+                    lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_tokens,
                     buckets))
         else:
             filtered_buckets = list(
                 filter(
-                    lambda bucket: bucket[0] * (bucket[1] +  bucket[2] * block_size) <= max_num_batched_tokens,
+                    lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_num_batched_tokens,
                     buckets))
 
         if len(filtered_buckets) == 0:
             # we can handle this if we ignore max_num_batched_tokens
             min_bucket_bs, min_bucket_seq, min_bucket_ctx = min(buckets,
-                                                key=lambda b: (b[0] * b[1]))
+                                                                key=lambda b: (b[0] * b[1]))
             min_reqd_budget = min_bucket_bs * (min_bucket_seq + min_bucket_ctx * block_size)
             msg = (
                 "The current bucketing configuration "
