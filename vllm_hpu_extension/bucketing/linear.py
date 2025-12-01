@@ -144,15 +144,30 @@ def generate_prompt_buckets(bs_bucket_config,
                             block_size,
                             prefix_caching,
                             max_num_batched_tokens=None):
-    _, seq_step, seq_max, limit = seq_bucket_config
+    seq_min, seq_step, seq_max, seq_limit = seq_bucket_config
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
-    seq_buckets = warmup_range_with_limit(seq_bucket_config)
+
+    # Ensure that padding not exceeds VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE if set
+    qkv_chunk_size = os.getenv('VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE', \
+                               os.getenv('PT_HPU_QKV_SLICE_SEQ_LEN_THLD', None))
+    if qkv_chunk_size is not None:
+        qkv_chunk_size = int(qkv_chunk_size)
+        assert qkv_chunk_size%1024 ==0, "VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE must be multiple of 1024"
+        seq_buckets = warmup_range_with_limit((seq_min, seq_step, qkv_chunk_size, seq_limit))
+        seq_buckets += warmup_range_with_limit((qkv_chunk_size, qkv_chunk_size, seq_max, 0.0))
+    else:
+        seq_buckets = warmup_range_with_limit(seq_bucket_config)
     context_bucket_step = max(seq_step // block_size, 1)
 
     if prefix_caching:
         buckets_3d = []
-        context_bucket_config = (context_bucket_step, context_bucket_step, seq_max * 2 // block_size + 2, limit)
-        context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
+        context_bucket_config = (context_bucket_step, context_bucket_step, seq_max * 2 // block_size + 2, seq_limit)
+        if qkv_chunk_size is not None:
+            qkv_chunk_blocks = qkv_chunk_size // block_size
+            context_buckets = [0] + warmup_range_with_limit((context_bucket_step, context_bucket_step, qkv_chunk_blocks, seq_limit))
+            context_buckets += warmup_range_with_limit((qkv_chunk_blocks, qkv_chunk_blocks, seq_max * 2 // block_size + 2, 0.0))
+        else:
+            context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
         for bs in bs_buckets:
             for seq in seq_buckets:
                 for i in range(len(context_buckets)):
