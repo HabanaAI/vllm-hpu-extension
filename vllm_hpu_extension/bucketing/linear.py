@@ -104,22 +104,25 @@ def read_bucket_settings(phase: str, dim: str, **defaults):
     return values
 
 
-def warmup_range_with_limit(config: Tuple[int, int, int, float]):
+def warmup_range_with_limit(config: Tuple[int, int, int, float],
+                            max_abs_padding: int = 8192) -> List[int]:
     """Generate a warmup range.
 
-    Start from bmin and multiply by 2 until you reach bstep.
-    Then, increase the values in the range by the value of bstep until you
-    reach bmax if the padding ratio is within the limit.
+    Start from bucket_min and multiply by 2 until you reach bucket_step.
+    Then, increase the values in the range by the value of bucket_step until you
+    reach bucket_max if the absolute padding and padding ratio are within the limit.
 
     Example:
-    bmin = 2, bstep = 32, bmax = 64
+    bucket_min = 2, bucket_step = 32, bucket_max = 64
     => ramp_up = (2, 4, 8, 16)
     => stable = (32, 64)
     => return ramp_up + stable => (2, 4, 8, 16, 32, 64)
     """
     bucket_min, bucket_step, bucket_max, limit = config
-    assert bucket_min <= bucket_max, ("bucket_min cannot be greater than bucket_max. "
-                          "If you want to skip warmup, set VLLM_SKIP_WARMUP=true")
+    assert bucket_min <= bucket_max, (
+        "bucket_min cannot be greater than bucket_max. "
+        "If you want to skip warmup, set VLLM_SKIP_WARMUP=true"
+    )
     buckets = [bucket_min]
     current_bucket = bucket_min
     while current_bucket <= bucket_max:
@@ -130,8 +133,12 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float]):
                 buckets.append(next_bucket)
         else:
             next_bucket = current_bucket + bucket_step
-            max_padding_ratio = 1 - (last_bucket / (next_bucket  - 1))
-            if max_padding_ratio > limit and current_bucket != last_bucket:
+            max_padding = next_bucket - last_bucket - 1
+            max_padding_ratio = max_padding / next_bucket
+            if (
+                (max_padding_ratio > limit or max_padding > max_abs_padding)
+                and current_bucket != last_bucket
+            ):
                 buckets.append(current_bucket)
         current_bucket = next_bucket
     if buckets[-1] != bucket_max:
@@ -144,7 +151,7 @@ def generate_prompt_buckets(bs_bucket_config,
                             block_size,
                             prefix_caching,
                             max_num_batched_tokens=None):
-    seq_min, seq_step, seq_max, seq_limit = seq_bucket_config
+    _, seq_step, seq_max, seq_limit = seq_bucket_config
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
 
     # Ensure that padding not exceeds VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE if set
@@ -154,8 +161,7 @@ def generate_prompt_buckets(bs_bucket_config,
         qkv_chunk_size = int(qkv_chunk_size)
         assert qkv_chunk_size % 1024 == 0, \
             "VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE must be multiple of 1024"
-        seq_buckets = warmup_range_with_limit((seq_min, seq_step, qkv_chunk_size, seq_limit))
-        seq_buckets += warmup_range_with_limit((qkv_chunk_size, qkv_chunk_size, seq_max, 0.0))
+        seq_buckets = warmup_range_with_limit(seq_bucket_config, qkv_chunk_size)
     else:
         seq_buckets = warmup_range_with_limit(seq_bucket_config)
     context_bucket_step = max(seq_step // block_size, 1)
@@ -165,8 +171,7 @@ def generate_prompt_buckets(bs_bucket_config,
         context_bucket_config = (context_bucket_step, context_bucket_step, seq_max * 2 // block_size + 2, seq_limit)
         if qkv_chunk_size is not None:
             qkv_chunk_blocks = qkv_chunk_size // block_size
-            context_buckets = [0] + warmup_range_with_limit((context_bucket_step, context_bucket_step, qkv_chunk_blocks, seq_limit))
-            context_buckets += warmup_range_with_limit((qkv_chunk_blocks, qkv_chunk_blocks, seq_max * 2 // block_size + 2, 0.0))
+            context_buckets = [0] + warmup_range_with_limit(context_bucket_config, qkv_chunk_blocks)
         else:
             context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
         for bs in bs_buckets:
