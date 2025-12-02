@@ -136,8 +136,10 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float],
             max_padding = next_bucket - last_bucket - 1
             max_padding_ratio = max_padding / next_bucket
             if (
-                (max_padding_ratio > limit or max_padding > max_abs_padding)
-                and current_bucket != last_bucket
+                (max_padding_ratio > limit
+                    or max_padding > max_abs_padding
+                    or current_bucket % max_abs_padding == 0
+                ) and current_bucket != last_bucket
             ):
                 buckets.append(current_bucket)
         current_bucket = next_bucket
