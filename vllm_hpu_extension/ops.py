@@ -556,19 +556,42 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
         
         kwargs = self._get_extra_kwargs(tokens_num)
-
-        final_hidden_states = torch.ops.hpu.mixture_of_experts(
-            hidden_states=hidden_states,
-            expert_routing_table=expert_routing_table,
-            router_weights=router_weights,
-            w12=w13_list,
-            w3=w2_list,
-            permuted_weights=permuted_weights,
-            activation=activation,
-            experts_min=self.experts_min,
-            experts_max=self.experts_max,
-            **kwargs
-        )
+        if self.enable_moe_slice and tokens_num > self.moe_slice_length:
+            final_hidden_states_list = []
+            n_slice = (tokens_num + self.moe_slice_length - 1) // self.moe_slice_length
+            for i in range(n_slice):
+                s = i * self.moe_slice_length
+                e = tokens_num if i == (n_slice - 1) else (i + 1) * self.moe_slice_length
+                cur_qinput = hidden_states[s:e, ...]
+                cur_expert_routing_table = expert_routing_table[s:e, ...]
+                cur_router_weights = router_weights[s:e, ...]
+                cur_out = torch.ops.hpu.mixture_of_experts(
+                    hidden_states=cur_qinput,
+                    expert_routing_table=cur_expert_routing_table,
+                    router_weights=cur_router_weights,
+                    w12=w13_list,
+                    w3=w2_list,
+                    permuted_weights=permuted_weights,
+                    activation=activation,
+                    experts_min=self.experts_min,
+                    experts_max=self.experts_max,
+                    **kwargs
+                )
+                final_hidden_states_list.append(cur_out)
+            final_hidden_states = torch.cat(final_hidden_states_list, dim=0)
+        else:
+            final_hidden_states = torch.ops.hpu.mixture_of_experts(
+                hidden_states=hidden_states,
+                expert_routing_table=expert_routing_table,
+                router_weights=router_weights,
+                w12=w13_list,
+                w3=w2_list,
+                permuted_weights=permuted_weights,
+                activation=activation,
+                experts_min=self.experts_min,
+                experts_max=self.experts_max,
+                **kwargs
+            )
         return final_hidden_states
 
 
