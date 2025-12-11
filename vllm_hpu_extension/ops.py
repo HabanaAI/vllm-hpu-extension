@@ -1104,11 +1104,18 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             x_scale = self.w13_input_scale.data
             w2_input_scale = self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
-            is_per_channel = (
-                self.w2_weight is not None and
-                self.w2_weight_scale is not None and
-                self.w2_weight.shape[-1] == self.w2_weight_scale.shape[-1]
-            )
+            is_per_channel = False
+            processed_weight_scale = None
+
+            w, s = self.w2_weight, self.w2_weight_scale
+            if w is not None and s is not None:
+                if w.shape[-1] == s.shape[-1]:
+                    processed_weight_scale = s
+                    is_per_channel = True
+                elif w.shape[-1] == s.shape[-2] and s.shape[-1] == 1: # for glm-4.5-air weight scale
+                    processed_weight_scale = s.squeeze(-1)
+                    is_per_channel = True
+            
             if self.use_static_moe:
                 lo, hi = self.static_moe_limits_list
                 is_in_moe_static_limits = lo <= x.size(0) <= hi
@@ -1152,7 +1159,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                         D=None,
                         out_dtype=torch.bfloat16,
                         A_scale_inv=self.w2_input_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
-                        B_scale_inv=self.w2_weight_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
+                        B_scale_inv=processed_weight_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
                         bias=None,
                         accumulate=False,
                     )
