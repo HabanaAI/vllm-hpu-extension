@@ -497,17 +497,44 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        """
+        chunk_size is a key performance tuning parameter for the op
+        torch.ops.hpu.mixture_of_experts operator, and its configuration
+        depends on the number of tokens, so we set it by different values.
+        """
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "VLLM_HPU_MOE_CHUNK", "64,256,256,512"
+            ).split(",")
+            if x.strip()
+        ]
+        self.token_boundary_list = [
+            int(x)
+            for x in os.environ.get(
+                "VLLM_HPU_MOE_TOKEN_BOUNDARY", "1536,2048,4096,8192"
+            ).split(",")
+            if x.strip()
+        ]
+
+        assert len(self.chunk_size_list) == len(self.token_boundary_list), (
+        f"chunk_size_list({len(self.chunk_size_list)}) and "
+        f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
+        )
+
+        self.enable_moe_slice = os.environ.get('VLLM_SUPPORT_MOE_SLICE',
+                                                       'false').lower() == 'true'
+        self.moe_slice_length = int(os.environ.get("VLLM_MOE_SLICE_LENGTH", 128000))
 
     def _get_extra_kwargs(self, tokens_num: int):
         if self.enable_moe_chunk:
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -956,20 +983,24 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        """
+        chunk_size is a key performance tuning parameter for the op
+        torch.ops.hpu.mixture_of_experts operator, and its configuration
+        depends on the number of tokens, so we set it by different values.
+        """
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
-        # WA for INC
         self.chunk_size_list = [
             int(x)
             for x in os.environ.get(
-                "VLLM_HPU_MOE_CHUNK", "64,64,64,256,256,256,512"
+                "VLLM_HPU_MOE_CHUNK", "64,256,256,512"
             ).split(",")
             if x.strip()
         ]
         self.token_boundary_list = [
             int(x)
             for x in os.environ.get(
-                "VLLM_HPU_MOE_TOKEN_BOUNDARY", "64,256,1024,1536,2048,3072,4096"
+                "VLLM_HPU_MOE_TOKEN_BOUNDARY", "1536,2048,4096,8192"
             ).split(",")
             if x.strip()
         ]
@@ -978,19 +1009,18 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         f"chunk_size_list({len(self.chunk_size_list)}) and "
         f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
         )
-        
+
         self.enable_moe_slice = os.environ.get('VLLM_SUPPORT_MOE_SLICE',
                                                        'false').lower() == 'true'
         self.moe_slice_length = int(os.environ.get("VLLM_MOE_SLICE_LENGTH", 128000))
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+        if self.enable_moe_chunk:
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
@@ -1054,8 +1084,37 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         self.global_num_experts = global_num_experts
         self.experts_min = experts_min
         self.experts_max = experts_max
+        """
+        chunk_size is a key performance tuning parameter for the op
+        torch.ops.hpu.mixture_of_experts operator, and its configuration
+        depends on the number of tokens, so we set it by different values.
+        """
         self.enable_moe_chunk = os.environ.get('VLLM_SUPPORT_MOE_CHUNK',
                                                        'false').lower() == 'true'
+        self.chunk_size_list = [
+            int(x)
+            for x in os.environ.get(
+                "VLLM_HPU_MOE_CHUNK", "64,256,256,512"
+            ).split(",")
+            if x.strip()
+        ]
+        self.token_boundary_list = [
+            int(x)
+            for x in os.environ.get(
+                "VLLM_HPU_MOE_TOKEN_BOUNDARY", "1536,2048,4096,8192"
+            ).split(",")
+            if x.strip()
+        ]
+
+        assert len(self.chunk_size_list) == len(self.token_boundary_list), (
+        f"chunk_size_list({len(self.chunk_size_list)}) and "
+        f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
+        )
+
+        self.enable_moe_slice = os.environ.get('VLLM_SUPPORT_MOE_SLICE',
+                                                       'false').lower() == 'true'
+        self.moe_slice_length = int(os.environ.get("VLLM_MOE_SLICE_LENGTH", 128000))
+
         self.static_moe_limits_list = [
             x
             for x in os.environ.get(
@@ -1076,13 +1135,12 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
             self.use_static_moe = False
 
     def _get_extra_kwargs(self, tokens_num: int):
-        if(self.enable_moe_chunk):
-            if tokens_num <= 1536:
-                chunk_size = 64
-            elif tokens_num > 1536 and tokens_num <= 4096:
-                chunk_size = 256
-            else:
-                chunk_size = 512
+        if self.enable_moe_chunk:
+            chunk_size = self.chunk_size_list[-1]
+            for idx, threshold in enumerate(self.token_boundary_list):
+                if tokens_num <= threshold:
+                    chunk_size = self.chunk_size_list[idx]
+                    break
             kwargs = {
                 "chunk_size": chunk_size,
                 "total_experts": self.global_num_experts,
