@@ -524,6 +524,13 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
         )
 
+        """
+        moe_slice is a key memory‑tuning parameter for MoE models. It limits the 
+        number of tokens executed at once and helps reduce overall memory usage. 
+        When both VLLM_SUPPORT_MOE_SLICE and VLLM_MOE_SLICE_LENGTH are enabled, 
+        the slicing mechanism takes effect for inputs whose length exceeds the 
+        value of VLLM_MOE_SLICE_LENGTH.
+        """
         self.enable_moe_slice = os.environ.get('VLLM_SUPPORT_MOE_SLICE',
                                                        'false').lower() == 'true'
         self.moe_slice_length = int(os.environ.get("VLLM_MOE_SLICE_LENGTH", 128000))
@@ -1032,7 +1039,13 @@ class VllmMixtureOfExpertsOpFP8(torch.nn.Module):
         f"chunk_size_list({len(self.chunk_size_list)}) and "
         f"token_boundary_list({len(self.token_boundary_list)}) must be the same length"
         )
-
+        """
+        moe_slice is a key memory‑tuning parameter for MoE models. It limits the 
+        number of tokens executed at once and helps reduce overall memory usage. 
+        When both VLLM_SUPPORT_MOE_SLICE and VLLM_MOE_SLICE_LENGTH are enabled, 
+        the slicing mechanism takes effect for inputs whose length exceeds the 
+        value of VLLM_MOE_SLICE_LENGTH.
+        """
         self.enable_moe_slice = os.environ.get('VLLM_SUPPORT_MOE_SLICE',
                                                        'false').lower() == 'true'
         self.moe_slice_length = int(os.environ.get("VLLM_MOE_SLICE_LENGTH", 128000))
