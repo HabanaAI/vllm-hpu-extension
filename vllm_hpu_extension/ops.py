@@ -50,6 +50,14 @@ def group_sum(partial_sum, block_mapping):
     sums = batch2block(sums, block_mapping)
     return sums
 
+def matmul_shape(lhs, rhs):
+    lhs_shape = list(lhs.shape)
+    rhs_shape = list(rhs.shape)
+    common_shape = [max(left, right) for left, right in
+                    zip(lhs_shape[:-2], rhs_shape[:-2])]
+    result = common_shape + [lhs_shape[-2]] + [rhs_shape[-1]]
+    return result
+
 def pipelined_pa(attn, value, block_bias, block_groups, block_mapping, batch_size,
                  matmul_av_op, batch2block_matmul_op, block2batch_matmul_op):
     fused_block_softmax_adjustment_requirements = get_config().fused_block_softmax_adjustment and attn.dtype != torch.float16
@@ -157,11 +165,18 @@ def flat_pa_mla(query, key_cache, value_cache, block_list, block_mapping,
     else:
         key = key.transpose(2, 3)
 
-    attn = matmul_qk_op(query, key)
-    if get_config().fp32_softmax:
+    #NOTE(adobrzyn): Remove if after (GAUDISW-243850)
+    if get_config().use_output_tensor_in_matmulqk:
+        attn = None
+        if get_config().fp32_softmax:
+            attn = torch.empty(matmul_shape(query, key), dtype=torch.float32, device=query.device)
+        attn = matmul_qk_op(query, key, out=attn)
+    elif get_config().fp32_softmax:
+        attn = matmul_qk_op(query, key)
         attn = attn.float()
         htcore.mark_step()
-
+    else:
+        attn = matmul_qk_op(query, key)
     attn = pipelined_pa(attn,
                         value,
                         block_bias,
@@ -201,12 +216,23 @@ def flat_pa(query, key_cache, value_cache, block_list, block_mapping,
             block_bias = block_bias.unsqueeze(2)
     key = key.transpose(-2, -1)
 
-    attn = matmul_qk_op(query, key)
-    if get_config().fp32_softmax:
+    #NOTE(adobrzyn): Remove if after (GAUDISW-243850)
+    if get_config().use_output_tensor_in_matmulqk:
+        attn = None
+        if get_config().fp32_softmax:
+            attn = torch.empty(matmul_shape(query, key), dtype=torch.float32, device=query.device)
+            if position_bias is not None:
+                position_bias = position_bias.float()
+        attn = matmul_qk_op(query, key, out=attn)
+    elif get_config().fp32_softmax:
+        attn = matmul_qk_op(query, key)
         attn = attn.float()
         htcore.mark_step()
         if position_bias is not None:
             position_bias = position_bias.float()
+    else:
+        attn = matmul_qk_op(query, key)
+
     if position_bias is not None:
         if attn.dtype != position_bias.dtype:
             attn = attn.to(dtype=position_bias.dtype)

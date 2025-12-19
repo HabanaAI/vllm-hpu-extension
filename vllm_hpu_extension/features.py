@@ -79,5 +79,6 @@ def get_features():
         Value('bucketing_strategy', FirstEnabled(*bucketing_strategies), env_var_type=choice(*bucketing_strategies)),
         Value('use_const_norm', False, env_var='VLLM_SOFTMAX_CONST_NORM'),
         Value('const_norm_value', 10.0, env_var='VLLM_SOFTMAX_CONST_NORM_VALUE'),
+        Value('use_output_tensor_in_matmulqk', VersionRange(">=1.24.0.171"), env_var_type=boolean)
     ]
     return split_values_and_flags(features)
