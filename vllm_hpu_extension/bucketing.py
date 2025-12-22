@@ -168,7 +168,7 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float]):
 
     Start from bmin and multiply by 2 until you reach bstep.
     Then, increase the values in the range by the value of bstep until you
-    reach bmax if the padding ratio is within the limit.
+    reach bmax if the absolute padding and padding ratio are within the limit.
 
     Example:
     bmin = 2, bstep = 32, bmax = 64
@@ -179,6 +179,12 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float]):
     bucket_min, bucket_step, bucket_max, limit = config
     assert bucket_min <= bucket_max, ("bucket_min cannot be greater than bucket_max. "
                           "If you want to skip warmup, set VLLM_SKIP_WARMUP=true")
+    max_abs_padding = int(os.getenv('VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE', \
+                               os.getenv('VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD', "8192")))
+    assert max_abs_padding % 1024 == 0, \
+        "VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE must be multiple of 1024"
+    assert max_abs_padding % bucket_step == 0, \
+        "VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE must be multiple of bucket_step"
     buckets = [bucket_min]
     current_bucket = bucket_min
     while current_bucket <= bucket_max:
@@ -189,8 +195,14 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float]):
                 buckets.append(next_bucket)
         else:
             next_bucket = current_bucket + bucket_step
-            max_padding_ratio = 1 - (last_bucket / (next_bucket  - 1))
-            if max_padding_ratio > limit and current_bucket != last_bucket:
+            max_padding = next_bucket - last_bucket - 1
+            max_padding_ratio = max_padding / next_bucket
+            if (
+                (max_padding_ratio > limit
+                    or max_padding > max_abs_padding
+                    or current_bucket % max_abs_padding == 0
+                ) and current_bucket != last_bucket
+            ):
                 buckets.append(current_bucket)
         current_bucket = next_bucket
     if buckets[-1] != bucket_max:
