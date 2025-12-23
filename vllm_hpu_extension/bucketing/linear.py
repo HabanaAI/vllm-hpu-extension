@@ -156,13 +156,13 @@ def generate_prompt_buckets(bs_bucket_config,
     _, seq_step, seq_max, seq_limit = seq_bucket_config
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
 
-    # Ensure that padding not exceeds VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE if set
-    qkv_chunk_size = os.getenv('VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE', \
-                               os.getenv('PT_HPU_QKV_SLICE_SEQ_LEN_THLD', None))
+    # Ensure that padding not exceeds VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE if set
+    qkv_chunk_size = os.getenv('VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE', \
+                               os.getenv('VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD', None))
     if qkv_chunk_size is not None:
         qkv_chunk_size = int(qkv_chunk_size)
         assert qkv_chunk_size % 1024 == 0, \
-            "VLLM_FUSEDSDPA_QKV_SLICE_CHUNK_SIZE must be multiple of 1024"
+            "VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE must be multiple of 1024"
         seq_buckets = warmup_range_with_limit(seq_bucket_config, qkv_chunk_size)
     else:
         seq_buckets = warmup_range_with_limit(seq_bucket_config)
