@@ -154,6 +154,8 @@ def generate_prompt_buckets(bs_bucket_config,
                             prefix_caching,
                             max_num_batched_tokens=None):
     _, seq_step, seq_max, seq_limit = seq_bucket_config
+    if get_config().chunked_prefill and max_num_batched_tokens is not None:
+        seq_bucket_config[2] = max_num_batched_tokens
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
 
     # Ensure that padding not exceeds VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE if set
