@@ -34,23 +34,17 @@ def get_user_flags():
         # Non-vllm flags that are also important to print
         Env('EXPERIMENTAL_WEIGHT_SHARING', str),
         Env('PT_HPU_WEIGHT_SHARING', str),
-        
+
         # Sliding window flags
         Env('PT_HPU_SDPA_QKV_SLICE_MODE_FWD', boolean),
         Env('PT_HPU_SDPA_BC_FACTOR', int),
         Env('VLLM_FUSEDSDPA_SLIDE_THLD', int),
+
+        # FusedSDPA slice flags
         Env('VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD', int),
         Env('VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE', int),
         Env('VLLM_HPU_FSDPA_SLICE_IMPL', str),
-
-        # Threshold for doing QKV slice in FusedSDPA, set 0 to disable
-        Env('VLLM_FUSEDSDPA_QKV_SLICE_SEQ_LEN_THLD', int),
-        # Chunk sizes for Q slice in full attn
-        Env('VLLM_FUSEDSDPA_Q_SLICE_CHUNK_SIZE', int),
-        # Chunk sizes for KV slice in full attn
-        Env('VLLM_FUSEDSDPA_KV_SLICE_CHUNK_SIZE', int),
-        # Chunk sizes for QKV slice in causal attn
-        Env('VLLM_FUSEDSDPA_CAUSAL_QKV_SLICE_CHUNK_SIZE', int),
+        Env('VLLM_HPU_FSDPA_SLICE_CAUSAL', boolean),
     ]
     return to_dict(flags)
 
