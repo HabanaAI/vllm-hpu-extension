@@ -1827,15 +1827,13 @@ class CausalSDPA(torch.autograd.Function):
             is_causal = False
             if attn_mask is None:
                 bs = query.size(0)
+                mask_shape = (bs, 1, 1, query_len,
+                              query_len) if gqa else (bs, 1, query_len,
+                                                      query_len)
                 mask = (1 - torch.tril(
-                    torch.ones(bs,
-                               1,
-                               1,
-                               query_len,
-                               query_len,
-                               dtype=query.dtype,
-                               device=query.device))) * torch.finfo(
-                                   query.dtype).min
+                    torch.ones(
+                        mask_shape, dtype=query.dtype,
+                        device=query.device))) * torch.finfo(query.dtype).min
             else:
                 mask = attn_mask
         else:
@@ -1924,12 +1922,11 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
                     mask = attn_mask[..., query_start:query_end,
                                      query_start:query_end]
                 else:
+                    mask_shape = (bs, 1, 1, q_slice_len,
+                                  q_slice_len) if gqa else (bs, 1, q_slice_len,
+                                                            q_slice_len)
                     mask = (1 - torch.tril(
-                        torch.ones(bs,
-                                   1,
-                                   1,
-                                   q_slice_len,
-                                   q_slice_len,
+                        torch.ones(mask_shape,
                                    dtype=query.dtype,
                                    device=query.device))) * torch.finfo(
                                        query.dtype).min
