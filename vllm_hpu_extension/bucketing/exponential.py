@@ -31,7 +31,7 @@ class ExponentialBucketingStrategy():
                            max_num_batched_tokens, max_model_len):
         self.check_for_user_flags('prompt')
         use_merged_prefill = get_config().merged_prefill
-        prefix_caching = get_config().prefix_caching or get_config().chunked_prefill
+        use_context_bucketing = get_config().prefix_caching or get_config().chunked_prefill
         max_prompt_seq = max_model_len
 
         # cfgs shape: [min, step, max, limit]
@@ -53,7 +53,7 @@ class ExponentialBucketingStrategy():
             prompt_bs_bucket_cfg,
             prompt_seq_bucket_cfg,
             block_size,
-            prefix_caching,
+            use_context_bucketing,
             max_num_batched_tokens,
             max_model_len)
 
