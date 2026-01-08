@@ -174,6 +174,9 @@ class HPUBucketingManager():
         return (batch_size, 1, num_blocks)
 
     def get_max_prompt_shape(self):
+        if get_config().chunked_prefill:
+            return self.max_num_batched_tokens
+
         return max(b[1] for b in self.prompt_buckets) \
                if len(self.prompt_buckets) > 0 else self.max_model_len
 

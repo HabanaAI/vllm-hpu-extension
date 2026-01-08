@@ -13,7 +13,7 @@ class LinearBucketingStrategy:
     def get_prompt_buckets(self, max_num_prefill_seqs, block_size, 
                            max_num_batched_tokens, max_model_len):
         use_merged_prefill = get_config().merged_prefill
-        prefix_caching = get_config().prefix_caching
+        use_context_bucketing = get_config().prefix_caching or get_config().chunked_prefill
 
         max_prompt_seq = max_model_len
 
@@ -49,7 +49,7 @@ class LinearBucketingStrategy:
             prompt_bs_bucket_cfg,
             prompt_seq_bucket_cfg,
             block_size,
-            prefix_caching,
+            use_context_bucketing,
             max_num_batched_tokens)
 
         return sorted(prompt_buckets)
@@ -154,6 +154,9 @@ def generate_prompt_buckets(bs_bucket_config,
                             prefix_caching,
                             max_num_batched_tokens=None):
     _, seq_step, seq_max, seq_limit = seq_bucket_config
+    if get_config().chunked_prefill and max_num_batched_tokens is not None:
+        seq_bucket_config[2] = max_num_batched_tokens
+        seq_limit = 0
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
 
     # Ensure that padding not exceeds VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE if set
@@ -166,7 +169,11 @@ def generate_prompt_buckets(bs_bucket_config,
         seq_buckets = warmup_range_with_limit(seq_bucket_config, qkv_chunk_size)
     else:
         seq_buckets = warmup_range_with_limit(seq_bucket_config)
-    context_bucket_step = max(seq_step // block_size, 1)
+
+    if get_config().chunked_prefill and not get_config().prefix_caching:
+        context_bucket_step = max(max_num_batched_tokens // block_size, 1)
+    else:
+        context_bucket_step = max(seq_step // block_size, 1)
 
     if prefix_caching:
         buckets_3d = []
@@ -198,11 +205,17 @@ def generate_prompt_buckets(bs_bucket_config,
     if max_num_batched_tokens is not None:
         # Remove buckets exceeding batch token budget
         if prefix_caching:
-            max_tokens = max_num_batched_tokens + context_bucket_step * block_size
-            filtered_buckets = list(
-                filter(
-                    lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_tokens,
-                    buckets))
+            if get_config().prefix_caching:
+                max_tokens = max_num_batched_tokens + context_bucket_step * block_size
+                filtered_buckets = list(
+                    filter(
+                        lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_tokens,
+                        buckets))
+            elif get_config().chunked_prefill:
+                filtered_buckets = list(
+                    filter(
+                        lambda bucket: bucket[1] <= max_num_batched_tokens \
+                        and bucket[0] == 1 , buckets))
         else:
             filtered_buckets = list(
                 filter(

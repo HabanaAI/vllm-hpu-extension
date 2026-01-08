@@ -54,6 +54,7 @@ def set_vllm_config(cfg):
     else:
         _VLLM_VALUES['model_type'] = cfg.model_config.model_type
     _VLLM_VALUES['prefix_caching'] = cfg.cache_config.enable_prefix_caching
+    _VLLM_VALUES['chunked_prefill'] = cfg.scheduler_config.enable_chunked_prefill
 
     # t.compile is very picky about what functions we can call inside modules
     # since this is the last step we can force recompilation of config to
@@ -89,5 +90,6 @@ def get_environment():
         Value('bridge_mode', _get_pt_bridge_mode, env_var_type=choice('eager', 'lazy')),
         VllmValue('model_type', str),
         VllmValue('prefix_caching', boolean),
+        VllmValue('chunked_prefill', boolean),
     ]
     return split_values_and_flags(values)
