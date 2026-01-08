@@ -34,14 +34,17 @@ def get_user_flags():
         # Non-vllm flags that are also important to print
         Env('EXPERIMENTAL_WEIGHT_SHARING', str),
         Env('PT_HPU_WEIGHT_SHARING', str),
-        
+
         # Sliding window flags
         Env('PT_HPU_SDPA_QKV_SLICE_MODE_FWD', boolean),
         Env('PT_HPU_SDPA_BC_FACTOR', int),
         Env('VLLM_FUSEDSDPA_SLIDE_THLD', int),
+
+        # FusedSDPA slice flags
         Env('VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD', int),
         Env('VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE', int),
         Env('VLLM_HPU_FSDPA_SLICE_IMPL', str),
+        Env('VLLM_HPU_FSDPA_SLICE_CAUSAL', boolean),
     ]
     return to_dict(flags)
 
