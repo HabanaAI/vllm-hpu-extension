@@ -411,7 +411,7 @@ def _fsdpa_prompt_attention(
 
         is_slice_causal = get_config().VLLM_HPU_FSDPA_SLICE_CAUSAL
         qkv_slice_thld = get_config().VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD
-        qkv_slice_thld = qkv_slice_thld if qkv_slice_thld is not None else 8192
+        qkv_slice_thld = qkv_slice_thld if qkv_slice_thld is not None else 0
 
         if is_slice_causal and (
                 qkv_slice_thld > 0 and query_len >= qkv_slice_thld
@@ -485,7 +485,7 @@ def _include_past(tensor_str, fn_str, cache_str, impl, args):
 
         is_fsdpa_impl = impl == 'fsdpa_impl'
         qkv_slice_thld = get_config().VLLM_HPU_FSDPA_SLICE_SEQ_LEN_THLD
-        qkv_slice_thld = qkv_slice_thld if qkv_slice_thld is not None else 8192
+        qkv_slice_thld = qkv_slice_thld if qkv_slice_thld is not None else 0
 
         if is_fsdpa_impl and qkv_slice_thld > 0 and (
                 past.size(1) >= qkv_slice_thld
@@ -1822,6 +1822,7 @@ class CausalSDPA(torch.autograd.Function):
             query, key, value, attn_mask = gqa_input_reshape_fwd(
                 query, key, value, attn_mask)
 
+        # Kernel limitation, need to use not causal and pass mask to get correct m and linv
         if query_len % 1024 != 0:
             is_causal = False
             if attn_mask is None:
