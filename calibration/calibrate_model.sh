@@ -159,13 +159,12 @@ create_quant_config() {
         block_names="$block_names_bf16_prefill"
     elif [[ $model_name_lower == *"qwen3"* && $model_name_lower != *"qwen3-32b"* ]]; then
         block_types="$block_types_bf16_decoding"
+        block_names="$block_names_bf16_prefill"
         if [[ $model_name_lower == *"30b-a3b"* \
             || $model_name_lower == *"235b-a22b"* \
             || $model_name_lower == *"480b-a35b"* \
             ]]; then
             scale_format="const"
-        else
-            block_names="$block_names_bf16_prefill"
         fi
     fi
     
