@@ -206,12 +206,16 @@ def generate_prompt_buckets(bs_bucket_config,
         # Remove buckets exceeding batch token budget
         if prefix_caching:
             if get_config().prefix_caching:
-                max_tokens = max_num_batched_tokens + context_bucket_step * block_size
+                max_tokens = (
+                    seq_max + context_bucket_step * block_size
+                    if get_config().chunked_prefill
+                    else max_num_batched_tokens + context_bucket_step * block_size
+                )
                 filtered_buckets = list(
                     filter(
                         lambda bucket: bucket[0] * (bucket[1] + bucket[2] * block_size) <= max_tokens,
                         buckets))
-            elif get_config().chunked_prefill:
+            if get_config().chunked_prefill:
                 filtered_buckets = list(
                     filter(
                         lambda bucket: bucket[1] <= max_num_batched_tokens \
