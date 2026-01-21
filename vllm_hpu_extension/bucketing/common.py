@@ -230,8 +230,11 @@ def find_bucket_with_prefix_caching(prompt_buckets, target_shape, block_size):
             found_bs = find_ge(bs_buckets, batch_size)
             found_ctx = find_le(ctx_buckets, ctx)
             pad_seq_len = seq_len + (ctx - found_ctx) * block_size
-            found_seq = find_ge(seq_buckets, pad_seq_len)
-            found_bucket = (found_bs, found_seq, found_ctx)
+            try:
+                found_seq = find_ge(seq_buckets, pad_seq_len)
+                found_bucket = (found_bs, found_seq, found_ctx)
+            except ValueError:
+                found_bucket = (found_bs, pad_seq_len, found_ctx)
             return found_bucket
         except ValueError:
             return target_shape
