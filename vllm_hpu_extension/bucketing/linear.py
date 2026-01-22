@@ -129,6 +129,8 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float],
         last_bucket = buckets[-1]
         if current_bucket <= bucket_step:
             next_bucket = last_bucket * 2
+            if next_bucket == last_bucket:
+                next_bucket += 1
             if next_bucket <= bucket_max:
                 buckets.append(next_bucket)
         else:
@@ -151,12 +153,13 @@ def warmup_range_with_limit(config: Tuple[int, int, int, float],
 def generate_prompt_buckets(bs_bucket_config,
                             seq_bucket_config,
                             block_size,
-                            prefix_caching,
+                            use_context_bucketing,
                             max_num_batched_tokens=None):
     _, seq_step, seq_max, seq_limit = seq_bucket_config
     if get_config().chunked_prefill and max_num_batched_tokens is not None:
         seq_bucket_config[2] = max_num_batched_tokens
-        seq_limit = 0
+        if not get_config().prefix_caching:
+            seq_limit = 0
     bs_buckets = warmup_range_with_limit(bs_bucket_config)
 
     # Ensure that padding not exceeds VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE if set
@@ -170,19 +173,21 @@ def generate_prompt_buckets(bs_bucket_config,
     else:
         seq_buckets = warmup_range_with_limit(seq_bucket_config)
 
-    if get_config().chunked_prefill and not get_config().prefix_caching:
-        context_bucket_step = max(max_num_batched_tokens // block_size, 1)
-    else:
-        context_bucket_step = max(seq_step // block_size, 1)
-
-    if prefix_caching:
+    if use_context_bucketing:
+        if get_config().chunked_prefill:
+            context_bucket_step = max(max_num_batched_tokens // block_size, 1)
+            context_bucket_limit = 0.5
+        else:
+            context_bucket_step = max(seq_step // block_size, 1)
+            context_bucket_limit = seq_limit
+        context_bucket_max = seq_max * 2 // block_size + 2
         buckets_3d = []
-        context_bucket_config = (context_bucket_step, context_bucket_step, seq_max * 2 // block_size + 2, seq_limit)
+        context_bucket_config = (0, context_bucket_step, context_bucket_max, context_bucket_limit)
         if qkv_chunk_size is not None:
             qkv_chunk_blocks = qkv_chunk_size // block_size
-            context_buckets = [0] + warmup_range_with_limit(context_bucket_config, qkv_chunk_blocks)
+            context_buckets = warmup_range_with_limit(context_bucket_config, qkv_chunk_blocks)
         else:
-            context_buckets = [0] + warmup_range_with_limit(context_bucket_config)
+            context_buckets = warmup_range_with_limit(context_bucket_config)
         for bs in bs_buckets:
             for seq in seq_buckets:
                 for i in range(len(context_buckets)):
@@ -204,7 +209,7 @@ def generate_prompt_buckets(bs_bucket_config,
     filtered_buckets = buckets
     if max_num_batched_tokens is not None:
         # Remove buckets exceeding batch token budget
-        if prefix_caching:
+        if use_context_bucketing:
             if get_config().prefix_caching:
                 max_tokens = (
                     seq_max + context_bucket_step * block_size
