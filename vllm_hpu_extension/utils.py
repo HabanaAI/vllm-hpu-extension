@@ -174,6 +174,8 @@ class ModuleFusedSDPA(torch.nn.Module):
         causal_chunk_size = get_config().VLLM_HPU_FSDPA_SLICE_CHUNK_SIZE
         self.causal_chunk_size = causal_chunk_size if causal_chunk_size is not None else 4096
 
+        self.with_mark_step = os.getenv("VLLM_HPU_FSDPA_SLICE_WITH_MARK_STEP", "0") in ("1", "true")
+
     def forward(
         self,
         query,
@@ -221,7 +223,9 @@ class ModuleFusedSDPA(torch.nn.Module):
                 scale,
                 softmax_mode,
                 None,  #valid_seq_len
-                padding_side)
+                padding_side,
+                self.with_mark_step,
+            )
 
             return attn_weights
 
@@ -238,7 +242,8 @@ class ModuleFusedSDPA(torch.nn.Module):
                 softmax_mode,
                 None,  #valid_seq_len
                 padding_side,
-                True  # output_original_dtype
+                True,  # output_original_dtype
+                self.with_mark_step,
             )
             attn_weights = attn_results[0]
 
@@ -296,7 +301,9 @@ class QKVSliceSDPA(torch.autograd.Function):
                 scale,
                 softmax_mode,
                 valid_seq_len=None,
-                padding_mode="right"):
+                padding_mode="right",
+                with_mark_step=False,
+            ):
 
         prefix_out, prefix_m, prefix_linv = QKVSlicePrefixSDPA.apply(
             query,
@@ -309,6 +316,7 @@ class QKVSliceSDPA(torch.autograd.Function):
             valid_seq_len,
             padding_mode,
             False,  #output_original_dtype
+            with_mark_step,
         )
 
         text_out, text_m, text_linv = QKVSliceCausalSDPA.apply(
@@ -322,6 +330,7 @@ class QKVSliceSDPA(torch.autograd.Function):
             valid_seq_len,
             padding_mode,
             False,  #output_original_dtype
+            with_mark_step,
         )
 
         new_m = torch.maximum(prefix_m, text_m)
@@ -353,8 +362,11 @@ class SplitPrefixCausalSDPA(torch.autograd.Function):
                 scale,
                 softmax_mode,
                 valid_seq_len=None,
-                padding_mode="right"):
+                padding_mode="right",
+                with_mark_step=False):
 
+        if with_mark_step:
+            htorch.core.mark_step()
         prefix_out, prefix_m, prefix_linv = PrefixSDPA.apply(
             query,
             key_prefix,
@@ -365,6 +377,9 @@ class SplitPrefixCausalSDPA(torch.autograd.Function):
             padding_mode,
             False,  #output_original_dtype
         )
+        
+        if with_mark_step:
+            htorch.core.mark_step()
 
         text_out, text_m, text_linv = CausalSDPA.apply(
             query,
@@ -385,6 +400,9 @@ class SplitPrefixCausalSDPA(torch.autograd.Function):
         new_linv = 1.0 / (prefix_linv_rescaled + text_linv_rescaled)
         output = (prefix_linv_rescaled * new_linv) * prefix_out + (
             text_linv_rescaled * new_linv) * text_out
+        
+        if with_mark_step:
+            htorch.core.mark_step()
 
         return output.to(query.dtype)
 
@@ -408,8 +426,11 @@ class CausalSliceSDPA(torch.autograd.Function):
                 scale,
                 softmax_mode,
                 valid_seq_len=None,
-                padding_mode="right"):
+                padding_mode="right",
+                with_mark_step=False):
 
+        if with_mark_step:
+            htorch.core.mark_step()
         prefix_out, prefix_m, prefix_linv = PrefixSDPA.apply(
             query,
             key_prefix,
@@ -420,6 +441,9 @@ class CausalSliceSDPA(torch.autograd.Function):
             padding_mode,
             False,  #output_original_dtype
         )
+
+        if with_mark_step:
+            htorch.core.mark_step()
 
         text_out, text_m, text_linv = QKVSliceCausalSDPA.apply(
             query,
@@ -432,6 +456,7 @@ class CausalSliceSDPA(torch.autograd.Function):
             valid_seq_len,
             padding_mode,
             False,  #output_original_dtype
+            with_mark_step,
         )
 
         new_m = torch.maximum(prefix_m, text_m)
@@ -441,6 +466,9 @@ class CausalSliceSDPA(torch.autograd.Function):
         new_linv = 1.0 / (prefix_linv_rescaled + text_linv_rescaled)
         output = (prefix_linv_rescaled * new_linv) * prefix_out + (
             text_linv_rescaled * new_linv) * text_out
+        
+        if with_mark_step:
+            htorch.core.mark_step()
 
         return output.to(query.dtype)
 
@@ -500,8 +528,7 @@ class QKVSlicePrefixSDPA(torch.autograd.Function):
     APC: Prefix part with QKV slice.
     '''
 
-    @staticmethod
-    def forward(ctx,
+    def forward(self,
                 query,
                 key_prefix,
                 value_prefix,
@@ -511,7 +538,9 @@ class QKVSlicePrefixSDPA(torch.autograd.Function):
                 softmax_mode,
                 valid_seq_len=None,
                 padding_mode="right",
-                output_original_dtype=False):
+                output_original_dtype=False,
+                with_mark_step=False,
+            ):
 
         gqa = is_gqa(query, key_prefix)
         if gqa:
@@ -547,6 +576,11 @@ class QKVSlicePrefixSDPA(torch.autograd.Function):
                 key_slice = key_prefix[..., kv_start:kv_end, :]
                 value_slice = value_prefix[..., kv_start:kv_end, :]
 
+                if with_mark_step:
+                    query_slice = query_slice.clone()
+                    key_slice = key_slice.clone()
+                    value_slice = value_slice.clone()
+                    htorch.core.mark_step()
                 block_result = torch.ops.hpu.sdpa_recomp_fwd(
                     query_slice,
                     key_slice,
@@ -584,6 +618,9 @@ class QKVSlicePrefixSDPA(torch.autograd.Function):
                         block_l_rescaled * new_linv) * block_out
                     linv = new_linv
                     m = new_m
+                
+                if with_mark_step:
+                    htorch.core.mark_step()
 
             if output_original_dtype:
                 final_hidden_list.append(out.to(query.dtype))
@@ -678,8 +715,7 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
     APC: Causal part with QKV slice.
     '''
 
-    @staticmethod
-    def forward(ctx,
+    def forward(self,
                 query,
                 key,
                 value,
@@ -689,7 +725,9 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
                 softmax_mode,
                 valid_seq_len=None,
                 padding_mode="right",
-                output_original_dtype=False):
+                output_original_dtype=False,
+                with_mark_step=False,
+            ):
 
         query_len = query.size(-2)
         kv_len = key.size(-2)
@@ -720,11 +758,20 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
             bs = query_slice.size(0)
             q_slice_len = query_slice.size(-2)
 
+            if with_mark_step:
+                query_slice = query_slice.clone()
+                key_slice = key_slice.clone()
+                value_slice = value_slice.clone()
+                htorch.core.mark_step()
+            
             # Kernel limitation, need to use not causal and pass mask to get correct m and linv
             if q_slice_len % 1024 != 0 or q_slice_len < chunk_size:
                 if attn_mask is not None:
                     mask = attn_mask[..., query_start:query_end,
                                      query_start:query_end]
+                    if with_mark_step:
+                        mask = mask.clone()
+                        htorch.core.mark_step()
                 else:
                     mask_shape = (bs, 1, 1, q_slice_len,
                                   q_slice_len) if gqa else (bs, 1, q_slice_len,
@@ -785,6 +832,11 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
                 key_slice = key[..., kv_start:kv_end, :]
                 value_slice = value[..., kv_start:kv_end, :]
 
+                if with_mark_step:
+                    key_slice = key_slice.clone()
+                    value_slice = value_slice.clone()
+                    htorch.core.mark_step()
+
                 block_result = torch.ops.hpu.sdpa_recomp_fwd(
                     query_slice,
                     key_slice,
@@ -818,6 +870,9 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
                                                        new_linv) * block_out
                 linv = new_linv
                 m = new_m
+
+                if with_mark_step:
+                    htorch.core.mark_step()
 
             if output_original_dtype:
                 final_hidden_list.append(out.to(query.dtype))
