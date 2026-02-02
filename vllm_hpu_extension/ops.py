@@ -946,7 +946,7 @@ def fp8_channel_moe_prepare_weights(layer):
     ):
         _, _, hidden_size = layer.w13_weight.shape
         layer.moe_op.w13_weight = layer.w13_weight.reshape(-1, hidden_size).contiguous()
-        layer.moe_op.w2_weight = layer.w2_weight.transpose(-1, -2).contiguous() # this contiguous will increase memory but gain performance
+        layer.moe_op.w2_weight = layer.w2_weight # remove transpose and contiguous which will reduce memory 
         layer.moe_op.w13_weight_scale = torch.cat([layer.w13_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).reshape(-1)
         layer.moe_op.w2_weight_scale = torch.cat([layer.w2_weight_scale[i].unsqueeze(0) for i in range(layer.moe_op.num_experts)], dim = 0).unsqueeze(1)          
     if hasattr(layer, "w13_input_scale"):
@@ -1254,10 +1254,10 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
 
             w, s = self.w2_weight, self.w2_weight_scale
             if w is not None and s is not None:
-                if w.shape[-1] == s.shape[-1]:
+                if w.shape[-2] == s.shape[-1]:
                     processed_weight_scale = s
                     is_per_channel = True
-                elif w.shape[-1] == s.shape[-2] and s.shape[-1] == 1: # for glm-4.5-air weight scale
+                elif w.shape[-2] == s.shape[-2] and s.shape[-1] == 1: # for glm-4.5-air weight scale
                     processed_weight_scale = s.squeeze(-1)
                     is_per_channel = True
             
@@ -1300,7 +1300,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                         A=current_state_static,
                         trans_A=False,
                         B=self.w2_weight[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
-                        trans_B=False,
+                        trans_B=True,
                         D=None,
                         out_dtype=torch.bfloat16,
                         A_scale_inv=self.w2_input_scale[partila_num_expert * idx : partila_num_expert * (idx + 1), ...],
