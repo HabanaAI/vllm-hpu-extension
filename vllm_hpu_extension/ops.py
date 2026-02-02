@@ -1254,10 +1254,10 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
 
             w, s = self.w2_weight, self.w2_weight_scale
             if w is not None and s is not None:
-                if w.shape[-1] == s.shape[-1]:
+                if w.shape[-2] == s.shape[-1]:
                     processed_weight_scale = s
                     is_per_channel = True
-                elif w.shape[-1] == s.shape[-2] and s.shape[-1] == 1: # for glm-4.5-air weight scale
+                elif w.shape[-2] == s.shape[-2] and s.shape[-1] == 1: # for glm-4.5-air weight scale
                     processed_weight_scale = s.squeeze(-1)
                     is_per_channel = True
             
