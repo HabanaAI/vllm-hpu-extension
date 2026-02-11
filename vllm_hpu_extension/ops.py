@@ -1197,6 +1197,11 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
         else:
             self.use_static_moe = False
 
+        self.enable_unit_moe = os.environ.get('VLLM_ENABLE_UNIT_MOE',
+                                                       'false').lower() == 'true'
+        if self.enable_unit_moe:
+            self.use_static_moe = False
+
     def _get_extra_kwargs(self, tokens_num: int):
         if self.enable_moe_chunk:
             chunk_size = self.chunk_size_list[-1]
@@ -1246,7 +1251,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                                     experts_max=self.experts_max,
                                     **kwargs)
         else:
-            x_scale = self.w13_input_scale.data
+            x_scale = 1.0 if self.enable_unit_moe else self.w13_input_scale.data
             w2_input_scale = self.w2_input_scale
             x_fp8 = torch.ops.hpu.cast_to_fp8_v2(x, 1.0/x_scale, False, False, torch.float8_e4m3fn)[0]
             is_per_channel = False
@@ -1313,6 +1318,25 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
                         final_hidden_states = current_hidden_states.sum(dim=0)
                     else:
                         final_hidden_states.add_(current_hidden_states.sum(dim=0))  
+            elif self.enable_unit_moe:
+                w2_input_scale_dmoe = [1.0 for _ in range(self.num_experts)]
+                w13_weight_scale = [1.0 for _ in range(self.num_experts)]
+                w2_weight_scale = [1.0 for _ in range(self.num_experts)]
+                final_hidden_states = torch.ops.hpu.mixture_of_experts.fp8_fused_weights_scalars(
+                                        hidden_states=x_fp8,
+                                        expert_routing_table=topk_ids.to(torch.int64),
+                                        router_weights=topk_weights.to(x.dtype),
+                                        w12=w13_list,
+                                        w3=w2_list,
+                                        d_scale_hidden_states=x_scale,
+                                        d_scale_intermediate_hidden_states=w2_input_scale_dmoe,
+                                        d_scale_w12=w13_weight_scale,
+                                        d_scale_w3=w2_weight_scale,
+                                        permuted_weights=permuted_weights,
+                                        activation=activation,
+                                        experts_min=self.experts_min,
+                                        experts_max=self.experts_max,
+                                        **kwargs)
             else:
                 final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                         hidden_states=x_fp8,
