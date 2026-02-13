@@ -107,6 +107,8 @@ create_measure_config() {
         block_names="[\"self_attn\", \"lm_head\"]"
     elif [[ $model_name_lower == *"qwen3-vl"* ]]; then
         block_names="[\"lm_head\", \"visual\"]"
+    elif [[ $model_name_lower == *"qwen3.5"* ]]; then
+        block_names="[\"lm_head\", \"visual\", \"in_proj_a\", \"in_proj_b\", \"conv1d\"]"
     elif [[ $model_name_lower == *"qwen3"* ]]; then
         block_names="[\"lm_head\"]"
     else
@@ -142,7 +144,7 @@ create_quant_config() {
     fp8_config="E4M3"
     scale_format="scalar"
     block_types_bf16_decoding="[\"VLLMKVCache\", \"Matmul\", \"Softmax\"]"
-    block_names_bf16_prefill="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"visual\", \"fused_scaled_dot_product_attention\"]"
+    block_names_bf16_prefill="[\"lm_head\", \"mlp\\\\.gate\\\\b\", \"visual\", \"fused_scaled_dot_product_attention\", \"in_proj_a\", \"in_proj_b\", \"conv1d\"]"
     if [[ $model_name_lower == *"qwen-7b"* \
             || $model_name_lower == *"qwen2-7b"* \
             || $model_name_lower == *"qwen2.5-7b"* ]]; then
