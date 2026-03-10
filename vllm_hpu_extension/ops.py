@@ -588,7 +588,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         experts_range = range(self.num_experts)
         w13_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-        
+        activation="silu"
         kwargs = self._get_extra_kwargs(tokens_num)
         if self.enable_moe_slice and tokens_num > self.moe_slice_length:
             final_hidden_states_list = []
@@ -1236,6 +1236,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
 
         if self.w13_input_scale is None:
             x_fp8, x_scale = dynamic_quant(x)
+            activation="silu"
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
                                     expert_routing_table=topk_ids.to(torch.int64),
