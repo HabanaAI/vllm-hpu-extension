@@ -594,15 +594,12 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 router_weights,
                 permuted_weights=True,
                 activation="silu"):
-        # activation="silu"
+        # pre-processing for custom op inputs
         tokens_num, hidden_dim = hidden_states.shape
         experts_range = range(self.num_experts)
         w13_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-        # if torch.distributed.get_rank() == 0:
-        #     print("!!!!!!!!! w13_list length is = " + str(len(w13_list)) + "  w2_list length is =: " +  str(len(w2_list))  + " and w13_list[0] shape is =: " + str(w13_list[0].shape) + " and w2_list[0] shape is =: " + str(w2_list[0].shape))
         kwargs = self._get_extra_kwargs(tokens_num)
-
 
         limit = 7.0
         device = hidden_states.device
@@ -634,7 +631,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 #     gate, up = gate_up.chunk(2, dim=-1)
                 #     ff = F.silu(gate) * up
                 # else:
-                #     # 你的自定义 clamp 版本
+                #     # 自定义 clamp 版本
                 ff = self.custom_gateup_activation(gate_up, limit=limit)
 
                 y = ff @ W2.t()  # [T, H]
@@ -642,7 +639,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 # 乘该 expert 的权重并累加
                 out = out + y * experts_mask[global_eid]  # [T,H] * [T,1]
         
-        if self.enable_moe_slice and tokens_num > self.moe_slice_length:
+        if self.enable_moe_slice and tokens_num > self.moe_slice_length and activation == "silu":
             final_hidden_states_list = []
             n_slice = (tokens_num + self.moe_slice_length - 1) // self.moe_slice_length
             for i in range(n_slice):
