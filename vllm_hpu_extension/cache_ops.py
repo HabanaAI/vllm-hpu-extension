@@ -17,10 +17,13 @@ def swap_blocks(src, dst, block_mapping):
     src_indices = block_mapping[0]
     dst_indices = block_mapping[1]
 
-    dst.index_put_(dst_indices, src.index_select(0, src_indices))
+    dst.index_copy_(0, dst_indices, src.index_select(0, src_indices))
 
-    htorch.core.mark_step()
-    torch.hpu.synchronize()
+    if htorch.utils.internal.is_lazy():
+        htorch.core.mark_step()
+        torch.hpu.synchronize()
+    else:
+        torch._dynamo.graph_break()
 
 
 def copy_blocks(key_caches, value_caches, block_mapping):
@@ -32,8 +35,13 @@ def copy_blocks(key_caches, value_caches, block_mapping):
     dst = block_mapping[1]
 
     for key_cache, value_cache in zip(key_caches, value_caches):
-        key_cache.index_copy_(0, dst, key_cache.index_select(0, src))
-        value_cache.index_copy_(0, dst, value_cache.index_select(0, src))
+        k_values = key_cache.index_select(0, src)
+        v_values = value_cache.index_select(0, src)
+        key_cache.index_copy_(0, dst, k_values)
+        value_cache.index_copy_(0, dst, v_values)
 
     if key_caches[0].device.type == 'hpu':
-        htorch.core.mark_step()
+        if htorch.utils.internal.is_lazy():
+            htorch.core.mark_step()
+        else:
+            torch._dynamo.graph_break()
