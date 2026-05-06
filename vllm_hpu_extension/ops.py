@@ -600,42 +600,6 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         w13_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
         
-        # limit = 7.0
-        # device = hidden_states.device
-        # dtype = hidden_states.dtype
-        # T, H = hidden_states.shape
-
-        # # 本地 experts 数
-        # E_local = len(self.w13_list)
-        # if(activation != "silu"):
-        #      # 1) global experts mask: [E_global, T, 1]
-        #     experts_mask = torch.zeros((T, self.global_num_experts), dtype=dtype, device=device)
-        #     experts_mask.scatter_(-1, expert_routing_table.long(), router_weights.to(dtype))
-        #     experts_mask = experts_mask.transpose(0, 1).unsqueeze(-1)  # [E_global, T, 1]
-
-        #     out = torch.zeros((T, H), dtype=dtype, device=device)
-
-        #     # 2) 只算本地 experts，但 mask 用 global id 取
-        #     for local_e in range(E_local):
-        #         global_eid = self.experts_min + local_e
-
-        #         W13 = w13_list[local_e]  # 期望 [2D, H] 或等价
-        #         W2  = w2_list[local_e]   # 期望 [H, D] 或等价
-
-        #         gate_up = hidden_states @ W13.t()  # [T, 2D]
-
-        #         # if activation == "silu":
-        #         #     # 标准 swiglu: silu(gate) * up
-        #         #     gate, up = gate_up.chunk(2, dim=-1)
-        #         #     ff = F.silu(gate) * up
-        #         # else:
-        #         #     # 自定义 clamp 版本
-        #         ff = self.custom_gateup_activation(gate_up, limit=limit)
-
-        #         y = ff @ W2.t()  # [T, H]
-
-        #         # 乘该 expert 的权重并累加
-        #         out = out + y * experts_mask[global_eid]  # [T,H] * [T,1]
         if(activation != "silu"):
             T, H = hidden_states.shape
             device = hidden_states.device
