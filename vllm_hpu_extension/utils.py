@@ -663,23 +663,22 @@ class CausalSDPA(torch.autograd.Function):
             query, key, value, attn_mask = gqa_input_reshape_fwd(
                 query, key, value, attn_mask)
 
-        # Kernel limitation, need to use not causal and pass mask to get correct m and linv
-        if query_len % 1024 != 0:
-            is_causal = False
-            if attn_mask is None:
-                bs = query.size(0)
-                mask_shape = (bs, 1, 1, query_len,
-                              query_len) if gqa else (bs, 1, query_len,
-                                                      query_len)
-                mask = (1 - torch.tril(
-                    torch.ones(
-                        mask_shape, dtype=query.dtype,
-                        device=query.device))) * torch.finfo(query.dtype).min
-            else:
-                mask = attn_mask
+        # Always run with is_causal=False and an explicit mask. The kernel's
+        # is_causal=True path uses a different internal algorithm that diverges
+        # from the explicit-mask path for the returned m and linv. Since these
+        # values are combined via online-softmax rescaling with the non-causal
+        # prefix chunk, the inconsistency corrupts the output and drops accuracy.
+        if attn_mask is None:
+            bs = query.size(0)
+            mask_shape = (bs, 1, 1, query_len,
+                          query_len) if gqa else (bs, 1, query_len,
+                                                  query_len)
+            mask = (1 - torch.tril(
+                torch.ones(
+                    mask_shape, dtype=query.dtype,
+                    device=query.device))) * torch.finfo(query.dtype).min
         else:
-            is_causal = True
-            mask = None
+            mask = attn_mask
 
         result = torch.ops.hpu.sdpa_recomp_fwd(
             query,
@@ -688,7 +687,7 @@ class CausalSDPA(torch.autograd.Function):
             mask,  #attn_mask
             0.0,  #dropout
             scale,
-            is_causal,  #is_causal
+            False,  #is_causal
             True,  #requires_backward
             softmax_mode,
             valid_seq_len,
@@ -764,50 +763,41 @@ class QKVSliceCausalSDPA(torch.autograd.Function):
                 value_slice = value_slice.clone()
                 htorch.core.mark_step()
             
-            # Kernel limitation, need to use not causal and pass mask to get correct m and linv
-            if q_slice_len % 1024 != 0 or q_slice_len < chunk_size:
-                if attn_mask is not None:
-                    mask = attn_mask[..., query_start:query_end,
-                                     query_start:query_end]
-                    if with_mark_step:
-                        mask = mask.clone()
-                        htorch.core.mark_step()
-                else:
-                    mask_shape = (bs, 1, 1, q_slice_len,
-                                  q_slice_len) if gqa else (bs, 1, q_slice_len,
-                                                            q_slice_len)
-                    mask = (1 - torch.tril(
-                        torch.ones(mask_shape,
-                                   dtype=query.dtype,
-                                   device=query.device))) * torch.finfo(
-                                       query.dtype).min
-
-                result = torch.ops.hpu.sdpa_recomp_fwd(
-                    query_slice,
-                    key_slice,
-                    value_slice,
-                    mask,
-                    0.0,  #dropout
-                    scale,
-                    False,  #is_causal
-                    True,  #requires_backward
-                    softmax_mode,
-                    None,  #valid_seq_len
-                    padding_mode)
+            # Always pass an explicit mask for the diagonal chunk and run with
+            # is_causal=False. The kernel's is_causal=True path uses a different
+            # internal algorithm that diverges from the explicit-mask path for
+            # the returned m and linv, even when both encode the same triangular
+            # pattern. Since these m/linv values are combined via online-softmax
+            # rescaling with the non-causal (masked) prefix and cross chunks,
+            # the inconsistency corrupts the output and drops accuracy.
+            if attn_mask is not None:
+                mask = attn_mask[..., query_start:query_end,
+                                 query_start:query_end]
+                if with_mark_step:
+                    mask = mask.clone()
+                    htorch.core.mark_step()
             else:
-                # causal
-                result = torch.ops.hpu.sdpa_recomp_fwd(
-                    query_slice,
-                    key_slice,
-                    value_slice,
-                    None,  #mask
-                    0.0,  #dropout
-                    scale,
-                    True,  #is_causal
-                    True,  #requires_backward
-                    softmax_mode,
-                    None,  #valid_seq_len
-                    padding_mode)
+                mask_shape = (bs, 1, 1, q_slice_len,
+                              q_slice_len) if gqa else (bs, 1, q_slice_len,
+                                                        q_slice_len)
+                mask = (1 - torch.tril(
+                    torch.ones(mask_shape,
+                               dtype=query.dtype,
+                               device=query.device))) * torch.finfo(
+                                   query.dtype).min
+
+            result = torch.ops.hpu.sdpa_recomp_fwd(
+                query_slice,
+                key_slice,
+                value_slice,
+                mask,
+                0.0,  #dropout
+                scale,
+                False,  #is_causal
+                True,  #requires_backward
+                softmax_mode,
+                None,  #valid_seq_len
+                padding_mode)
 
             out, m, linv = (gqa_output_reshape(x) if gqa else x
                             for x in result[:3])
