@@ -143,7 +143,7 @@ class HPUBucketingManager():
     def find_prompt_bucket(self, batch_size, seq_len, ctx=0, use_fallback=True):
         target_shape = (batch_size, seq_len, ctx)
         if self.initialized:
-            if get_config().prefix_caching:
+            if get_config().prefix_caching or get_config().chunked_prefill:
                 found_bucket = find_bucket_with_prefix_caching(self.prompt_buckets, target_shape, self.block_size)
             else:
                 found_bucket = find_equal_or_closest_greater_config(self.prompt_buckets, target_shape)
