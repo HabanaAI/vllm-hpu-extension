@@ -576,6 +576,17 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         else:
             kwargs = {}
         return kwargs
+    
+    def custom_gateup_activation(self, gate_up: torch.Tensor, limit: float) -> torch.Tensor:
+        """
+        gate_up: [N, 2*D] (最后一维是 gate 和 up 拼一起)
+        return:  [N, D]
+        """
+        gate, up = gate_up.chunk(2, dim=-1)     # 切最后一维
+        gate = F.silu(gate)
+        gate = gate.clamp(max=limit)
+        up = up.clamp(min=-limit, max=limit)
+        return gate * up
 
     def forward(self,
                 hidden_states,
@@ -588,9 +599,47 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
         experts_range = range(self.num_experts)
         w13_list = [self.w13_list[i].weight.squeeze() for i in experts_range]
         w2_list = [self.w2_list[i].weight.squeeze() for i in experts_range]
-        
         kwargs = self._get_extra_kwargs(tokens_num)
-        if self.enable_moe_slice and tokens_num > self.moe_slice_length:
+
+        limit = 7.0
+        device = hidden_states.device
+        dtype = hidden_states.dtype
+        T, H = hidden_states.shape
+
+        # 本地 experts 数
+        E_local = len(self.w13_list)
+        print(activation)
+        if(activation != "silu"):
+             # 1) global experts mask: [E_global, T, 1]
+            experts_mask = torch.zeros((T, self.global_num_experts), dtype=dtype, device=device)
+            experts_mask.scatter_(-1, expert_routing_table.long(), router_weights.to(dtype))
+            experts_mask = experts_mask.transpose(0, 1).unsqueeze(-1)  # [E_global, T, 1]
+
+            out = torch.zeros((T, H), dtype=dtype, device=device)
+
+            # 2) 只算本地 experts，但 mask 用 global id 取
+            for local_e in range(E_local):
+                global_eid = self.experts_min + local_e
+
+                W13 = w13_list[local_e]  # 期望 [2D, H] 或等价
+                W2  = w2_list[local_e]   # 期望 [H, D] 或等价
+
+                gate_up = hidden_states @ W13.t()  # [T, 2D]
+
+                # if activation == "silu":
+                #     # 标准 swiglu: silu(gate) * up
+                #     gate, up = gate_up.chunk(2, dim=-1)
+                #     ff = F.silu(gate) * up
+                # else:
+                #     # 自定义 clamp 版本
+                ff = self.custom_gateup_activation(gate_up, limit=limit)
+
+                y = ff @ W2.t()  # [T, H]
+
+                # 乘该 expert 的权重并累加
+                out = out + y * experts_mask[global_eid]  # [T,H] * [T,1]
+        
+        if self.enable_moe_slice and tokens_num > self.moe_slice_length and activation == "silu":
             final_hidden_states_list = []
             n_slice = (tokens_num + self.moe_slice_length - 1) // self.moe_slice_length
             for i in range(n_slice):
@@ -613,7 +662,7 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 )
                 final_hidden_states_list.append(cur_out)
             final_hidden_states = torch.cat(final_hidden_states_list, dim=0)
-        else:
+        elif(activation == "silu"):
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                 hidden_states=hidden_states,
                 expert_routing_table=expert_routing_table,
@@ -626,6 +675,8 @@ class VllmMixtureOfExpertsOp(torch.nn.Module):
                 experts_max=self.experts_max,
                 **kwargs
             )
+        if(activation != "silu"):
+            final_hidden_states = out
         return final_hidden_states
 
 
@@ -1236,6 +1287,7 @@ class VllmMixtureOfExpertsOpFP8PerChannel(torch.nn.Module):
 
         if self.w13_input_scale is None:
             x_fp8, x_scale = dynamic_quant(x)
+            activation="silu"
             final_hidden_states = torch.ops.hpu.mixture_of_experts(
                                     hidden_states=x_fp8,
                                     expert_routing_table=topk_ids.to(torch.int64),
