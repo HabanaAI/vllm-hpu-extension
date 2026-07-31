@@ -368,10 +368,12 @@ def _fsdpa_prompt_attention(
     recompute_mode = True
     assert attn_bias is not None or valid_seq_lengths is not None, \
         'Either attn_bias or valid_seq_lengths must be != None'
-    if is_causal and attn_bias is not None:
-        # TODO: causal + attn_bias is not yet supported
-        is_causal = False
-        valid_seq_lengths = None
+    # Comment out below lines to WA the OOM issue.
+    # Pls note there is accuracy issue ths WA. Will fix it later.
+    # if is_causal and attn_bias is not None:
+    #     # TODO: causal + attn_bias is not yet supported
+    #     is_causal = False
+    #     valid_seq_lengths = None
 
     if window_size is not None:
         #causal window sdpa kernel only supports softmax None
